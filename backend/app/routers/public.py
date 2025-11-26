@@ -10,7 +10,7 @@ from typing import Optional
 
 from app.database import get_db
 from app.models import (
-    Team, TeamMember, RedeemCode, RedeemCodeType, LinuxDOUser, InviteRecord, InviteStatus, SystemConfig
+    Team, TeamMember, RedeemCode, RedeemCodeType, LinuxDOUser, InviteRecord, InviteStatus, SystemConfig, OperationLog
 )
 from app.services.chatgpt_api import ChatGPTAPI, ChatGPTAPIError
 from app.limiter import limiter
@@ -344,6 +344,15 @@ async def use_redeem_code(request: Request, data: RedeemRequest, db: Session = D
             batch_id=f"redeem-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
         )
         db.add(invite)
+        
+        # 记录操作日志
+        log = OperationLog(
+            action="自助邀请",
+            target=data.email.lower().strip(),
+            team_id=available_team.id,
+            details=f"LinuxDO用户 {user.username} 使用兑换码 {code.code} 邀请 {data.email}"
+        )
+        db.add(log)
         db.commit()
         
         return RedeemResponse(
@@ -469,6 +478,15 @@ async def direct_redeem(request: Request, data: DirectRedeemRequest, db: Session
             batch_id=f"direct-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
         )
         db.add(invite)
+        
+        # 记录操作日志
+        log = OperationLog(
+            action="直接邀请",
+            target=data.email.lower().strip(),
+            team_id=available_team.id,
+            details=f"使用直接链接 {code.code} 邀请 {data.email}"
+        )
+        db.add(log)
         db.commit()
         
         return DirectRedeemResponse(
