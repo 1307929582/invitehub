@@ -1,0 +1,253 @@
+# Team 管理路由
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.orm import Session
+
+from app.database import get_db
+from app.models import Team, TeamMember, User
+from app.schemas import (
+    TeamCreate, TeamUpdate, TeamResponse, TeamListResponse,
+    TeamMemberResponse, TeamMemberListResponse, MessageResponse
+)
+from app.services.auth import get_current_user
+from app.services.chatgpt_api import ChatGPTAPI, ChatGPTAPIError
+
+router = APIRouter(prefix="/teams", tags=["Team 管理"])
+
+
+@router.get("", response_model=TeamListResponse)
+async def list_teams(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """获取所有 Team 列表"""
+    teams = db.query(Team).filter(Team.is_active == True).all()
+    
+    result = []
+    for team in teams:
+        member_count = db.query(TeamMember).filter(TeamMember.team_id == team.id).count()
+        team_dict = TeamResponse.model_validate(team).model_dump()
+        team_dict["member_count"] = member_count
+        result.append(TeamResponse(**team_dict))
+    
+    return TeamListResponse(teams=result, total=len(result))
+
+
+@router.post("", response_model=TeamResponse)
+async def create_team(
+    team_data: TeamCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """创建新 Team"""
+    # 自动清理空格
+    clean_data = team_data.model_dump()
+    clean_data["account_id"] = clean_data["account_id"].strip()
+    clean_data["session_token"] = clean_data["session_token"].strip()
+    if clean_data.get("device_id"):
+        clean_data["device_id"] = clean_data["device_id"].strip()
+    
+    # 验证 Token 是否有效
+    try:
+        api = ChatGPTAPI(clean_data["session_token"], clean_data.get("device_id") or "")
+        await api.verify_token()
+    except ChatGPTAPIError as e:
+        raise HTTPException(status_code=400, detail=f"Token 验证失败: {e.message}")
+    
+    # 检查是否已存在
+    existing = db.query(Team).filter(Team.account_id == clean_data["account_id"]).first()
+    if existing:
+        raise HTTPException(status_code=400, detail="该 Account 已存在")
+    
+    team = Team(**clean_data)
+    db.add(team)
+    db.commit()
+    db.refresh(team)
+    return team
+
+
+@router.get("/{team_id}", response_model=TeamResponse)
+async def get_team(
+    team_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """获取 Team 详情"""
+    team = db.query(Team).filter(Team.id == team_id).first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Team 不存在")
+    
+    member_count = db.query(TeamMember).filter(TeamMember.team_id == team.id).count()
+    team_dict = TeamResponse.model_validate(team).model_dump()
+    team_dict["member_count"] = member_count
+    return TeamResponse(**team_dict)
+
+
+@router.put("/{team_id}", response_model=TeamResponse)
+async def update_team(
+    team_id: int,
+    team_data: TeamUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """更新 Team 配置"""
+    team = db.query(Team).filter(Team.id == team_id).first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Team 不存在")
+    
+    update_data = team_data.model_dump(exclude_unset=True)
+    
+    # 自动清理空格
+    if "session_token" in update_data:
+        update_data["session_token"] = update_data["session_token"].strip()
+    if "device_id" in update_data:
+        update_data["device_id"] = update_data["device_id"].strip()
+    if "account_id" in update_data:
+        update_data["account_id"] = update_data["account_id"].strip()
+    
+    if update_data.get("session_token"):
+        try:
+            api = ChatGPTAPI(update_data["session_token"], update_data.get("device_id") or team.device_id or "")
+            await api.verify_token()
+        except ChatGPTAPIError as e:
+            raise HTTPException(status_code=400, detail=f"Token 验证失败: {e.message}")
+    
+    for key, value in update_data.items():
+        setattr(team, key, value)
+    
+    db.commit()
+    db.refresh(team)
+    return team
+
+
+@router.delete("/{team_id}", response_model=MessageResponse)
+async def delete_team(
+    team_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """删除 Team"""
+    team = db.query(Team).filter(Team.id == team_id).first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Team 不存在")
+    
+    team.is_active = False
+    db.commit()
+    return MessageResponse(message="Team 已删除")
+
+
+@router.get("/{team_id}/members", response_model=TeamMemberListResponse)
+async def get_team_members(
+    team_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """获取 Team 成员列表（从缓存）"""
+    team = db.query(Team).filter(Team.id == team_id).first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Team 不存在")
+    
+    members = db.query(TeamMember).filter(TeamMember.team_id == team_id).all()
+    return TeamMemberListResponse(
+        members=[TeamMemberResponse.model_validate(m) for m in members],
+        total=len(members),
+        team_name=team.name
+    )
+
+
+@router.post("/{team_id}/sync", response_model=TeamMemberListResponse)
+async def sync_team_members(
+    team_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """从 ChatGPT 同步成员列表"""
+    team = db.query(Team).filter(Team.id == team_id).first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Team 不存在")
+    
+    try:
+        api = ChatGPTAPI(team.session_token, team.device_id or "", team.cookie or "")
+        result = await api.get_members(team.account_id)
+        members_data = result.get("items", result.get("users", []))
+    except ChatGPTAPIError as e:
+        raise HTTPException(status_code=400, detail=f"同步失败: {e.message}")
+    
+    # 清除旧数据
+    db.query(TeamMember).filter(TeamMember.team_id == team_id).delete()
+    
+    # 插入新数据
+    from datetime import datetime
+    for m in members_data:
+        member = TeamMember(
+            team_id=team_id,
+            email=m.get("email", ""),
+            name=m.get("name", m.get("display_name", "")),
+            role=m.get("role", "member"),
+            chatgpt_user_id=m.get("id", m.get("user_id", "")),
+            synced_at=datetime.utcnow()
+        )
+        db.add(member)
+    
+    db.commit()
+    
+    members = db.query(TeamMember).filter(TeamMember.team_id == team_id).all()
+    return TeamMemberListResponse(
+        members=[TeamMemberResponse.model_validate(m) for m in members],
+        total=len(members),
+        team_name=team.name
+    )
+
+
+@router.post("/{team_id}/verify-token", response_model=MessageResponse)
+async def verify_team_token(
+    team_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """验证 Team Token 是否有效"""
+    team = db.query(Team).filter(Team.id == team_id).first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Team 不存在")
+    
+    try:
+        api = ChatGPTAPI(team.session_token, team.device_id or "", team.cookie or "")
+        await api.verify_token()
+        return MessageResponse(message="Token 有效")
+    except ChatGPTAPIError as e:
+        raise HTTPException(status_code=400, detail=f"Token 无效: {e.message}")
+
+
+@router.get("/{team_id}/subscription")
+async def get_team_subscription(
+    team_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """获取 Team 订阅信息"""
+    team = db.query(Team).filter(Team.id == team_id).first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Team 不存在")
+    
+    try:
+        api = ChatGPTAPI(team.session_token, team.device_id or "", team.cookie or "")
+        return await api.get_subscription(team.account_id)
+    except ChatGPTAPIError as e:
+        raise HTTPException(status_code=400, detail=f"获取失败: {e.message}")
+
+
+@router.get("/{team_id}/pending-invites")
+async def get_pending_invites(
+    team_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """获取待处理的邀请"""
+    team = db.query(Team).filter(Team.id == team_id).first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Team 不存在")
+    
+    try:
+        api = ChatGPTAPI(team.session_token, team.device_id or "", team.cookie or "")
+        return await api.get_invites(team.account_id)
+    except ChatGPTAPIError as e:
+        raise HTTPException(status_code=400, detail=f"获取失败: {e.message}")

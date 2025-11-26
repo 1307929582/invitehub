@@ -1,0 +1,33 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "4567:4567"
+    volumes:
+      - ./backend/data:/app/data
+    environment:
+      - DEBUG=false
+      - SECRET_KEY=${SECRET_KEY:-your-secret-key-change-this}
+      - DATABASE_URL=sqlite:///./data/app.db
+    restart: unless-stopped
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3456:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  # 可选：使用 nginx 反向代理
+  # nginx:
+  #   image: nginx:alpine
+  #   ports:
+  #     - "80:80"
+  #   volumes:
+  #     - ./nginx.conf:/etc/nginx/nginx.conf
+  #   depends_on:
+  #     - backend
+  #     - frontend
