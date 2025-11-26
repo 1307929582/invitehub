@@ -218,6 +218,30 @@ npm run dev
 
 </details>
 
+## 🔄 更新升级
+
+```bash
+cd ~/team-invite
+git pull
+docker compose up -d --build
+```
+
+PostgreSQL 版本：
+```bash
+cd ~/team-invite
+git pull
+docker compose -f docker-compose.postgres.yml up -d --build
+```
+
+## 🗑️ 卸载删除
+
+```bash
+cd ~/team-invite
+docker compose down -v          # 停止并删除容器和数据
+cd ~
+rm -rf team-invite              # 删除项目目录
+```
+
 ## ⚠️ 注意事项
 
 - Session Token 有效期约 7-30 天，过期需更新
