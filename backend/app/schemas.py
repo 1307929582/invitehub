@@ -66,6 +66,7 @@ class TeamResponse(BaseModel):
     description: Optional[str]
     account_id: str
     is_active: bool
+    max_seats: int = 5
     token_expires_at: Optional[datetime]
     created_at: datetime
     member_count: Optional[int] = 0

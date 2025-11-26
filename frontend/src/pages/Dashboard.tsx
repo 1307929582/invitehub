@@ -143,8 +143,8 @@ export default function Dashboard() {
   }
 
   // 计算总座位使用率
-  const totalSeats = teamList.reduce((sum, t) => sum + t.max_seats, 0)
-  const usedSeats = teamList.reduce((sum, t) => sum + t.member_count, 0)
+  const totalSeats = teamList.reduce((sum, t) => sum + (t.max_seats || 5), 0)
+  const usedSeats = teamList.reduce((sum, t) => sum + (t.member_count || 0), 0)
   const seatUsagePercent = totalSeats > 0 ? Math.round((usedSeats / totalSeats) * 100) : 0
 
   return (
@@ -256,7 +256,9 @@ export default function Dashboard() {
       >
         <Row gutter={16}>
           {teams.slice(0, 4).map(team => {
-            const usage = Math.round((team.member_count / team.max_seats) * 100)
+            const memberCount = team.member_count || 0
+            const maxSeats = team.max_seats || 5
+            const usage = maxSeats > 0 ? Math.round((memberCount / maxSeats) * 100) : 0
             return (
               <Col span={6} key={team.id}>
                 <div 
@@ -283,7 +285,7 @@ export default function Dashboard() {
                     percent={usage} 
                     size="small" 
                     strokeColor={usage >= 90 ? '#ef4444' : usage >= 70 ? '#f59e0b' : '#10b981'}
-                    format={() => `${team.member_count}/${team.max_seats}`}
+                    format={() => `${memberCount}/${maxSeats}`}
                   />
                 </div>
               </Col>
