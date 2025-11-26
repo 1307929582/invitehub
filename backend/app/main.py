@@ -91,7 +91,7 @@ async def sync_all_teams():
 
 
 async def periodic_sync():
-    """定时任务：每 5 分钟同步一次"""
+    """定时任务：每 5 分钟同步一次 Team 成员"""
     while True:
         await asyncio.sleep(300)  # 5 分钟
         try:

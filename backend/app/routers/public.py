@@ -10,7 +10,8 @@ from typing import Optional
 
 from app.database import get_db
 from app.models import (
-    Team, TeamMember, RedeemCode, RedeemCodeType, LinuxDOUser, InviteRecord, InviteStatus, SystemConfig, OperationLog
+    Team, TeamMember, RedeemCode, RedeemCodeType, LinuxDOUser, InviteRecord, InviteStatus, 
+    SystemConfig, OperationLog
 )
 from app.services.chatgpt_api import ChatGPTAPI, ChatGPTAPIError
 from app.limiter import limiter
@@ -24,6 +25,29 @@ def get_config(db: Session, key: str) -> Optional[str]:
     """获取系统配置"""
     config = db.query(SystemConfig).filter(SystemConfig.key == key).first()
     return config.value if config else None
+
+
+def get_available_team(db: Session, group_id: Optional[int] = None) -> Optional[Team]:
+    """获取有空位的 Team"""
+    team_query = db.query(Team).filter(Team.is_active == True)
+    if group_id:
+        team_query = team_query.filter(Team.group_id == group_id)
+    teams = team_query.with_for_update().all()
+    
+    for team in teams:
+        # 检查座位
+        member_count = db.query(TeamMember).filter(TeamMember.team_id == team.id).count()
+        pending_invite_count = db.query(InviteRecord).filter(
+            InviteRecord.team_id == team.id,
+            InviteRecord.status == InviteStatus.SUCCESS,
+            InviteRecord.accepted_at == None
+        ).count()
+        total_used = member_count + pending_invite_count
+        
+        if total_used < team.max_seats:
+            return team
+    
+    return None
 
 
 # ========== Schemas ==========
@@ -299,29 +323,8 @@ async def use_redeem_code(request: Request, data: RedeemRequest, db: Session = D
         db.rollback()
         raise HTTPException(status_code=400, detail="兑换码已用完")
     
-    # 查找有空位的 Team（加锁防止并发超额）
-    # 如果兑换码绑定了分组，只从该分组的 Team 中分配
-    team_query = db.query(Team).filter(Team.is_active == True)
-    if code.group_id:
-        team_query = team_query.filter(Team.group_id == code.group_id)
-    teams = team_query.with_for_update().all()
-    
-    available_team = None
-    for team in teams:
-        # 统计已同步的成员数
-        member_count = db.query(TeamMember).filter(TeamMember.team_id == team.id).count()
-        # 统计已发送但未接受的邀请数
-        pending_invite_count = db.query(InviteRecord).filter(
-            InviteRecord.team_id == team.id,
-            InviteRecord.status == InviteStatus.SUCCESS,
-            InviteRecord.accepted_at == None
-        ).count()
-        
-        total_used = member_count + pending_invite_count
-        
-        if total_used < team.max_seats:
-            available_team = team
-            break
+    # 查找有空位的 Team
+    available_team = get_available_team(db, code.group_id)
     
     if not available_team:
         raise HTTPException(status_code=400, detail="所有 Team 已满，请稍后再试")
@@ -436,30 +439,11 @@ async def direct_redeem(request: Request, data: DirectRedeemRequest, db: Session
         db.rollback()
         raise HTTPException(status_code=400, detail="兑换码已用完")
     
-    # 查找有空位的 Team（加锁防止并发超额）
-    # 如果兑换码绑定了分组，只从该分组的 Team 中分配
-    team_query = db.query(Team).filter(Team.is_active == True)
-    if code.group_id:
-        team_query = team_query.filter(Team.group_id == code.group_id)
-    teams = team_query.with_for_update().all()
-    
-    available_team = None
-    for team in teams:
-        member_count = db.query(TeamMember).filter(TeamMember.team_id == team.id).count()
-        pending_invite_count = db.query(InviteRecord).filter(
-            InviteRecord.team_id == team.id,
-            InviteRecord.status == InviteStatus.SUCCESS,
-            InviteRecord.accepted_at == None
-        ).count()
-        
-        total_used = member_count + pending_invite_count
-        
-        if total_used < team.max_seats:
-            available_team = team
-            break
+    # 查找有空位的 Team
+    available_team = get_available_team(db, code.group_id)
     
     if not available_team:
-        raise HTTPException(status_code=400, detail="所有 Team 已满，请稍后再试")
+            raise HTTPException(status_code=400, detail="所有 Team 已满，请稍后再试")
     
     # 发送邀请
     try:

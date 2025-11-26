@@ -177,3 +177,29 @@ class SystemConfig(Base):
     value = Column(Text, nullable=True)
     description = Column(String(255), nullable=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class InviteQueueStatus(str, enum.Enum):
+    PENDING = "pending"      # 等待发送
+    PROCESSING = "processing"  # 正在处理
+    SUCCESS = "success"      # 发送成功
+    FAILED = "failed"        # 发送失败
+
+
+class InviteQueue(Base):
+    """邀请队列（超过每日限制的邀请进入队列）"""
+    __tablename__ = "invite_queue"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String(100), nullable=False)
+    redeem_code = Column(String(50), nullable=True)
+    linuxdo_user_id = Column(Integer, ForeignKey("linuxdo_users.id"), nullable=True)
+    group_id = Column(Integer, ForeignKey("team_groups.id"), nullable=True)  # 指定分组
+    status = Column(Enum(InviteQueueStatus), default=InviteQueueStatus.PENDING)
+    error_message = Column(Text, nullable=True)
+    retry_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    processed_at = Column(DateTime, nullable=True)
+    
+    linuxdo_user = relationship("LinuxDOUser")
+    group = relationship("TeamGroup")

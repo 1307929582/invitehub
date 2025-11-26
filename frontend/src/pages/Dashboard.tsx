@@ -12,6 +12,8 @@ interface Stats {
   invites_today: number
   invites_this_week: number
   invite_trend?: { date: string; count: number }[]
+  queue_pending?: number
+  daily_invite_limit?: number
 }
 
 interface Log {
@@ -106,13 +108,23 @@ export default function Dashboard() {
   // 检查预警
   const warnings: { type: 'error' | 'warning'; message: string; team?: string }[] = []
   
+  // 超员阈值（默认 5 人）
+  const memberLimit = 5
+  
   teamList.forEach(team => {
-    // 座位预警：使用率超过 80%
-    const usage = team.member_count / team.max_seats
-    if (usage >= 0.9) {
-      warnings.push({ type: 'error', message: `座位即将用完 (${team.member_count}/${team.max_seats})`, team: team.name })
-    } else if (usage >= 0.8) {
-      warnings.push({ type: 'warning', message: `座位使用率较高 (${team.member_count}/${team.max_seats})`, team: team.name })
+    // 超员预警：超过限制人数
+    if (team.member_count > memberLimit) {
+      warnings.push({ 
+        type: 'error', 
+        message: `成员超限！当前 ${team.member_count} 人，超过 ${memberLimit} 人限制，有封号风险！`, 
+        team: team.name 
+      })
+    } else if (team.member_count === memberLimit) {
+      warnings.push({ 
+        type: 'warning', 
+        message: `成员已达上限 ${team.member_count} 人，请勿再邀请`, 
+        team: team.name 
+      })
     }
     
     // Token 过期预警
