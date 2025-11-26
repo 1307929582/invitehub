@@ -1,64 +1,63 @@
-# ChatGPT Team 自助上车系统
+<div align="center">
 
-企业级 ChatGPT Team 集中管理平台，支持用户自助申请、兑换码分发、LinuxDO OAuth 登录、批量邀请、成员同步、操作审计。
+# 🚀 ChatGPT Team Manager
 
-## ✨ 核心功能
+<p>
+  <strong>企业级 ChatGPT Team 自助上车管理平台</strong>
+</p>
 
-### 用户端
+<p>
+  <a href="#-功能特性">功能特性</a> •
+  <a href="#-快速开始">快速开始</a> •
+  <a href="#-使用指南">使用指南</a> •
+  <a href="#-部署文档">部署文档</a> •
+  <a href="#-技术栈">技术栈</a>
+</p>
+
+<p>
+  <img src="https://img.shields.io/badge/FastAPI-009688?style=flat-square&logo=fastapi&logoColor=white" alt="FastAPI">
+  <img src="https://img.shields.io/badge/React-61DAFB?style=flat-square&logo=react&logoColor=black" alt="React">
+  <img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat-square&logo=typescript&logoColor=white" alt="TypeScript">
+  <img src="https://img.shields.io/badge/Ant%20Design-0170FE?style=flat-square&logo=antdesign&logoColor=white" alt="Ant Design">
+  <img src="https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white" alt="Docker">
+</p>
+
+<p>
+  <img src="https://img.shields.io/github/license/你的用户名/chatgpt-team-manager?style=flat-square" alt="License">
+  <img src="https://img.shields.io/github/stars/你的用户名/chatgpt-team-manager?style=flat-square" alt="Stars">
+</p>
+
+</div>
+
+---
+
+## ✨ 功能特性
+
+<table>
+<tr>
+<td width="50%">
+
+### 👤 用户端
 - 🎫 **兑换码上车** - 用户使用兑换码自助加入 Team
 - 🔐 **LinuxDO 登录** - 集成 LinuxDO OAuth 认证
-- 📊 **座位统计** - 实时显示可用座位、待接受邀请数
+- 🔗 **直接邀请链接** - 无需登录，直接使用兑换码
+- 📊 **座位统计** - 实时显示可用座位数
 - 🎯 **自动分配** - 智能分配到未满的 Team
 
-### 管理端
+</td>
+<td width="50%">
+
+### 🛠️ 管理端
 - 👥 **多 Team 管理** - 集中管理多个 ChatGPT Team
 - 🎟️ **兑换码系统** - 批量生成、管理兑换码
 - 📧 **批量邀请** - 一键邀请多个用户
 - 🔄 **成员同步** - 自动同步 Team 成员列表
 - 📈 **数据统计** - Dashboard 展示关键指标
 - 📝 **操作日志** - 完整的审计日志
-- ⚙️ **系统配置** - LinuxDO OAuth、座位管理等
 
-## 🏗️ 技术架构
-
-```
-├── backend/          # FastAPI 后端
-│   ├── app/
-│   │   ├── routers/  # API 路由
-│   │   │   ├── setup.py      # 初始化设置
-│   │   │   ├── public.py     # 公开 API（用户端）
-│   │   │   ├── auth.py       # 认证
-│   │   │   ├── teams.py      # Team 管理
-│   │   │   ├── redeem.py     # 兑换码管理
-│   │   │   ├── config.py     # 系统配置
-│   │   │   └── dashboard.py  # 数据统计
-│   │   ├── services/ # 业务逻辑
-│   │   │   ├── auth.py       # JWT 认证
-│   │   │   └── chatgpt_api.py # ChatGPT API 封装
-│   │   ├── models.py # 数据模型
-│   │   └── database.py # 数据库配置
-│   └── Dockerfile
-├── frontend/         # React + TypeScript + Ant Design
-│   ├── src/
-│   │   ├── pages/    # 页面组件
-│   │   │   ├── Setup.tsx     # 初始化设置
-│   │   │   ├── Home.tsx      # 用户首页
-│   │   │   ├── Callback.tsx  # OAuth 回调
-│   │   │   ├── Login.tsx     # 管理员登录
-│   │   │   ├── Dashboard.tsx # 管理后台首页
-│   │   │   ├── Teams.tsx     # Team 管理
-│   │   │   ├── RedeemCodes.tsx # 兑换码管理
-│   │   │   ├── LinuxDOUsers.tsx # 用户管理
-│   │   │   └── Settings.tsx  # 系统设置
-│   │   ├── api/      # API 封装
-│   │   └── store/    # 状态管理
-│   └── Dockerfile
-├── docs/             # 文档
-│   ├── TOKEN_GUIDE.md    # Token 获取指南
-│   ├── SECURITY.md       # 安全说明
-│   └── DEPLOYMENT.md     # 部署指南
-└── docker-compose.yml
-```
+</td>
+</tr>
+</table>
 
 ## 🚀 快速开始
 
@@ -75,10 +74,12 @@ docker-compose up -d --build
 # 3. 访问系统
 # 用户端: http://localhost:3456
 # 管理后台: http://localhost:3456/admin
-# API 文档: http://localhost:4567/docs
 ```
 
 ### 本地开发
+
+<details>
+<summary>点击展开</summary>
 
 ```bash
 # 后端
@@ -91,170 +92,97 @@ uvicorn app.main:app --reload --port 4567
 # 前端（新终端）
 cd frontend
 npm install
-npm run dev  # 默认端口 3456
+npm run dev
 ```
+
+</details>
 
 ## 📖 使用指南
 
-### 1. 首次部署 - 系统初始化
+### 1️⃣ 首次部署 - 系统初始化
 
-首次访问会自动跳转到初始化页面：
+首次访问会自动跳转到初始化页面，设置管理员账号。
 
-1. 访问 http://your-domain.com
-2. 填写管理员信息：
-   - 用户名（至少3位）
-   - 邮箱
-   - 密码（至少6位）
-3. 完成初始化
+> ⚠️ **重要**：初始化后无法重复设置，请牢记管理员账号密码！
 
-⚠️ **重要**：初始化后无法重复设置，请牢记管理员账号密码！
+### 2️⃣ 配置 LinuxDO OAuth
 
-### 2. 配置 LinuxDO OAuth
+登录管理后台 → 系统设置 → 配置 OAuth 信息
 
-登录管理后台后：
+### 3️⃣ 添加 Team
 
-1. 进入「系统设置」页面
-2. 配置 LinuxDO OAuth：
-   - Client ID
-   - Client Secret
-   - Redirect URI（如：`https://your-domain.com/callback`）
-3. 保存配置
-
-### 3. 添加 Team
-
-1. 进入「Team 管理」
-2. 点击「添加 Team」
-3. 填写信息：
-   - Team 名称
-   - Account ID
-   - Session Token
-   - Device ID（可选）
-   - 最大座位数（默认50）
-4. 系统自动验证 Token
+进入「Team 管理」→ 添加 Team → 填写 Token 信息
 
 📖 参考 [Token 获取指南](docs/TOKEN_GUIDE.md)
 
-### 4. 生成兑换码
+### 4️⃣ 生成兑换码
 
-1. 进入「兑换码管理」
-2. 点击「批量生成」
-3. 设置参数：
-   - 使用次数（每个码可用次数）
-   - 有效期（天数）
-   - 生成数量
-4. 复制兑换码分发给用户
+进入「兑换码管理」→ 批量生成 → 分发给用户
 
-### 5. 用户使用流程
+### 5️⃣ 用户使用流程
 
-用户访问首页：
+```
+访问首页 → LinuxDO 登录 → 输入邮箱和兑换码 → 自动分配 Team → 查收邮件接受邀请
+```
 
-1. 点击「使用 LinuxDO 登录」
-2. 授权后返回
-3. 输入邮箱和兑换码
-4. 系统自动分配到未满的 Team
-5. 查收邮箱接受邀请
+## 🏗️ 项目结构
 
-### 6. 管理员功能
+```
+├── backend/              # FastAPI 后端
+│   ├── app/
+│   │   ├── routers/      # API 路由
+│   │   ├── services/     # 业务逻辑
+│   │   ├── models.py     # 数据模型
+│   │   └── database.py   # 数据库配置
+│   └── Dockerfile
+├── frontend/             # React + TypeScript
+│   ├── src/
+│   │   ├── pages/        # 页面组件
+│   │   ├── components/   # 通用组件
+│   │   ├── api/          # API 封装
+│   │   └── store/        # 状态管理
+│   └── Dockerfile
+├── docs/                 # 文档
+└── docker-compose.yml
+```
 
-- **Dashboard**：查看统计数据、座位使用情况
-- **Team 管理**：添加/编辑/删除 Team，同步成员
-- **批量邀请**：手动批量邀请用户
-- **兑换码管理**：生成、查看、禁用兑换码
-- **用户管理**：查看 LinuxDO 用户列表和邀请记录
-- **操作日志**：查看所有操作记录
-- **系统设置**：配置 OAuth、查看座位统计
+## 🔧 技术栈
+
+| 后端 | 前端 |
+|------|------|
+| FastAPI | React 18 |
+| SQLAlchemy | TypeScript |
+| SQLite | Ant Design |
+| JWT + bcrypt | Zustand |
+| httpx | Axios + Vite |
 
 ## 🔒 安全特性
 
-- ✅ JWT Token 认证，7天有效期
-- ✅ 密码 bcrypt 加密存储
-- ✅ 首次部署强制初始化设置
-- ✅ 所有管理接口需要认证
-- ✅ 兑换码防暴力破解（5分钟内最多5次）
+- ✅ JWT Token 认证
+- ✅ 密码 bcrypt 加密
+- ✅ 首次部署强制初始化
+- ✅ 兑换码防暴力破解
 - ✅ 前端路由守卫
-- ✅ CORS 配置
-- ✅ 敏感数据不暴露在 API 响应中
+- ✅ 敏感数据不暴露
 
 详见 [安全说明](docs/SECURITY.md)
 
-## 📦 生产部署
+## 📦 部署文档
 
 详见 [部署指南](docs/DEPLOYMENT.md)
 
-### 快速部署清单
+<details>
+<summary>快速部署清单</summary>
 
-1. ✅ 配置域名和 SSL 证书
-2. ✅ 修改 CORS 配置为生产域名
-3. ✅ 配置 Nginx 反向代理
-4. ✅ 设置防火墙规则
-5. ✅ 配置定期数据库备份
-6. ✅ 初始化管理员账号
-7. ✅ 配置 LinuxDO OAuth
+- [ ] 配置域名和 SSL 证书
+- [ ] 修改 CORS 配置为生产域名
+- [ ] 配置 Nginx 反向代理
+- [ ] 设置防火墙规则
+- [ ] 配置定期数据库备份
+- [ ] 初始化管理员账号
+- [ ] 配置 LinuxDO OAuth
 
-## 🛠️ 技术栈
-
-### 后端
-- FastAPI - 现代化 Python Web 框架
-- SQLAlchemy - ORM
-- SQLite - 数据库（可迁移到 PostgreSQL）
-- JWT - 认证
-- bcrypt - 密码加密
-- httpx - HTTP 客户端
-
-### 前端
-- React 18 - UI 框架
-- TypeScript - 类型安全
-- Ant Design - UI 组件库
-- React Router - 路由
-- Zustand - 状态管理
-- Axios - HTTP 客户端
-- Vite - 构建工具
-
-## 📊 数据库设计
-
-- **users** - 管理员用户
-- **teams** - ChatGPT Team 配置
-- **team_members** - Team 成员缓存
-- **invite_records** - 邀请记录
-- **redeem_codes** - 兑换码
-- **linuxdo_users** - LinuxDO 用户
-- **system_configs** - 系统配置
-- **operation_logs** - 操作日志
-
-## 🔧 环境变量
-
-创建 `backend/.env`（可选）：
-
-```env
-# 数据库
-DATABASE_URL=sqlite:///./data/app.db
-
-# JWT（会自动生成）
-SECRET_KEY=your-random-secret-key
-
-# CORS
-CORS_ORIGINS=["https://your-domain.com"]
-```
-
-## 📝 API 文档
-
-启动后访问：http://localhost:4567/docs
-
-### 公开接口（无需认证）
-- `GET /api/v1/setup/status` - 系统初始化状态
-- `POST /api/v1/setup/initialize` - 初始化系统
-- `GET /api/v1/public/linuxdo/auth` - 获取 OAuth URL
-- `POST /api/v1/public/linuxdo/callback` - OAuth 回调
-- `POST /api/v1/public/redeem` - 使用兑换码
-- `GET /api/v1/public/seats` - 座位统计
-
-### 管理接口（需要 JWT Token）
-- `/api/v1/auth/*` - 认证管理
-- `/api/v1/teams/*` - Team 管理
-- `/api/v1/dashboard/*` - 数据统计
-- `/api/v1/redeem-codes/*` - 兑换码管理
-- `/api/v1/config/*` - 系统配置
-- `/api/v1/linuxdo-users/*` - 用户管理
+</details>
 
 ## ⚠️ 注意事项
 
@@ -262,7 +190,6 @@ CORS_ORIGINS=["https://your-domain.com"]
 - 批量邀请已内置 1 秒间隔，避免触发 Rate Limit
 - 生产环境必须使用 HTTPS
 - 定期备份数据库文件
-- 不要将 `.env` 和 `data/` 目录上传到 Git
 
 ## 🤝 贡献
 
@@ -270,10 +197,16 @@ CORS_ORIGINS=["https://your-domain.com"]
 
 ## 📄 License
 
-MIT License
+[MIT License](LICENSE)
 
 ## 🙏 致谢
 
 - [FastAPI](https://fastapi.tiangolo.com/)
 - [Ant Design](https://ant.design/)
 - [LinuxDO](https://linux.do/)
+
+---
+
+<div align="center">
+  <sub>Made with ❤️ for ChatGPT Team managers</sub>
+</div>
