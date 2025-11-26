@@ -3,7 +3,6 @@ import { Card, Table, Input, Tag, Space, Select, Tooltip, Radio, Button, message
 import { SearchOutlined, DownloadOutlined } from '@ant-design/icons'
 import { inviteRecordApi, teamApi, groupApi } from '../api'
 import { formatDate, formatShortDate } from '../utils/date'
-import dayjs from 'dayjs'
 
 interface InviteRecord {
   id: number
