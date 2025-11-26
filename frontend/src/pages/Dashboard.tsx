@@ -171,7 +171,7 @@ export default function Dashboard() {
         title="Team 列表" 
         size="small"
         extra={
-          <Button type="link" size="small" onClick={() => navigate('/teams')} style={{ color: '#64748b' }}>
+          <Button type="link" size="small" onClick={() => navigate('/admin/teams')} style={{ color: '#64748b' }}>
             查看全部 <RightOutlined />
           </Button>
         }
@@ -181,7 +181,7 @@ export default function Dashboard() {
           {teams.slice(0, 4).map(team => (
             <Col span={6} key={team.id}>
               <div 
-                onClick={() => navigate(`/teams/${team.id}`)}
+                onClick={() => navigate(`/admin/teams/${team.id}`)}
                 style={{ 
                   padding: 20, 
                   background: 'rgba(255, 255, 255, 0.5)', 

@@ -48,7 +48,7 @@ class Team(Base):
     device_id = Column(String(100), nullable=True)
     cookie = Column(Text, nullable=True)
     token_expires_at = Column(DateTime, nullable=True)
-    max_seats = Column(Integer, default=50)  # 最大座位数
+    max_seats = Column(Integer, default=5)  # 最大座位数
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

@@ -204,9 +204,9 @@ export default function Teams() {
             name="max_seats" 
             label="最大座位数"
             extra="Team 的最大成员数量（包括已邀请未接受的）"
-            initialValue={50}
+            initialValue={5}
           >
-            <Input type="number" placeholder="50" size="large" />
+            <Input type="number" placeholder="5" size="large" />
           </Form.Item>
         </Form>
       </Modal>
