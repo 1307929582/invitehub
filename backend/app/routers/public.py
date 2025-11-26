@@ -300,7 +300,11 @@ async def use_redeem_code(request: Request, data: RedeemRequest, db: Session = D
         raise HTTPException(status_code=400, detail="兑换码已用完")
     
     # 查找有空位的 Team（加锁防止并发超额）
-    teams = db.query(Team).filter(Team.is_active == True).with_for_update().all()
+    # 如果兑换码绑定了分组，只从该分组的 Team 中分配
+    team_query = db.query(Team).filter(Team.is_active == True)
+    if code.group_id:
+        team_query = team_query.filter(Team.group_id == code.group_id)
+    teams = team_query.with_for_update().all()
     
     available_team = None
     for team in teams:
@@ -424,7 +428,11 @@ async def direct_redeem(request: Request, data: DirectRedeemRequest, db: Session
         raise HTTPException(status_code=400, detail="兑换码已用完")
     
     # 查找有空位的 Team（加锁防止并发超额）
-    teams = db.query(Team).filter(Team.is_active == True).with_for_update().all()
+    # 如果兑换码绑定了分组，只从该分组的 Team 中分配
+    team_query = db.query(Team).filter(Team.is_active == True)
+    if code.group_id:
+        team_query = team_query.filter(Team.group_id == code.group_id)
+    teams = team_query.with_for_update().all()
     
     available_team = None
     for team in teams:

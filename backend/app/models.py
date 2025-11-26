@@ -49,10 +49,12 @@ class Team(Base):
     cookie = Column(Text, nullable=True)
     token_expires_at = Column(DateTime, nullable=True)
     max_seats = Column(Integer, default=5)  # 最大座位数
+    group_id = Column(Integer, ForeignKey("team_groups.id"), nullable=True)  # 所属分组
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
+    group = relationship("TeamGroup", back_populates="teams")
     members = relationship("TeamMember", back_populates="team")
     invites = relationship("InviteRecord", back_populates="team")
     operation_logs = relationship("OperationLog", back_populates="team")
@@ -111,6 +113,20 @@ class OperationLog(Base):
     team = relationship("Team", back_populates="operation_logs")
 
 
+class TeamGroup(Base):
+    """Team 分组"""
+    __tablename__ = "team_groups"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), unique=True, nullable=False)
+    description = Column(String(255), nullable=True)
+    color = Column(String(20), default="#1890ff")  # 标签颜色
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    teams = relationship("Team", back_populates="group")
+    redeem_codes = relationship("RedeemCode", back_populates="group")
+
+
 class RedeemCodeType(str, enum.Enum):
     LINUXDO = "linuxdo"  # 需要 LinuxDO 登录
     DIRECT = "direct"    # 直接链接，无需登录
@@ -127,9 +143,12 @@ class RedeemCode(Base):
     used_count = Column(Integer, default=0)
     expires_at = Column(DateTime, nullable=True)
     is_active = Column(Boolean, default=True)
-    note = Column(String(255), nullable=True)  # 备注，方便管理
+    note = Column(String(255), nullable=True)  # 备注/订单号
+    group_id = Column(Integer, ForeignKey("team_groups.id"), nullable=True)  # 绑定分组
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
+    
+    group = relationship("TeamGroup", back_populates="redeem_codes")
 
 
 class LinuxDOUser(Base):
