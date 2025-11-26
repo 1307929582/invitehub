@@ -74,6 +74,11 @@ function App() {
       .finally(() => setLoading(false))
   }, [setUser])
 
+  // 应用主题到 body
+  useEffect(() => {
+    document.body.setAttribute('data-theme', theme)
+  }, [theme])
+
   if (loading) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
@@ -81,11 +86,6 @@ function App() {
       </div>
     )
   }
-
-  // 应用主题到 body
-  useEffect(() => {
-    document.body.setAttribute('data-theme', theme)
-  }, [theme])
 
   return (
     <ConfigProvider
