@@ -77,10 +77,19 @@ export const dashboardApi = {
 export const redeemApi = {
   list: (teamId?: number, isActive?: boolean, codeType?: string) => 
     api.get('/redeem-codes', { params: { team_id: teamId, is_active: isActive, code_type: codeType } }),
-  batchCreate: (data: { max_uses: number; expires_days?: number; count: number; prefix?: string; code_type?: string; note?: string }) =>
+  batchCreate: (data: { max_uses: number; expires_days?: number; count: number; prefix?: string; code_type?: string; note?: string; group_id?: number }) =>
     api.post('/redeem-codes/batch', data),
   delete: (id: number) => api.delete(`/redeem-codes/${id}`),
   toggle: (id: number) => api.put(`/redeem-codes/${id}/toggle`),
+  getRecords: (id: number) => api.get(`/redeem-codes/${id}/records`),
+}
+
+// Team Group API
+export const groupApi = {
+  list: () => api.get('/groups'),
+  create: (data: { name: string; description?: string; color?: string }) => api.post('/groups', data),
+  update: (id: number, data: { name?: string; description?: string; color?: string }) => api.put(`/groups/${id}`, data),
+  delete: (id: number) => api.delete(`/groups/${id}`),
 }
 
 // Config API

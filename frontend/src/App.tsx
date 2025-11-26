@@ -16,6 +16,7 @@ import Home from './pages/Home'
 import Callback from './pages/Callback'
 import Setup from './pages/Setup'
 import DirectInvite from './pages/DirectInvite'
+import Groups from './pages/Groups'
 import { useStore } from './store'
 import { authApi, setupApi } from './api'
 
@@ -110,6 +111,7 @@ function App() {
           <Route path="dashboard" element={<Dashboard />} />
           <Route path="teams" element={<Teams />} />
           <Route path="teams/:id" element={<TeamDetail />} />
+          <Route path="groups" element={<Groups />} />
           <Route path="invite" element={<Invite />} />
           <Route path="redeem-codes" element={<RedeemCodes />} />
           <Route path="direct-codes" element={<DirectCodes />} />

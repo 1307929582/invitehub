@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
-import { Card, Table, Button, Space, Tag, Modal, Form, Input, InputNumber, message, Popconfirm, Tooltip, Radio } from 'antd'
-import { PlusOutlined, DeleteOutlined, CopyOutlined, StopOutlined, CheckOutlined, LinkOutlined } from '@ant-design/icons'
-import { redeemApi } from '../api'
+import { Card, Table, Button, Space, Tag, Modal, Form, Input, InputNumber, message, Popconfirm, Tooltip, Radio, Select } from 'antd'
+import { PlusOutlined, DeleteOutlined, CopyOutlined, StopOutlined, CheckOutlined, LinkOutlined, EyeOutlined } from '@ant-design/icons'
+import { redeemApi, groupApi } from '../api'
 import dayjs from 'dayjs'
 
 interface DirectCode {
@@ -13,18 +13,39 @@ interface DirectCode {
   expires_at?: string
   is_active: boolean
   note?: string
+  group_id?: number
+  group_name?: string
   created_at: string
+}
+
+interface Group {
+  id: number
+  name: string
+  color: string
+}
+
+interface InviteRecord {
+  id: number
+  email: string
+  team_name: string
+  status: string
+  created_at: string
+  accepted_at?: string
 }
 
 type FilterType = 'all' | 'available' | 'used' | 'expired'
 
 export default function DirectCodes() {
   const [codes, setCodes] = useState<DirectCode[]>([])
+  const [groups, setGroups] = useState<Group[]>([])
   const [loading, setLoading] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
   const [creating, setCreating] = useState(false)
   const [newCodes, setNewCodes] = useState<string[]>([])
   const [filter, setFilter] = useState<FilterType>('all')
+  const [recordsModal, setRecordsModal] = useState(false)
+  const [records, setRecords] = useState<InviteRecord[]>([])
+  const [currentCode, setCurrentCode] = useState('')
   const [form] = Form.useForm()
 
   const fetchCodes = async () => {
@@ -37,29 +58,30 @@ export default function DirectCodes() {
     }
   }
 
+  const fetchGroups = async () => {
+    try {
+      const res: any = await groupApi.list()
+      setGroups(res)
+    } catch {}
+  }
+
   useEffect(() => {
     fetchCodes()
+    fetchGroups()
   }, [])
 
-  // 根据筛选条件过滤
   const filteredCodes = codes.filter(code => {
     const isExpired = code.expires_at && dayjs(code.expires_at).isBefore(dayjs())
     const isUsedUp = code.used_count >= code.max_uses
     const isAvailable = code.is_active && !isExpired && !isUsedUp
-
     switch (filter) {
-      case 'available':
-        return isAvailable
-      case 'used':
-        return isUsedUp
-      case 'expired':
-        return isExpired
-      default:
-        return true
+      case 'available': return isAvailable
+      case 'used': return isUsedUp
+      case 'expired': return isExpired
+      default: return true
     }
   })
 
-  // 统计数量
   const stats = {
     all: codes.length,
     available: codes.filter(c => c.is_active && !(c.expires_at && dayjs(c.expires_at).isBefore(dayjs())) && c.used_count < c.max_uses).length,
@@ -71,14 +93,10 @@ export default function DirectCodes() {
     const values = await form.validateFields()
     setCreating(true)
     try {
-      const res: any = await redeemApi.batchCreate({
-        ...values,
-        code_type: 'direct'
-      })
+      const res: any = await redeemApi.batchCreate({ ...values, code_type: 'direct' })
       setNewCodes(res.codes)
       message.success(`成功创建 ${res.count} 个直接链接`)
       fetchCodes()
-    } catch {
     } finally {
       setCreating(false)
     }
@@ -96,20 +114,18 @@ export default function DirectCodes() {
     fetchCodes()
   }
 
-  const getInviteUrl = (code: string) => {
-    return `${window.location.origin}/invite/${code}`
+  const handleViewRecords = async (code: DirectCode) => {
+    setCurrentCode(code.code)
+    try {
+      const res: any = await redeemApi.getRecords(code.id)
+      setRecords(res.records)
+      setRecordsModal(true)
+    } catch {}
   }
 
-  const copyUrl = (code: string) => {
-    navigator.clipboard.writeText(getInviteUrl(code))
-    message.success('链接已复制')
-  }
-
-  const copyAllUrls = () => {
-    const urls = newCodes.map(code => getInviteUrl(code)).join('\n')
-    navigator.clipboard.writeText(urls)
-    message.success('已复制全部链接')
-  }
+  const getInviteUrl = (code: string) => `${window.location.origin}/invite/${code}`
+  const copyUrl = (code: string) => { navigator.clipboard.writeText(getInviteUrl(code)); message.success('链接已复制') }
+  const copyAllUrls = () => { navigator.clipboard.writeText(newCodes.map(c => getInviteUrl(c)).join('\n')); message.success('已复制全部链接') }
 
   const columns = [
     { 
@@ -117,80 +133,75 @@ export default function DirectCodes() {
       dataIndex: 'code', 
       render: (v: string) => (
         <Space>
-          <a href={getInviteUrl(v)} target="_blank" rel="noreferrer" style={{ fontSize: 13 }}>
-            /invite/{v}
-          </a>
-          <Tooltip title="复制链接">
-            <Button type="text" size="small" icon={<CopyOutlined />} onClick={() => copyUrl(v)} />
-          </Tooltip>
+          <a href={getInviteUrl(v)} target="_blank" rel="noreferrer" style={{ fontSize: 13 }}>/invite/{v}</a>
+          <Tooltip title="复制链接"><Button type="text" size="small" icon={<CopyOutlined />} onClick={() => copyUrl(v)} /></Tooltip>
         </Space>
       )
     },
     { 
-      title: '备注', 
-      dataIndex: 'note', 
-      width: 120,
-      render: (v: string) => v || <span style={{ color: '#94a3b8' }}>-</span>
+      title: '分组', 
+      dataIndex: 'group_name', 
+      width: 100,
+      render: (v: string, r: DirectCode) => v ? (
+        <Tag color={groups.find(g => g.id === r.group_id)?.color}>{v}</Tag>
+      ) : <span style={{ color: '#94a3b8' }}>全部</span>
     },
+    { title: '备注', dataIndex: 'note', width: 100, render: (v: string) => v || <span style={{ color: '#94a3b8' }}>-</span> },
     { 
       title: '使用情况', 
       width: 100,
       render: (_: any, r: DirectCode) => (
-        <span style={{ color: r.used_count >= r.max_uses ? '#ef4444' : '#64748b' }}>
+        <Button type="link" size="small" style={{ padding: 0, color: r.used_count >= r.max_uses ? '#ef4444' : '#64748b' }} onClick={() => handleViewRecords(r)}>
           {r.used_count} / {r.max_uses}
-        </span>
+        </Button>
       )
     },
     { 
       title: '过期时间', 
       dataIndex: 'expires_at', 
-      width: 120,
-      render: (v: string) => v ? (
-        <span style={{ color: dayjs(v).isBefore(dayjs()) ? '#ef4444' : '#64748b', fontSize: 13 }}>
-          {dayjs(v).format('MM-DD HH:mm')}
-        </span>
-      ) : <span style={{ color: '#94a3b8' }}>永不</span>
+      width: 110,
+      render: (v: string) => v ? <span style={{ color: dayjs(v).isBefore(dayjs()) ? '#ef4444' : '#64748b', fontSize: 13 }}>{dayjs(v).format('MM-DD HH:mm')}</span> : <span style={{ color: '#94a3b8' }}>永不</span>
     },
     { 
       title: '状态', 
-      dataIndex: 'is_active', 
       width: 80,
-      render: (v: boolean, r: DirectCode) => {
+      render: (_: any, r: DirectCode) => {
         const expired = r.expires_at && dayjs(r.expires_at).isBefore(dayjs())
         const used = r.used_count >= r.max_uses
         if (expired) return <Tag color="default">已过期</Tag>
         if (used) return <Tag color="default">已用完</Tag>
-        return <Tag color={v ? 'green' : 'default'}>{v ? '有效' : '禁用'}</Tag>
+        return <Tag color={r.is_active ? 'green' : 'default'}>{r.is_active ? '有效' : '禁用'}</Tag>
       }
     },
     {
       title: '操作', 
-      width: 100,
+      width: 120,
       render: (_: any, r: DirectCode) => (
         <Space size={4}>
-          <Tooltip title={r.is_active ? '禁用' : '启用'}>
-            <Button size="small" type="text" icon={r.is_active ? <StopOutlined /> : <CheckOutlined />} onClick={() => handleToggle(r.id)} />
-          </Tooltip>
-          <Popconfirm title="确定删除？" onConfirm={() => handleDelete(r.id)} okText="删除" cancelText="取消">
-            <Tooltip title="删除">
-              <Button size="small" type="text" danger icon={<DeleteOutlined />} />
-            </Tooltip>
-          </Popconfirm>
+          <Tooltip title="查看记录"><Button size="small" type="text" icon={<EyeOutlined />} onClick={() => handleViewRecords(r)} /></Tooltip>
+          <Tooltip title={r.is_active ? '禁用' : '启用'}><Button size="small" type="text" icon={r.is_active ? <StopOutlined /> : <CheckOutlined />} onClick={() => handleToggle(r.id)} /></Tooltip>
+          <Popconfirm title="确定删除？" onConfirm={() => handleDelete(r.id)}><Tooltip title="删除"><Button size="small" type="text" danger icon={<DeleteOutlined />} /></Tooltip></Popconfirm>
         </Space>
       ),
     },
+  ]
+
+  const recordColumns = [
+    { title: '邮箱', dataIndex: 'email' },
+    { title: '加入 Team', dataIndex: 'team_name' },
+    { title: '状态', dataIndex: 'status', width: 80, render: (v: string) => <Tag color={v === 'success' ? 'green' : 'default'}>{v === 'success' ? '成功' : v}</Tag> },
+    { title: '邀请时间', dataIndex: 'created_at', width: 150, render: (v: string) => dayjs(v).format('YYYY-MM-DD HH:mm') },
+    { title: '接受时间', dataIndex: 'accepted_at', width: 150, render: (v: string) => v ? dayjs(v).format('YYYY-MM-DD HH:mm') : <span style={{ color: '#94a3b8' }}>未接受</span> },
   ]
 
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 }}>
         <div>
-          <h2 style={{ fontSize: 26, fontWeight: 700, margin: 0, color: '#1a1a2e', letterSpacing: '-0.5px' }}>直接邀请链接</h2>
-          <p style={{ color: '#64748b', fontSize: 14, margin: '8px 0 0' }}>无需登录，点击链接即可邀请</p>
+          <h2 style={{ fontSize: 26, fontWeight: 700, margin: 0, color: '#1a1a2e' }}>直接邀请链接</h2>
+          <p style={{ color: '#64748b', fontSize: 14, margin: '8px 0 0' }}>无需登录，点击链接即可邀请（适合闲鱼等渠道）</p>
         </div>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setNewCodes([]); setModalOpen(true) }} size="large" style={{ borderRadius: 12, height: 44 }}>
-          生成链接
-        </Button>
+        <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setNewCodes([]); setModalOpen(true) }} size="large" style={{ borderRadius: 12, height: 44 }}>生成链接</Button>
       </div>
 
       <Card bodyStyle={{ padding: 0 }}>
@@ -202,25 +213,10 @@ export default function DirectCodes() {
             <Radio.Button value="expired">已过期 ({stats.expired})</Radio.Button>
           </Radio.Group>
         </div>
-        <Table 
-          dataSource={filteredCodes} 
-          columns={columns} 
-          rowKey="id" 
-          loading={loading} 
-          pagination={{ pageSize: 15, showTotal: total => `共 ${total} 个` }} 
-        />
+        <Table dataSource={filteredCodes} columns={columns} rowKey="id" loading={loading} pagination={{ pageSize: 15, showTotal: total => `共 ${total} 个` }} />
       </Card>
 
-      <Modal 
-        title="生成直接邀请链接" 
-        open={modalOpen} 
-        onOk={handleCreate} 
-        onCancel={() => setModalOpen(false)} 
-        width={520} 
-        okText="生成" 
-        cancelText="取消"
-        confirmLoading={creating}
-      >
+      <Modal title="生成直接邀请链接" open={modalOpen} onOk={handleCreate} onCancel={() => setModalOpen(false)} width={520} okText="生成" cancelText="取消" confirmLoading={creating}>
         {newCodes.length > 0 ? (
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
@@ -230,12 +226,7 @@ export default function DirectCodes() {
             <div style={{ background: '#f8fafc', borderRadius: 8, padding: 12, maxHeight: 300, overflow: 'auto' }}>
               {newCodes.map(code => (
                 <div key={code} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #e2e8f0' }}>
-                  <div style={{ flex: 1, overflow: 'hidden' }}>
-                    <a href={getInviteUrl(code)} target="_blank" rel="noreferrer" style={{ fontSize: 13 }}>
-                      <LinkOutlined style={{ marginRight: 6 }} />
-                      {getInviteUrl(code)}
-                    </a>
-                  </div>
+                  <a href={getInviteUrl(code)} target="_blank" rel="noreferrer" style={{ fontSize: 13 }}><LinkOutlined style={{ marginRight: 6 }} />{getInviteUrl(code)}</a>
                   <Button type="text" size="small" icon={<CopyOutlined />} onClick={() => copyUrl(code)} />
                 </div>
               ))}
@@ -243,20 +234,21 @@ export default function DirectCodes() {
           </div>
         ) : (
           <Form form={form} layout="vertical" initialValues={{ count: 1, max_uses: 1 }}>
-            <Form.Item name="count" label="生成数量" rules={[{ required: true }]}>
-              <InputNumber min={1} max={100} style={{ width: '100%' }} />
+            <Form.Item name="group_id" label="分配到分组" extra="选择后，使用此链接的用户只会被分配到该分组的 Team">
+              <Select placeholder="不选则从所有 Team 分配" allowClear>
+                {groups.map(g => <Select.Option key={g.id} value={g.id}><Space><div style={{ width: 10, height: 10, borderRadius: 2, background: g.color }} />{g.name}</Space></Select.Option>)}
+              </Select>
             </Form.Item>
-            <Form.Item name="max_uses" label="每个链接可用次数" rules={[{ required: true }]} extra="建议设为 1，一人一链接">
-              <InputNumber min={1} max={100} style={{ width: '100%' }} />
-            </Form.Item>
-            <Form.Item name="expires_days" label="有效天数">
-              <InputNumber min={1} placeholder="不填则永不过期" style={{ width: '100%' }} />
-            </Form.Item>
-            <Form.Item name="note" label="备注">
-              <Input placeholder="如：发给张三、活动用" />
-            </Form.Item>
+            <Form.Item name="count" label="生成数量" rules={[{ required: true }]}><InputNumber min={1} max={100} style={{ width: '100%' }} /></Form.Item>
+            <Form.Item name="max_uses" label="每个链接可用次数" rules={[{ required: true }]} extra="建议设为 1，一人一链接"><InputNumber min={1} max={100} style={{ width: '100%' }} /></Form.Item>
+            <Form.Item name="expires_days" label="有效天数"><InputNumber min={1} placeholder="不填则永不过期" style={{ width: '100%' }} /></Form.Item>
+            <Form.Item name="note" label="备注/订单号"><Input placeholder="如：闲鱼订单123456" /></Form.Item>
           </Form>
         )}
+      </Modal>
+
+      <Modal title={`使用记录 - ${currentCode}`} open={recordsModal} onCancel={() => setRecordsModal(false)} footer={null} width={700}>
+        <Table dataSource={records} columns={recordColumns} rowKey="id" pagination={false} size="small" locale={{ emptyText: '暂无使用记录' }} />
       </Modal>
     </div>
   )

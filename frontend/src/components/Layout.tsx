@@ -12,6 +12,7 @@ import {
   MenuUnfoldOutlined,
   GiftOutlined,
   SettingOutlined,
+  AppstoreOutlined,
 } from '@ant-design/icons'
 import { useStore } from '../store'
 
@@ -19,6 +20,7 @@ const { Header, Sider, Content } = AntLayout
 
 const menuItems = [
   { key: '/admin/dashboard', icon: <DashboardOutlined />, label: '工作台' },
+  { key: '/admin/groups', icon: <AppstoreOutlined />, label: 'Team 分组' },
   { key: '/admin/teams', icon: <TeamOutlined />, label: 'Team 管理' },
   { key: '/admin/invite', icon: <MailOutlined />, label: '批量邀请' },
   { key: '/admin/redeem-codes', icon: <GiftOutlined />, label: 'LinuxDO 兑换码' },
