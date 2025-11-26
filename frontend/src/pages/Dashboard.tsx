@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Row, Col, Card, Table, Spin, Tag, Progress, Button } from 'antd'
 import { TeamOutlined, UserOutlined, MailOutlined, RightOutlined } from '@ant-design/icons'
+import { Line } from '@ant-design/charts'
 import { dashboardApi, teamApi } from '../api'
 import { useStore } from '../store'
 import dayjs from 'dayjs'
@@ -213,30 +214,39 @@ export default function Dashboard() {
         </Col>
         <Col span={16}>
           <Card title="近7天邀请趋势" size="small">
-            <div style={{ display: 'flex', alignItems: 'flex-end', gap: 8, height: 120, padding: '10px 0' }}>
-              {(stats?.invite_trend || []).map((item, i) => {
-                const maxCount = Math.max(...(stats?.invite_trend || []).map(t => t.count), 1)
-                const height = (item.count / maxCount) * 100
-                return (
-                  <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-                    <div style={{ fontSize: 12, color: '#64748b', marginBottom: 4 }}>{item.count}</div>
-                    <div 
-                      style={{ 
-                        width: '100%', 
-                        height: `${Math.max(height, 4)}%`, 
-                        background: 'linear-gradient(180deg, #8b5cf6 0%, #a78bfa 100%)',
-                        borderRadius: 4,
-                        minHeight: 4,
-                      }} 
-                    />
-                    <div style={{ fontSize: 11, color: '#94a3b8', marginTop: 4 }}>
-                      {dayjs(item.date).format('MM/DD')}
-                    </div>
-                  </div>
-                )
-              })}
-              {(!stats?.invite_trend || stats.invite_trend.length === 0) && (
-                <div style={{ flex: 1, textAlign: 'center', color: '#94a3b8' }}>暂无数据</div>
+            <div style={{ height: 160 }}>
+              {stats?.invite_trend && stats.invite_trend.length > 0 ? (
+                <Line
+                  data={stats.invite_trend.map(item => ({
+                    date: dayjs(item.date).format('MM/DD'),
+                    count: item.count,
+                  }))}
+                  xField="date"
+                  yField="count"
+                  smooth
+                  point={{ size: 4, shape: 'circle' }}
+                  color="#8b5cf6"
+                  areaStyle={{ fill: 'l(270) 0:rgba(139, 92, 246, 0.1) 1:rgba(139, 92, 246, 0.3)' }}
+                  area={{}}
+                  yAxis={{ 
+                    min: 0,
+                    tickCount: 4,
+                    label: { style: { fill: '#94a3b8', fontSize: 11 } },
+                    grid: { line: { style: { stroke: '#f0f0f0', lineDash: [4, 4] } } },
+                  }}
+                  xAxis={{
+                    label: { style: { fill: '#94a3b8', fontSize: 11 } },
+                    line: { style: { stroke: '#f0f0f0' } },
+                  }}
+                  tooltip={{
+                    formatter: (datum: { count: number }) => ({ name: '邀请数', value: datum.count }),
+                  }}
+                  animation={{ appear: { animation: 'wave-in', duration: 800 } }}
+                />
+              ) : (
+                <div style={{ height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}>
+                  暂无数据
+                </div>
               )}
             </div>
           </Card>
