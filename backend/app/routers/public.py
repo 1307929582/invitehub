@@ -279,11 +279,11 @@ async def use_redeem_code(data: RedeemRequest, db: Session = Depends(get_db)):
             detail=f"您已加入 {team.name if team else 'Team'}，无需重复申请"
         )
     
-    # 验证兑换码
+    # 验证兑换码（加锁防止并发）
     code = db.query(RedeemCode).filter(
         RedeemCode.code == data.redeem_code.strip().upper(),
         RedeemCode.is_active == True
-    ).first()
+    ).with_for_update().first()
     
     if not code:
         raise HTTPException(status_code=400, detail="兑换码无效")
@@ -294,8 +294,8 @@ async def use_redeem_code(data: RedeemRequest, db: Session = Depends(get_db)):
     if code.used_count >= code.max_uses:
         raise HTTPException(status_code=400, detail="兑换码已用完")
     
-    # 查找有空位的 Team（包括已邀请未接受的）
-    teams = db.query(Team).filter(Team.is_active == True).all()
+    # 查找有空位的 Team（加锁防止并发超额）
+    teams = db.query(Team).filter(Team.is_active == True).with_for_update().all()
     
     available_team = None
     for team in teams:
@@ -391,12 +391,12 @@ async def get_direct_code_info(code: str, db: Session = Depends(get_db)):
 @router.post("/direct-redeem", response_model=DirectRedeemResponse)
 async def direct_redeem(data: DirectRedeemRequest, db: Session = Depends(get_db)):
     """直接兑换（无需登录，只需邮箱和兑换码）"""
-    # 验证兑换码
+    # 验证兑换码（加锁防止并发）
     code = db.query(RedeemCode).filter(
         RedeemCode.code == data.code.strip().upper(),
         RedeemCode.code_type == RedeemCodeType.DIRECT,
         RedeemCode.is_active == True
-    ).first()
+    ).with_for_update().first()
     
     if not code:
         raise HTTPException(status_code=400, detail="兑换码无效")
@@ -416,8 +416,8 @@ async def direct_redeem(data: DirectRedeemRequest, db: Session = Depends(get_db)
     if existing_invite:
         raise HTTPException(status_code=400, detail="该邮箱已被邀请过")
     
-    # 查找有空位的 Team
-    teams = db.query(Team).filter(Team.is_active == True).all()
+    # 查找有空位的 Team（加锁防止并发超额）
+    teams = db.query(Team).filter(Team.is_active == True).with_for_update().all()
     
     available_team = None
     for team in teams:
