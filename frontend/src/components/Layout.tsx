@@ -137,6 +137,7 @@ export default function Layout() {
         <div style={{ padding: '16px 0', overflow: 'hidden' }}>
           <Menu
             mode="inline"
+            inlineCollapsed={collapsed}
             selectedKeys={[location.pathname]}
             items={menuItems}
             onClick={({ key }) => navigate(key)}

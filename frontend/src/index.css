@@ -111,10 +111,27 @@ body {
 }
 
 .ant-menu-inline-collapsed .ant-menu-item {
-  margin: 4px auto !important;
-  padding: 0 !important;
-  display: flex;
-  justify-content: center;
+  margin: 4px 12px !important;
+  padding: 0 calc(50% - 12px) !important;
+  width: calc(100% - 24px) !important;
+}
+
+.ant-menu-inline-collapsed .ant-menu-item .anticon {
+  font-size: 16px;
+  line-height: 42px;
+}
+
+.ant-menu-inline-collapsed .ant-menu-title-content {
+  display: none;
+}
+
+/* 收起时的 tooltip */
+.ant-menu-inline-collapsed-tooltip {
+  pointer-events: none;
+}
+
+.ant-menu-inline-collapsed-tooltip .ant-tooltip-inner {
+  min-width: auto;
 }
 
 /* 输入框 */
