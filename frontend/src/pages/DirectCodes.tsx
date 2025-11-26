@@ -1,23 +1,25 @@
 import { useEffect, useState } from 'react'
 import { Card, Table, Button, Space, Tag, Modal, Form, Input, InputNumber, message, Popconfirm, Tooltip, Radio } from 'antd'
-import { PlusOutlined, DeleteOutlined, CopyOutlined, StopOutlined, CheckOutlined } from '@ant-design/icons'
+import { PlusOutlined, DeleteOutlined, CopyOutlined, StopOutlined, CheckOutlined, LinkOutlined } from '@ant-design/icons'
 import { redeemApi } from '../api'
 import dayjs from 'dayjs'
 
-interface RedeemCode {
+interface DirectCode {
   id: number
   code: string
+  code_type: string
   max_uses: number
   used_count: number
   expires_at?: string
   is_active: boolean
+  note?: string
   created_at: string
 }
 
 type FilterType = 'all' | 'available' | 'used' | 'expired'
 
-export default function RedeemCodes() {
-  const [codes, setCodes] = useState<RedeemCode[]>([])
+export default function DirectCodes() {
+  const [codes, setCodes] = useState<DirectCode[]>([])
   const [loading, setLoading] = useState(false)
   const [modalOpen, setModalOpen] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -28,7 +30,7 @@ export default function RedeemCodes() {
   const fetchCodes = async () => {
     setLoading(true)
     try {
-      const res: any = await redeemApi.list(undefined, undefined, 'linuxdo')
+      const res: any = await redeemApi.list(undefined, undefined, 'direct')
       setCodes(res.codes)
     } finally {
       setLoading(false)
@@ -71,10 +73,10 @@ export default function RedeemCodes() {
     try {
       const res: any = await redeemApi.batchCreate({
         ...values,
-        code_type: 'linuxdo'
+        code_type: 'direct'
       })
       setNewCodes(res.codes)
-      message.success(`成功创建 ${res.count} 个兑换码`)
+      message.success(`成功创建 ${res.count} 个直接链接`)
       fetchCodes()
     } catch {
     } finally {
@@ -94,34 +96,46 @@ export default function RedeemCodes() {
     fetchCodes()
   }
 
-  const copyCode = (code: string) => {
-    navigator.clipboard.writeText(code)
-    message.success('已复制')
+  const getInviteUrl = (code: string) => {
+    return `${window.location.origin}/invite/${code}`
   }
 
-  const copyAllCodes = () => {
-    navigator.clipboard.writeText(newCodes.join('\n'))
-    message.success('已复制全部')
+  const copyUrl = (code: string) => {
+    navigator.clipboard.writeText(getInviteUrl(code))
+    message.success('链接已复制')
+  }
+
+  const copyAllUrls = () => {
+    const urls = newCodes.map(code => getInviteUrl(code)).join('\n')
+    navigator.clipboard.writeText(urls)
+    message.success('已复制全部链接')
   }
 
   const columns = [
     { 
-      title: '兑换码', 
+      title: '邀请链接', 
       dataIndex: 'code', 
       render: (v: string) => (
         <Space>
-          <code style={{ fontSize: 13 }}>{v}</code>
-          <Tooltip title="复制">
-            <Button type="text" size="small" icon={<CopyOutlined />} onClick={() => copyCode(v)} />
+          <a href={getInviteUrl(v)} target="_blank" rel="noreferrer" style={{ fontSize: 13 }}>
+            /invite/{v}
+          </a>
+          <Tooltip title="复制链接">
+            <Button type="text" size="small" icon={<CopyOutlined />} onClick={() => copyUrl(v)} />
           </Tooltip>
         </Space>
       )
     },
-
+    { 
+      title: '备注', 
+      dataIndex: 'note', 
+      width: 120,
+      render: (v: string) => v || <span style={{ color: '#94a3b8' }}>-</span>
+    },
     { 
       title: '使用情况', 
       width: 100,
-      render: (_: any, r: RedeemCode) => (
+      render: (_: any, r: DirectCode) => (
         <span style={{ color: r.used_count >= r.max_uses ? '#ef4444' : '#64748b' }}>
           {r.used_count} / {r.max_uses}
         </span>
@@ -130,10 +144,10 @@ export default function RedeemCodes() {
     { 
       title: '过期时间', 
       dataIndex: 'expires_at', 
-      width: 140,
+      width: 120,
       render: (v: string) => v ? (
         <span style={{ color: dayjs(v).isBefore(dayjs()) ? '#ef4444' : '#64748b', fontSize: 13 }}>
-          {dayjs(v).format('YYYY-MM-DD')}
+          {dayjs(v).format('MM-DD HH:mm')}
         </span>
       ) : <span style={{ color: '#94a3b8' }}>永不</span>
     },
@@ -141,7 +155,7 @@ export default function RedeemCodes() {
       title: '状态', 
       dataIndex: 'is_active', 
       width: 80,
-      render: (v: boolean, r: RedeemCode) => {
+      render: (v: boolean, r: DirectCode) => {
         const expired = r.expires_at && dayjs(r.expires_at).isBefore(dayjs())
         const used = r.used_count >= r.max_uses
         if (expired) return <Tag color="default">已过期</Tag>
@@ -149,16 +163,10 @@ export default function RedeemCodes() {
         return <Tag color={v ? 'green' : 'default'}>{v ? '有效' : '禁用'}</Tag>
       }
     },
-    { 
-      title: '创建时间', 
-      dataIndex: 'created_at', 
-      width: 140,
-      render: (v: string) => <span style={{ color: '#64748b', fontSize: 13 }}>{dayjs(v).format('YYYY-MM-DD HH:mm')}</span>
-    },
     {
       title: '操作', 
       width: 100,
-      render: (_: any, r: RedeemCode) => (
+      render: (_: any, r: DirectCode) => (
         <Space size={4}>
           <Tooltip title={r.is_active ? '禁用' : '启用'}>
             <Button size="small" type="text" icon={r.is_active ? <StopOutlined /> : <CheckOutlined />} onClick={() => handleToggle(r.id)} />
@@ -177,11 +185,11 @@ export default function RedeemCodes() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 }}>
         <div>
-          <h2 style={{ fontSize: 26, fontWeight: 700, margin: 0, color: '#1a1a2e', letterSpacing: '-0.5px' }}>LinuxDO 兑换码</h2>
-          <p style={{ color: '#64748b', fontSize: 14, margin: '8px 0 0' }}>需要 LinuxDO 登录后使用</p>
+          <h2 style={{ fontSize: 26, fontWeight: 700, margin: 0, color: '#1a1a2e', letterSpacing: '-0.5px' }}>直接邀请链接</h2>
+          <p style={{ color: '#64748b', fontSize: 14, margin: '8px 0 0' }}>无需登录，点击链接即可邀请</p>
         </div>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setNewCodes([]); setModalOpen(true) }} size="large" style={{ borderRadius: 12, height: 44 }}>
-          生成兑换码
+          生成链接
         </Button>
       </div>
 
@@ -204,11 +212,11 @@ export default function RedeemCodes() {
       </Card>
 
       <Modal 
-        title="生成兑换码" 
+        title="生成直接邀请链接" 
         open={modalOpen} 
         onOk={handleCreate} 
         onCancel={() => setModalOpen(false)} 
-        width={480} 
+        width={520} 
         okText="生成" 
         cancelText="取消"
         confirmLoading={creating}
@@ -216,31 +224,36 @@ export default function RedeemCodes() {
         {newCodes.length > 0 ? (
           <div>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-              <span style={{ fontWeight: 500 }}>已生成 {newCodes.length} 个兑换码</span>
-              <Button size="small" icon={<CopyOutlined />} onClick={copyAllCodes}>复制全部</Button>
+              <span style={{ fontWeight: 500 }}>已生成 {newCodes.length} 个邀请链接</span>
+              <Button size="small" icon={<CopyOutlined />} onClick={copyAllUrls}>复制全部</Button>
             </div>
             <div style={{ background: '#f8fafc', borderRadius: 8, padding: 12, maxHeight: 300, overflow: 'auto' }}>
               {newCodes.map(code => (
-                <div key={code} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '6px 0', borderBottom: '1px solid #e2e8f0' }}>
-                  <code>{code}</code>
-                  <Button type="text" size="small" icon={<CopyOutlined />} onClick={() => copyCode(code)} />
+                <div key={code} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 0', borderBottom: '1px solid #e2e8f0' }}>
+                  <div style={{ flex: 1, overflow: 'hidden' }}>
+                    <a href={getInviteUrl(code)} target="_blank" rel="noreferrer" style={{ fontSize: 13 }}>
+                      <LinkOutlined style={{ marginRight: 6 }} />
+                      {getInviteUrl(code)}
+                    </a>
+                  </div>
+                  <Button type="text" size="small" icon={<CopyOutlined />} onClick={() => copyUrl(code)} />
                 </div>
               ))}
             </div>
           </div>
         ) : (
-          <Form form={form} layout="vertical" initialValues={{ count: 1, max_uses: 1, prefix: '' }}>
+          <Form form={form} layout="vertical" initialValues={{ count: 1, max_uses: 1 }}>
             <Form.Item name="count" label="生成数量" rules={[{ required: true }]}>
               <InputNumber min={1} max={100} style={{ width: '100%' }} />
             </Form.Item>
-            <Form.Item name="max_uses" label="每码可用次数" rules={[{ required: true }]}>
-              <InputNumber min={1} max={1000} style={{ width: '100%' }} />
+            <Form.Item name="max_uses" label="每个链接可用次数" rules={[{ required: true }]} extra="建议设为 1，一人一链接">
+              <InputNumber min={1} max={100} style={{ width: '100%' }} />
             </Form.Item>
             <Form.Item name="expires_days" label="有效天数">
               <InputNumber min={1} placeholder="不填则永不过期" style={{ width: '100%' }} />
             </Form.Item>
-            <Form.Item name="prefix" label="前缀">
-              <Input placeholder="如 VIP-、PROMO-" />
+            <Form.Item name="note" label="备注">
+              <Input placeholder="如：发给张三、活动用" />
             </Form.Item>
           </Form>
         )}

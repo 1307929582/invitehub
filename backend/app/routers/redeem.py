@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
 from app.database import get_db
-from app.models import RedeemCode, User
+from app.models import RedeemCode, RedeemCodeType, User
 from app.services.auth import get_current_user
 
 router = APIRouter(prefix="/redeem-codes", tags=["redeem-codes"])
@@ -19,15 +19,19 @@ class RedeemCodeCreate(BaseModel):
     expires_days: Optional[int] = None
     count: int = 1
     prefix: str = ""
+    code_type: str = "linuxdo"  # linuxdo 或 direct
+    note: Optional[str] = None
 
 
 class RedeemCodeResponse(BaseModel):
     id: int
     code: str
+    code_type: str
     max_uses: int
     used_count: int
     expires_at: Optional[datetime]
     is_active: bool
+    note: Optional[str]
     created_at: datetime
 
     class Config:
@@ -53,6 +57,7 @@ def generate_code(prefix: str = "", length: int = 8) -> str:
 @router.get("", response_model=RedeemCodeListResponse)
 async def list_redeem_codes(
     is_active: Optional[bool] = None,
+    code_type: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -62,16 +67,21 @@ async def list_redeem_codes(
     if is_active is not None:
         query = query.filter(RedeemCode.is_active == is_active)
     
+    if code_type:
+        query = query.filter(RedeemCode.code_type == code_type)
+    
     codes = query.order_by(RedeemCode.created_at.desc()).all()
     
     return RedeemCodeListResponse(
         codes=[RedeemCodeResponse(
             id=c.id,
             code=c.code,
+            code_type=c.code_type.value if c.code_type else "linuxdo",
             max_uses=c.max_uses,
             used_count=c.used_count,
             expires_at=c.expires_at,
             is_active=c.is_active,
+            note=c.note,
             created_at=c.created_at
         ) for c in codes],
         total=len(codes)
@@ -92,6 +102,9 @@ async def batch_create_codes(
     if data.expires_days:
         expires_at = datetime.utcnow() + timedelta(days=data.expires_days)
     
+    # 确定兑换码类型
+    code_type = RedeemCodeType.DIRECT if data.code_type == "direct" else RedeemCodeType.LINUXDO
+    
     codes = []
     for _ in range(data.count):
         while True:
@@ -102,8 +115,10 @@ async def batch_create_codes(
         
         code = RedeemCode(
             code=code_str,
+            code_type=code_type,
             max_uses=data.max_uses,
             expires_at=expires_at,
+            note=data.note,
             created_by=current_user.id
         )
         db.add(code)

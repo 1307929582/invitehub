@@ -9,11 +9,13 @@ import TeamDetail from './pages/TeamDetail'
 import Invite from './pages/Invite'
 import Logs from './pages/Logs'
 import RedeemCodes from './pages/RedeemCodes'
+import DirectCodes from './pages/DirectCodes'
 import LinuxDOUsers from './pages/LinuxDOUsers'
 import Settings from './pages/Settings'
 import Home from './pages/Home'
 import Callback from './pages/Callback'
 import Setup from './pages/Setup'
+import DirectInvite from './pages/DirectInvite'
 import { useStore } from './store'
 import { authApi, setupApi } from './api'
 
@@ -91,6 +93,7 @@ function App() {
           initialized ? <Home /> : <Navigate to="/setup" replace />
         } />
         <Route path="/callback" element={<Callback />} />
+        <Route path="/invite/:code" element={<DirectInvite />} />
         
         {/* 管理员登录 */}
         <Route path="/admin/login" element={
@@ -109,6 +112,7 @@ function App() {
           <Route path="teams/:id" element={<TeamDetail />} />
           <Route path="invite" element={<Invite />} />
           <Route path="redeem-codes" element={<RedeemCodes />} />
+          <Route path="direct-codes" element={<DirectCodes />} />
           <Route path="users" element={<LinuxDOUsers />} />
           <Route path="logs" element={<Logs />} />
           <Route path="settings" element={<Settings />} />

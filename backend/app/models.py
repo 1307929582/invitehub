@@ -111,16 +111,23 @@ class OperationLog(Base):
     team = relationship("Team", back_populates="operation_logs")
 
 
+class RedeemCodeType(str, enum.Enum):
+    LINUXDO = "linuxdo"  # 需要 LinuxDO 登录
+    DIRECT = "direct"    # 直接链接，无需登录
+
+
 class RedeemCode(Base):
     """兑换码"""
     __tablename__ = "redeem_codes"
     
     id = Column(Integer, primary_key=True, index=True)
     code = Column(String(50), unique=True, nullable=False, index=True)
+    code_type = Column(Enum(RedeemCodeType), default=RedeemCodeType.LINUXDO)
     max_uses = Column(Integer, default=1)
     used_count = Column(Integer, default=0)
     expires_at = Column(DateTime, nullable=True)
     is_active = Column(Boolean, default=True)
+    note = Column(String(255), nullable=True)  # 备注，方便管理
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
 

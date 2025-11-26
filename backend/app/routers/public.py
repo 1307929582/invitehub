@@ -10,7 +10,7 @@ from typing import Optional
 
 from app.database import get_db
 from app.models import (
-    Team, TeamMember, RedeemCode, LinuxDOUser, InviteRecord, InviteStatus, SystemConfig
+    Team, TeamMember, RedeemCode, RedeemCodeType, LinuxDOUser, InviteRecord, InviteStatus, SystemConfig
 )
 from app.services.chatgpt_api import ChatGPTAPI, ChatGPTAPIError
 
@@ -341,6 +341,125 @@ async def use_redeem_code(data: RedeemRequest, db: Session = Depends(get_db)):
         db.commit()
         
         return RedeemResponse(
+            success=True,
+            message="邀请已发送！请查收邮箱并接受邀请",
+            team_name=available_team.name
+        )
+    except ChatGPTAPIError as e:
+        raise HTTPException(status_code=400, detail=f"邀请失败: {e.message}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"邀请失败: {str(e)}")
+
+
+# ========== 直接链接兑换（无需登录）==========
+class DirectRedeemRequest(BaseModel):
+    email: EmailStr
+    code: str
+
+
+class DirectRedeemResponse(BaseModel):
+    success: bool
+    message: str
+    team_name: Optional[str] = None
+
+
+@router.get("/direct/{code}")
+async def get_direct_code_info(code: str, db: Session = Depends(get_db)):
+    """获取直接兑换码信息（验证是否有效）"""
+    redeem_code = db.query(RedeemCode).filter(
+        RedeemCode.code == code.strip().upper(),
+        RedeemCode.code_type == RedeemCodeType.DIRECT,
+        RedeemCode.is_active == True
+    ).first()
+    
+    if not redeem_code:
+        raise HTTPException(status_code=404, detail="兑换码无效或不存在")
+    
+    if redeem_code.expires_at and redeem_code.expires_at < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="兑换码已过期")
+    
+    if redeem_code.used_count >= redeem_code.max_uses:
+        raise HTTPException(status_code=400, detail="兑换码已用完")
+    
+    return {
+        "valid": True,
+        "remaining": redeem_code.max_uses - redeem_code.used_count,
+        "expires_at": redeem_code.expires_at.isoformat() if redeem_code.expires_at else None
+    }
+
+
+@router.post("/direct-redeem", response_model=DirectRedeemResponse)
+async def direct_redeem(data: DirectRedeemRequest, db: Session = Depends(get_db)):
+    """直接兑换（无需登录，只需邮箱和兑换码）"""
+    # 验证兑换码
+    code = db.query(RedeemCode).filter(
+        RedeemCode.code == data.code.strip().upper(),
+        RedeemCode.code_type == RedeemCodeType.DIRECT,
+        RedeemCode.is_active == True
+    ).first()
+    
+    if not code:
+        raise HTTPException(status_code=400, detail="兑换码无效")
+    
+    if code.expires_at and code.expires_at < datetime.utcnow():
+        raise HTTPException(status_code=400, detail="兑换码已过期")
+    
+    if code.used_count >= code.max_uses:
+        raise HTTPException(status_code=400, detail="兑换码已用完")
+    
+    # 检查邮箱是否已被邀请
+    existing_invite = db.query(InviteRecord).filter(
+        InviteRecord.email == data.email.lower().strip(),
+        InviteRecord.status == InviteStatus.SUCCESS
+    ).first()
+    
+    if existing_invite:
+        raise HTTPException(status_code=400, detail="该邮箱已被邀请过")
+    
+    # 查找有空位的 Team
+    teams = db.query(Team).filter(Team.is_active == True).all()
+    
+    available_team = None
+    for team in teams:
+        member_count = db.query(TeamMember).filter(TeamMember.team_id == team.id).count()
+        pending_invite_count = db.query(InviteRecord).filter(
+            InviteRecord.team_id == team.id,
+            InviteRecord.status == InviteStatus.SUCCESS,
+            InviteRecord.accepted_at == None
+        ).count()
+        
+        total_used = member_count + pending_invite_count
+        
+        if total_used < team.max_seats:
+            available_team = team
+            break
+    
+    if not available_team:
+        raise HTTPException(status_code=400, detail="所有 Team 已满，请稍后再试")
+    
+    # 发送邀请
+    try:
+        api = ChatGPTAPI(available_team.session_token, available_team.device_id or "")
+        await api.invite_members(
+            available_team.account_id, 
+            [data.email.lower().strip()]
+        )
+        
+        # 更新兑换码使用次数
+        code.used_count += 1
+        
+        # 记录邀请
+        invite = InviteRecord(
+            team_id=available_team.id,
+            email=data.email.lower().strip(),
+            status=InviteStatus.SUCCESS,
+            redeem_code=code.code,
+            batch_id=f"direct-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+        )
+        db.add(invite)
+        db.commit()
+        
+        return DirectRedeemResponse(
             success=True,
             message="邀请已发送！请查收邮箱并接受邀请",
             team_name=available_team.name
