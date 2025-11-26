@@ -12,7 +12,7 @@ from app.database import get_db
 from app.models import (
     Team, TeamMember, RedeemCode, LinuxDOUser, InviteRecord, InviteStatus, SystemConfig
 )
-from app.services.chatgpt_api import ChatGPTAPI
+from app.services.chatgpt_api import ChatGPTAPI, ChatGPTAPIError
 
 router = APIRouter(prefix="/public", tags=["public"])
 
@@ -319,33 +319,33 @@ async def use_redeem_code(data: RedeemRequest, db: Session = Depends(get_db)):
     
     # 发送邀请
     try:
-        api = ChatGPTAPI(available_team.session_token, available_team.account_id, available_team.device_id)
-        result = await api.invite_member(data.email.lower().strip())
+        api = ChatGPTAPI(available_team.session_token, available_team.device_id or "")
+        result = await api.invite_members(
+            available_team.account_id, 
+            [data.email.lower().strip()]
+        )
         
-        if result.get("success"):
-            # 更新兑换码使用次数
-            code.used_count += 1
-            
-            # 记录邀请
-            invite = InviteRecord(
-                team_id=available_team.id,
-                email=data.email.lower().strip(),
-                linuxdo_user_id=user.id,
-                status=InviteStatus.SUCCESS,
-                redeem_code=code.code,
-                batch_id=f"redeem-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
-            )
-            db.add(invite)
-            db.commit()
-            
-            return RedeemResponse(
-                success=True,
-                message="邀请已发送！请查收邮箱并接受邀请",
-                team_name=available_team.name
-            )
-        else:
-            raise HTTPException(status_code=400, detail=result.get("error", "邀请失败"))
-    except HTTPException:
-        raise
+        # 更新兑换码使用次数
+        code.used_count += 1
+        
+        # 记录邀请
+        invite = InviteRecord(
+            team_id=available_team.id,
+            email=data.email.lower().strip(),
+            linuxdo_user_id=user.id,
+            status=InviteStatus.SUCCESS,
+            redeem_code=code.code,
+            batch_id=f"redeem-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+        )
+        db.add(invite)
+        db.commit()
+        
+        return RedeemResponse(
+            success=True,
+            message="邀请已发送！请查收邮箱并接受邀请",
+            team_name=available_team.name
+        )
+    except ChatGPTAPIError as e:
+        raise HTTPException(status_code=400, detail=f"邀请失败: {e.message}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"邀请失败: {str(e)}")
