@@ -13,6 +13,7 @@ import {
   GiftOutlined,
   SettingOutlined,
   AppstoreOutlined,
+  UnorderedListOutlined,
 } from '@ant-design/icons'
 import { useStore } from '../store'
 
@@ -25,7 +26,8 @@ const menuItems = [
   { key: '/admin/invite', icon: <MailOutlined />, label: '批量邀请' },
   { key: '/admin/redeem-codes', icon: <GiftOutlined />, label: 'LinuxDO 兑换码' },
   { key: '/admin/direct-codes', icon: <GiftOutlined />, label: '直接邀请链接' },
-  { key: '/admin/users', icon: <UserOutlined />, label: '用户管理' },
+  { key: '/admin/invite-records', icon: <UnorderedListOutlined />, label: '邀请记录' },
+  { key: '/admin/users', icon: <UserOutlined />, label: 'LinuxDO 用户' },
   { key: '/admin/logs', icon: <FileTextOutlined />, label: '操作日志' },
   { key: '/admin/settings', icon: <SettingOutlined />, label: '系统设置' },
 ]

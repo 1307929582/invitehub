@@ -107,6 +107,12 @@ export const linuxdoUserApi = {
   get: (id: number) => api.get(`/linuxdo-users/${id}`),
 }
 
+// Invite Record API
+export const inviteRecordApi = {
+  list: (params?: { search?: string; team_id?: number; group_id?: number }) =>
+    api.get('/invite-records', { params }),
+}
+
 // Setup API (无需认证)
 export const setupApi = {
   getStatus: () => axios.get('/api/v1/setup/status').then(r => r.data),
