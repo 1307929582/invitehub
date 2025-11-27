@@ -216,7 +216,7 @@ class GeminiTeam(Base):
     description = Column(Text, nullable=True)
     account_id = Column(String(100), nullable=False)  # Gemini 账户 ID
     cookies = Column(Text, nullable=False)  # 完整的 cookie 字符串
-    max_seats = Column(Integer, default=10)  # 最大座位数
+    max_seats = Column(Integer, default=15)  # 最大座位数
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)

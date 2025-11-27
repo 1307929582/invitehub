@@ -267,7 +267,7 @@ export default function Gemini() {
           <Form.Item name="cookies" label="Cookies" rules={[{ required: true }]} extra="从浏览器复制完整的 Cookie 字符串">
             <Input.TextArea rows={4} placeholder="__Host-C_OSES=...; __Secure-C_SES=...; NID=..." />
           </Form.Item>
-          <Form.Item name="max_seats" label="最大座位数" initialValue={10}>
+          <Form.Item name="max_seats" label="最大座位数" initialValue={15}>
             <InputNumber min={1} max={100} style={{ width: '100%' }} />
           </Form.Item>
           <Form.Item name="description" label="描述">

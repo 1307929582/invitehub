@@ -25,7 +25,7 @@ def upgrade() -> None:
         sa.Column('description', sa.Text(), nullable=True),
         sa.Column('account_id', sa.String(100), nullable=False),
         sa.Column('cookies', sa.Text(), nullable=False),
-        sa.Column('max_seats', sa.Integer(), default=10),
+        sa.Column('max_seats', sa.Integer(), default=15),
         sa.Column('is_active', sa.Boolean(), default=True),
         sa.Column('created_at', sa.DateTime(), nullable=True),
         sa.Column('updated_at', sa.DateTime(), nullable=True),
