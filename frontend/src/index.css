@@ -136,7 +136,6 @@ body {
 
 /* 输入框 */
 .ant-input,
-.ant-input-affix-wrapper,
 .ant-select-selector,
 .ant-input-textarea textarea {
   background: var(--glass-bg) !important;
@@ -146,6 +145,23 @@ body {
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   transition: all 0.3s ease;
+}
+
+/* 带前缀/后缀的输入框容器 */
+.ant-input-affix-wrapper {
+  background: var(--glass-bg) !important;
+  border: 1px solid rgba(0, 0, 0, 0.08) !important;
+  border-radius: 12px !important;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  transition: all 0.3s ease;
+}
+
+/* 容器内的输入框去掉边框和背景 */
+.ant-input-affix-wrapper .ant-input {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
 }
 
 .ant-input::placeholder,
@@ -161,11 +177,15 @@ body {
 }
 
 .ant-input:focus,
-.ant-input-affix-wrapper:focus,
 .ant-input-affix-wrapper-focused,
 .ant-select-focused .ant-select-selector {
   border-color: rgba(0, 0, 0, 0.2) !important;
   box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.04) !important;
+}
+
+/* 容器内的输入框聚焦时不显示额外样式 */
+.ant-input-affix-wrapper .ant-input:focus {
+  box-shadow: none !important;
 }
 
 .ant-input-lg,
@@ -177,7 +197,8 @@ body {
   color: var(--text-muted) !important;
 }
 
-.ant-input-prefix {
+.ant-input-prefix,
+.ant-input-suffix {
   color: var(--text-muted) !important;
 }
 
