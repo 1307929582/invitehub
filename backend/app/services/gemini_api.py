@@ -87,6 +87,8 @@ class GeminiAPI:
     async def _fetch_at_token(self, client: httpx.AsyncClient) -> str:
         """从页面获取 at token (SNlM0e)"""
         clean_cookies = self._clean_cookies()
+        logger.info(f"Gemini clean_cookies length: {len(clean_cookies)}")
+        
         headers = {
             "Cookie": clean_cookies,
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
@@ -98,12 +100,18 @@ class GeminiAPI:
             follow_redirects=True
         )
         
+        logger.info(f"Gemini fetch page status: {resp.status_code}, url: {resp.url}")
+        
         if resp.status_code != 200:
             raise GeminiAPIError(f"获取页面失败: {resp.status_code}", resp.status_code)
         
         # 从 WIZ_global_data 中提取 SNlM0e
         match = re.search(r'"SNlM0e":"([^"]+)"', resp.text)
         if not match:
+            # 检查是否被重定向到登录页
+            if 'accounts.google.com' in str(resp.url) or 'signin' in resp.text.lower():
+                raise GeminiAPIError("Cookie 已过期，请重新获取")
+            logger.error(f"Gemini page content preview: {resp.text[:500]}")
             raise GeminiAPIError("无法获取 at token，可能 cookie 已过期")
         
         self.at_token = match.group(1)
