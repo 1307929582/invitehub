@@ -299,3 +299,74 @@ async def get_pending_invites(
         return await api.get_invites(team.account_id)
     except ChatGPTAPIError as e:
         raise HTTPException(status_code=400, detail=f"获取失败: {e.message}")
+
+
+@router.post("/sync-all", response_model=MessageResponse)
+async def sync_all_teams(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """批量同步所有 Team 成员"""
+    from datetime import datetime
+    from app.models import InviteRecord, InviteStatus
+    import asyncio
+    
+    teams_list = db.query(Team).filter(Team.is_active == True).all()
+    success_count = 0
+    fail_count = 0
+    
+    for team in teams_list:
+        try:
+            api = ChatGPTAPI(team.session_token, team.device_id or "", team.cookie or "")
+            result = await api.get_members(team.account_id)
+            members_data = result.get("items", result.get("users", []))
+            
+            # 获取成员邮箱列表
+            member_emails = set()
+            for m in members_data:
+                email = m.get("email", "").lower().strip()
+                if email:
+                    member_emails.add(email)
+            
+            # 更新邀请记录
+            pending_invites = db.query(InviteRecord).filter(
+                InviteRecord.team_id == team.id,
+                InviteRecord.status == InviteStatus.SUCCESS,
+                InviteRecord.accepted_at == None
+            ).all()
+            
+            for invite in pending_invites:
+                if invite.email.lower().strip() in member_emails:
+                    invite.accepted_at = datetime.utcnow()
+            
+            # 清除旧成员数据
+            db.query(TeamMember).filter(TeamMember.team_id == team.id).delete()
+            
+            # 插入新成员数据（去重）
+            seen_emails = set()
+            for m in members_data:
+                email = m.get("email", "").lower().strip()
+                if not email or email in seen_emails:
+                    continue
+                seen_emails.add(email)
+                
+                member = TeamMember(
+                    team_id=team.id,
+                    email=email,
+                    name=m.get("name", m.get("display_name", "")),
+                    role=m.get("role", "member"),
+                    chatgpt_user_id=m.get("id", m.get("user_id", "")),
+                    synced_at=datetime.utcnow()
+                )
+                db.add(member)
+            
+            db.commit()
+            success_count += 1
+            
+        except Exception:
+            fail_count += 1
+        
+        # 每个 Team 间隔 1 秒
+        await asyncio.sleep(1)
+    
+    return MessageResponse(message=f"同步完成：成功 {success_count} 个，失败 {fail_count} 个")

@@ -52,6 +52,7 @@ export const teamApi = {
   delete: (id: number) => api.delete(`/teams/${id}`),
   getMembers: (id: number) => api.get(`/teams/${id}/members`),
   syncMembers: (id: number) => api.post(`/teams/${id}/sync`),
+  syncAll: () => api.post('/teams/sync-all'),
   verifyToken: (id: number) => api.post(`/teams/${id}/verify-token`),
   getSubscription: (id: number) => api.get(`/teams/${id}/subscription`),
   getPendingInvites: (id: number) => api.get(`/teams/${id}/pending-invites`),

@@ -32,6 +32,7 @@ export default function Teams() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editingTeam, setEditingTeam] = useState<Team | null>(null)
   const [syncing, setSyncing] = useState<number | null>(null)
+  const [syncingAll, setSyncingAll] = useState(false)
   const [groups, setGroups] = useState<Group[]>([])
   const [form] = Form.useForm()
   const navigate = useNavigate()
@@ -75,6 +76,16 @@ export default function Teams() {
       fetchTeams() 
     } catch {} 
     finally { setSyncing(null) }
+  }
+
+  const handleSyncAll = async () => {
+    setSyncingAll(true)
+    try {
+      const res: any = await teamApi.syncAll()
+      message.success(res.message)
+      fetchTeams()
+    } catch {}
+    finally { setSyncingAll(false) }
   }
 
   const handleSubmit = async () => {
@@ -170,9 +181,14 @@ export default function Teams() {
           <h2 style={{ fontSize: 26, fontWeight: 700, margin: 0, color: '#1a1a2e', letterSpacing: '-0.5px' }}>Team 管理</h2>
           <p style={{ color: '#64748b', fontSize: 14, margin: '8px 0 0' }}>管理所有 ChatGPT Team 账号</p>
         </div>
-        <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate} size="large" style={{ borderRadius: 12, height: 44 }}>
-          添加 Team
-        </Button>
+        <Space>
+          <Button icon={<SyncOutlined spin={syncingAll} />} onClick={handleSyncAll} loading={syncingAll} size="large" style={{ borderRadius: 12, height: 44 }}>
+            同步全部
+          </Button>
+          <Button type="primary" icon={<PlusOutlined />} onClick={handleCreate} size="large" style={{ borderRadius: 12, height: 44 }}>
+            添加 Team
+          </Button>
+        </Space>
       </div>
 
       <Card bodyStyle={{ padding: 0 }}>

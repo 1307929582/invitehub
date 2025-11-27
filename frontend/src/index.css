@@ -682,3 +682,140 @@ body[data-theme="dark"] .ant-alert {
 body[data-theme="dark"] .ant-progress-inner {
   background: rgba(51, 65, 85, 0.5) !important;
 }
+
+/* ========== 移动端适配 ========== */
+@media screen and (max-width: 768px) {
+  /* 侧边栏隐藏 */
+  .ant-layout-sider {
+    display: none !important;
+  }
+  
+  /* 内容区域全宽 */
+  .ant-layout {
+    margin-left: 0 !important;
+  }
+  
+  /* 头部调整 */
+  .ant-layout-header {
+    padding: 0 12px !important;
+  }
+  
+  /* 内容区域 */
+  .ant-layout-content {
+    margin: 12px !important;
+    padding: 16px !important;
+    border-radius: 16px !important;
+  }
+  
+  /* 卡片 */
+  .ant-card {
+    border-radius: 14px !important;
+  }
+  
+  .ant-card-head {
+    padding: 12px 16px !important;
+  }
+  
+  .ant-card-body {
+    padding: 16px !important;
+  }
+  
+  /* 表格横向滚动 */
+  .ant-table-wrapper {
+    overflow-x: auto;
+  }
+  
+  .ant-table {
+    min-width: 600px;
+  }
+  
+  /* 统计卡片 */
+  .ant-row > .ant-col {
+    margin-bottom: 12px;
+  }
+  
+  /* 按钮 */
+  .ant-btn-lg {
+    height: 40px !important;
+    padding: 0 16px !important;
+    font-size: 14px !important;
+  }
+  
+  /* 弹窗 */
+  .ant-modal {
+    max-width: calc(100vw - 32px) !important;
+    margin: 16px !important;
+  }
+  
+  .ant-modal-content {
+    border-radius: 16px !important;
+  }
+  
+  .ant-modal-header,
+  .ant-modal-body,
+  .ant-modal-footer {
+    padding: 16px !important;
+  }
+  
+  /* 表单 */
+  .ant-form-item {
+    margin-bottom: 16px;
+  }
+  
+  /* 页面标题 */
+  h2 {
+    font-size: 22px !important;
+  }
+  
+  /* 隐藏部分操作按钮文字 */
+  .ant-space-item .ant-btn span:not(.anticon) {
+    display: none;
+  }
+  
+  .ant-space-item .ant-btn .anticon {
+    margin-right: 0 !important;
+  }
+}
+
+/* 平板适配 */
+@media screen and (max-width: 1024px) and (min-width: 769px) {
+  .ant-layout-sider {
+    width: 80px !important;
+    min-width: 80px !important;
+    max-width: 80px !important;
+  }
+  
+  .ant-layout {
+    margin-left: 80px !important;
+  }
+  
+  .ant-menu-title-content {
+    display: none !important;
+  }
+  
+  .ant-menu-item {
+    padding: 0 calc(50% - 12px) !important;
+  }
+}
+
+/* 小屏幕统计卡片 */
+@media screen and (max-width: 992px) {
+  .ant-row > .ant-col-6 {
+    flex: 0 0 50% !important;
+    max-width: 50% !important;
+  }
+}
+
+@media screen and (max-width: 576px) {
+  .ant-row > .ant-col-6 {
+    flex: 0 0 100% !important;
+    max-width: 100% !important;
+  }
+  
+  /* 页面头部堆叠 */
+  div[style*="justify-content: space-between"] {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 12px;
+  }
+}
