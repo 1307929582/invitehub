@@ -53,10 +53,42 @@ class GeminiAPI:
                 cookies[key.strip()] = value.strip()
         return cookies
     
+    def _clean_cookies(self) -> str:
+        """清理并提取需要的 Cookie"""
+        # 移除换行符和多余空白
+        cleaned = self.cookies.replace('\n', '').replace('\r', '').strip()
+        
+        # 需要的 Cookie 键
+        required_keys = ['__Secure-C_SES', '__Host-C_OSES', 'NID']
+        
+        # 解析所有 Cookie
+        all_cookies = {}
+        for item in cleaned.split(';'):
+            item = item.strip()
+            if '=' in item:
+                key, value = item.split('=', 1)
+                key = key.strip()
+                value = value.strip()
+                if key:
+                    all_cookies[key] = value
+        
+        # 只保留需要的 Cookie
+        filtered = []
+        for key in required_keys:
+            if key in all_cookies:
+                filtered.append(f"{key}={all_cookies[key]}")
+        
+        if not filtered:
+            # 如果没找到关键 Cookie，返回清理后的原始值
+            return cleaned
+        
+        return '; '.join(filtered)
+    
     async def _fetch_at_token(self, client: httpx.AsyncClient) -> str:
         """从页面获取 at token (SNlM0e)"""
+        clean_cookies = self._clean_cookies()
         headers = {
-            "Cookie": self.cookies,
+            "Cookie": clean_cookies,
             "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
         }
         
@@ -112,8 +144,9 @@ class GeminiAPI:
         if 'f.sid' in self.session_params:
             query_params['f.sid'] = self.session_params['f.sid']
         
+        clean_cookies = self._clean_cookies()
         headers = {
-            "Cookie": self.cookies,
+            "Cookie": clean_cookies,
             "Content-Type": "application/x-www-form-urlencoded;charset=utf-8",
             "Origin": self.BASE_URL,
             "Referer": f"{self.BASE_URL}/",
