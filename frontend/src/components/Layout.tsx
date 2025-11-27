@@ -235,7 +235,7 @@ export default function Layout() {
           </div>
           {!collapsed && (
             <span style={{ fontSize: 16, fontWeight: 700, color: '#1a1a2e', letterSpacing: '-0.3px', marginLeft: 12 }}>
-              ZenscaleAI
+              TeamHub
             </span>
           )}
         </div>

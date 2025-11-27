@@ -1,4 +1,4 @@
-<divzxn de align="center">
+<div align="center">
 
 # 🚀 ChatGPT Team Manager
 
@@ -23,11 +23,27 @@
 </p>
 
 <p>
-  <img src="https://img.shields.io/github/license/1307929582/team-invite?style=flat-square" alt="License">
-  <img src="https://img.shields.io/github/stars/1307929582/team-invite?style=flat-square" alt="Stars">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg?style=flat-square" alt="License"></a>
+  <a href="https://github.com/1307929582/team-invite/stargazers"><img src="https://img.shields.io/github/stars/1307929582/team-invite?style=flat-square" alt="Stars"></a>
+  <a href="https://github.com/1307929582/team-invite/issues"><img src="https://img.shields.io/github/issues/1307929582/team-invite?style=flat-square" alt="Issues"></a>
 </p>
 
-</divzxn>
+</div>
+
+## 📸 界面预览
+
+<details>
+<summary>点击展开截图</summary>
+
+> 💡 欢迎提交 PR 添加截图！
+
+<!-- 
+添加截图示例：
+![Dashboard](docs/screenshots/dashboard.png)
+![Teams](docs/screenshots/teams.png)
+-->
+
+</details>
 
 ---
 
@@ -252,6 +268,8 @@ rm -rf team-invite              # 删除项目目录
 ## 🤝 贡献
 
 欢迎提交 Issue 和 Pull Request！
+
+详见 [贡献指南](CONTRIBUTING.md)
 
 ## 📄 License
 

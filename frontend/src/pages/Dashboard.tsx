@@ -153,7 +153,7 @@ export default function Dashboard() {
       <div style={{ marginBottom: 32 }}>
         <h2 style={{ fontSize: 26, fontWeight: 700, margin: 0, color: '#1a1a2e', letterSpacing: '-0.5px' }}>工作台</h2>
         <p style={{ color: '#64748b', fontSize: 14, margin: '8px 0 0' }}>
-          欢迎使用 ZenscaleAI Team 管理平台
+          欢迎使用 ChatGPT Team 管理平台
         </p>
       </div>
 
