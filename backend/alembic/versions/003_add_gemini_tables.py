@@ -1,7 +1,7 @@
 """add gemini tables
 
-Revision ID: 002_add_gemini
-Revises: 001_initial
+Revision ID: 003_add_gemini
+Revises: 002_add_team_groups
 Create Date: 2025-11-27
 
 """
@@ -10,8 +10,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = '002_add_gemini'
-down_revision = '001_initial'
+revision = '003_add_gemini'
+down_revision = '002_add_team_groups'
 branch_labels = None
 depends_on = None
 
