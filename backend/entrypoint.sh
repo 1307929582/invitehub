@@ -5,8 +5,8 @@ set -e
 echo "Waiting for database..."
 sleep 2
 
-# 清理无效的迁移记录（处理删除的迁移文件）
-echo "Cleaning up invalid migration records..."
+# 修复迁移版本记录
+echo "Fixing migration version records..."
 python -c "
 import os
 from sqlalchemy import create_engine, text
@@ -16,12 +16,23 @@ engine = create_engine(database_url)
 
 try:
     with engine.connect() as conn:
-        # 删除不存在的迁移版本记录
-        result = conn.execute(text(\"DELETE FROM alembic_version WHERE version_num LIKE '%gemini%'\"))
-        conn.commit()
-        print(f'Cleaned up {result.rowcount} invalid migration records')
+        # 检查当前版本
+        result = conn.execute(text('SELECT version_num FROM alembic_version'))
+        rows = result.fetchall()
+        
+        if rows:
+            current_version = rows[0][0]
+            print(f'Current migration version: {current_version}')
+            
+            # 如果是旧的 gemini 版本，更新到新版本
+            if 'gemini' in current_version.lower() or current_version == '003_add_gemini':
+                conn.execute(text(\"UPDATE alembic_version SET version_num = '003_remove_gemini'\"))
+                conn.commit()
+                print('Updated migration version to 003_remove_gemini')
+        else:
+            print('No migration version found')
 except Exception as e:
-    print(f'Migration cleanup skipped: {e}')
+    print(f'Migration fix skipped: {e}')
 "
 
 # 运行数据库迁移
