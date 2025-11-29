@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = '004_add_group_alert'
-down_revision = '003_remove_gemini_tables'
+down_revision = '003_remove_gemini'
 branch_labels = None
 depends_on = None
 
