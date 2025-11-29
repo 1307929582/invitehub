@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Card, Form, Input, Button, message, Alert, Space } from 'antd'
+import { Card, Form, Input, Button, message, Alert } from 'antd'
 import { SaveOutlined, ArrowLeftOutlined, SafetyOutlined } from '@ant-design/icons'
 import { configApi } from '../../api'
 
