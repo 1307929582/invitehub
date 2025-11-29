@@ -257,34 +257,35 @@ class SeatStats(BaseModel):
 
 @router.get("/seats", response_model=SeatStats)
 async def get_seat_stats(db: Session = Depends(get_db)):
-    """获取座位统计（公开）"""
+    """获取座位统计（公开）
+    
+    使用本地缓存的成员数据，不实时调用 ChatGPT API
+    - used_seats: 已同步的成员数（TeamMember 表）
+    - pending_seats: 不再单独统计，因为本地记录不准确
+    - available_seats: total - used
+    """
     teams = db.query(Team).filter(Team.is_active == True).all()
     
     total_seats = 0
     used_seats = 0
-    pending_seats = 0
     
     for team in teams:
         total_seats += team.max_seats
-        # 已同步成员
+        # 已同步成员（这是最准确的数据，来自定时同步）
         member_count = db.query(TeamMember).filter(TeamMember.team_id == team.id).count()
         used_seats += member_count
-        # 已邀请未接受
-        pending_count = db.query(InviteRecord).filter(
-            InviteRecord.team_id == team.id,
-            InviteRecord.status == InviteStatus.SUCCESS,
-            InviteRecord.accepted_at == None
-        ).count()
-        pending_seats += pending_count
     
-    available_seats = total_seats - used_seats - pending_seats
+    # 可用空位 = 总座位 - 已使用
+    # 注意：这里不减去 pending，因为本地的 pending 记录可能不准确
+    # 实际可用空位可能比这个少（如果有待接受的邀请）
+    available_seats = total_seats - used_seats
     if available_seats < 0:
         available_seats = 0
     
     return SeatStats(
         total_seats=total_seats,
         used_seats=used_seats,
-        pending_seats=pending_seats,
+        pending_seats=0,  # 不再显示，因为本地数据不准确
         available_seats=available_seats
     )
 

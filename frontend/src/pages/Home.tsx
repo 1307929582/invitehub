@@ -196,12 +196,12 @@ export default function Home() {
               <div style={{ fontSize: 12, color: '#64748b' }}>可用空位</div>
             </div>
             <div style={{ textAlign: 'center' }}>
-              <div style={{ fontSize: 20, fontWeight: 700, color: '#f59e0b' }}>{seats.pending_seats}</div>
-              <div style={{ fontSize: 12, color: '#64748b' }}>待接受</div>
-            </div>
-            <div style={{ textAlign: 'center' }}>
               <div style={{ fontSize: 20, fontWeight: 700, color: '#3b82f6' }}>{seats.used_seats}</div>
               <div style={{ fontSize: 12, color: '#64748b' }}>已使用</div>
+            </div>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 20, fontWeight: 700, color: '#64748b' }}>{seats.total_seats}</div>
+              <div style={{ fontSize: 12, color: '#64748b' }}>总座位</div>
             </div>
           </div>
         )}
