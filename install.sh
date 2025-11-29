@@ -127,10 +127,24 @@ if $DOCKER_COMPOSE -f $COMPOSE_FILE ps | grep -q "Up\|running"; then
     info "首次访问会跳转到初始化页面，请设置管理员账号"
     echo ""
     info "安装目录: $INSTALL_DIR"
-    info "常用命令:"
-    echo "  查看日志:   cd $INSTALL_DIR && $DOCKER_COMPOSE -f $COMPOSE_FILE logs -f"
-    echo "  停止服务:   cd $INSTALL_DIR && $DOCKER_COMPOSE -f $COMPOSE_FILE down"
-    echo "  重启服务:   cd $INSTALL_DIR && $DOCKER_COMPOSE -f $COMPOSE_FILE restart"
+    
+    # 安装 team 命令行工具
+    if [ -f "$INSTALL_DIR/team" ]; then
+        chmod +x "$INSTALL_DIR/team"
+        sudo ln -sf "$INSTALL_DIR/team" /usr/local/bin/team 2>/dev/null || true
+        if command -v team &> /dev/null; then
+            success "命令行工具已安装，可直接使用 'team' 命令管理"
+        fi
+    fi
+    
+    echo ""
+    info "管理命令: team"
+    echo "  team status   - 查看状态"
+    echo "  team update   - 更新系统"
+    echo "  team logs     - 查看日志"
+    echo "  team restart  - 重启服务"
+    echo "  team backup   - 备份数据库"
+    echo "  team help     - 查看帮助"
     echo ""
 else
     error "服务启动失败，请检查日志: $DOCKER_COMPOSE -f $COMPOSE_FILE logs"
