@@ -130,11 +130,7 @@ export default function Teams() {
       const matchSearch = !searchKeyword || t.name.toLowerCase().includes(searchKeyword.toLowerCase())
       return matchGroup && matchSearch
     })
-    .sort((a, b) => {
-      const usageA = (a.member_count || 0) / (a.max_seats || 5)
-      const usageB = (b.member_count || 0) / (b.max_seats || 5)
-      return usageB - usageA
-    })
+    .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
 
   return (
     <div>
