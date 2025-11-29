@@ -49,7 +49,6 @@ const menuItems = [
   { type: 'divider' as const },
   { key: '/admin/logs', icon: <FileTextOutlined />, label: '操作日志' },
   { key: '/admin/admins', icon: <UserOutlined />, label: '管理员管理' },
-  { key: '/admin/notifications', icon: <BellOutlined />, label: '通知设置' },
   { key: '/admin/settings', icon: <SettingOutlined />, label: '系统设置' },
 ]
 
