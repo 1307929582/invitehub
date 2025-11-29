@@ -87,6 +87,10 @@ class ChatGPTAPI:
                 elif response.status_code >= 400:
                     raise ChatGPTAPIError(response.status_code, response.text[:200])
                 
+                # DELETE 请求可能返回空响应
+                if response.status_code == 204 or not response.text:
+                    return {"success": True}
+                
                 return response.json()
                 
             except httpx.TimeoutException:
