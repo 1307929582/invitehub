@@ -329,10 +329,10 @@ async def remove_team_member(
         raise HTTPException(status_code=400, detail=f"移除失败: {e.message}")
 
 
-@router.delete("/{team_id}/invites/{invite_id}", response_model=MessageResponse)
+@router.delete("/{team_id}/invites", response_model=MessageResponse)
 async def cancel_team_invite(
     team_id: int,
-    invite_id: str,
+    email: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
@@ -343,7 +343,7 @@ async def cancel_team_invite(
     
     try:
         api = ChatGPTAPI(team.session_token, team.device_id or "", team.cookie or "")
-        await api.cancel_invite(team.account_id, invite_id)
+        await api.cancel_invite(team.account_id, email)
         return MessageResponse(message="邀请已取消")
     except ChatGPTAPIError as e:
         raise HTTPException(status_code=400, detail=f"取消失败: {e.message}")

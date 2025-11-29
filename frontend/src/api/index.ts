@@ -57,7 +57,7 @@ export const teamApi = {
   getSubscription: (id: number) => api.get(`/teams/${id}/subscription`),
   getPendingInvites: (id: number) => api.get(`/teams/${id}/pending-invites`),
   removeMember: (teamId: number, userId: string) => api.delete(`/teams/${teamId}/members/${userId}`),
-  cancelInvite: (teamId: number, inviteId: string) => api.delete(`/teams/${teamId}/invites/${inviteId}`),
+  cancelInvite: (teamId: number, email: string) => api.delete(`/teams/${teamId}/invites`, { params: { email } }),
 }
 
 // Invite API

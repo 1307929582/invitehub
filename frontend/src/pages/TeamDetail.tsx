@@ -96,11 +96,11 @@ export default function TeamDetail() {
     } catch {}
   }
 
-  const handleCancelInvite = async (inviteId: string) => {
+  const handleCancelInvite = async (email: string) => {
     try {
-      await teamApi.cancelInvite(Number(id), inviteId)
+      await teamApi.cancelInvite(Number(id), email)
       message.success('邀请已取消')
-      setPendingInvites(pendingInvites.filter(i => i.id !== inviteId))
+      setPendingInvites(pendingInvites.filter(i => i.email_address !== email))
     } catch {}
   }
 
@@ -124,11 +124,11 @@ export default function TeamDetail() {
     { title: '邮箱', dataIndex: 'email_address', ellipsis: true },
     { title: '角色', dataIndex: 'role', width: 100, render: (v: string) => <Tag>{v}</Tag> },
     { title: '邀请时间', dataIndex: 'created_time', width: 160, render: (v: string) => <span style={{ color: '#64748b' }}>{formatDate(v, 'YYYY-MM-DD HH:mm')}</span> },
-    { 
-      title: '操作', 
-      width: 80, 
+    {
+      title: '操作',
+      width: 80,
       render: (_: any, r: PendingInvite) => (
-        <Popconfirm title="确定取消此邀请？" onConfirm={() => handleCancelInvite(r.id)} okText="取消邀请" cancelText="返回">
+        <Popconfirm title="确定取消此邀请？" onConfirm={() => handleCancelInvite(r.email_address)} okText="取消邀请" cancelText="返回">
           <Button size="small" type="text" danger icon={<DeleteOutlined />} />
         </Popconfirm>
       )

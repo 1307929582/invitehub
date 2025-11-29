@@ -139,9 +139,10 @@ class ChatGPTAPI:
         """移除 Team 成员"""
         return await self._request("DELETE", f"/accounts/{account_id}/users/{user_id}", account_id)
     
-    async def cancel_invite(self, account_id: str, invite_id: str) -> Dict[str, Any]:
+    async def cancel_invite(self, account_id: str, email: str) -> Dict[str, Any]:
         """取消待处理的邀请"""
-        return await self._request("DELETE", f"/accounts/{account_id}/invites/{invite_id}", account_id)
+        data = {"email_address": email}
+        return await self._request("DELETE", f"/accounts/{account_id}/invites", account_id, data=data)
 
 
 async def batch_invite(
