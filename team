@@ -50,9 +50,35 @@ check_docker() {
 }
 
 status() {
-    echo -e "${BLUE}服务状态:${NC}"
     cd "$PROJECT_DIR"
-    docker compose -f $COMPOSE_FILE ps
+    
+    # 前端
+    if docker compose -f $COMPOSE_FILE ps frontend 2>/dev/null | grep -q "Up"; then
+        echo -e "前端：${GREEN}运行${NC}"
+    else
+        echo -e "前端：${RED}未运行${NC}"
+    fi
+    
+    # 后端
+    if docker compose -f $COMPOSE_FILE ps backend 2>/dev/null | grep -q "Up"; then
+        echo -e "后端：${GREEN}运行${NC}"
+    else
+        echo -e "后端：${RED}未运行${NC}"
+    fi
+    
+    # 数据库
+    if docker compose -f $COMPOSE_FILE ps postgres 2>/dev/null | grep -q "Up"; then
+        echo -e "数据库：${GREEN}运行${NC}"
+    else
+        echo -e "数据库：${RED}未运行${NC}"
+    fi
+    
+    # Redis
+    if docker compose -f $COMPOSE_FILE ps redis 2>/dev/null | grep -q "Up"; then
+        echo -e "缓存：${GREEN}运行${NC}"
+    else
+        echo -e "缓存：${RED}未运行${NC}"
+    fi
 }
 
 start() {
