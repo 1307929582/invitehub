@@ -214,39 +214,34 @@ export default function Teams() {
                   hoverable
                   onClick={() => navigate(`/admin/teams/${team.id}`)}
                   style={{ 
-                    borderRadius: 14,
+                    borderRadius: 12,
                     border: usage >= 90 ? '2px solid rgba(239, 68, 68, 0.5)' : '1px solid rgba(0, 0, 0, 0.06)',
                   }}
-                  styles={{ body: { padding: 16 } }}
+                  styles={{ body: { padding: '12px 14px' } }}
+                  title={
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                      <span style={{ fontWeight: 600, fontSize: 14, color: '#1a1a2e' }}>{team.name}</span>
+                      {team.group_name && (
+                        <Tag color={groups.find(g => g.id === team.group_id)?.color} style={{ fontSize: 10, margin: 0, lineHeight: '16px', padding: '0 4px' }}>
+                          {team.group_name}
+                        </Tag>
+                      )}
+                    </div>
+                  }
                   extra={
                     <Dropdown 
-                      menu={{ 
-                        items: menuItems,
-                        onClick: ({ key, domEvent }) => {
-                          domEvent.stopPropagation()
-                          if (key === 'delete') {
-                            // 删除需要确认
-                          }
-                        }
-                      }} 
+                      menu={{ items: menuItems }} 
                       trigger={['click']}
                     >
-                      <Button type="text" size="small" icon={<MoreOutlined />} onClick={e => e.stopPropagation()} />
+                      <Button type="text" size="small" icon={<MoreOutlined />} onClick={e => e.stopPropagation()} style={{ marginRight: -8 }} />
                     </Dropdown>
                   }
                 >
-                  <div style={{ marginBottom: 12 }}>
-                    <div style={{ fontWeight: 600, color: '#1a1a2e', fontSize: 15, marginBottom: 4 }}>{team.name}</div>
-                    {team.group_name && (
-                      <Tag color={groups.find(g => g.id === team.group_id)?.color} style={{ fontSize: 11 }}>
-                        {team.group_name}
-                      </Tag>
-                    )}
-                  </div>
                   <Progress 
                     percent={usage} 
+                    size="small"
                     strokeColor={usage >= 90 ? '#ef4444' : usage >= 70 ? '#f59e0b' : '#10b981'}
-                    format={() => <span style={{ fontSize: 13, fontWeight: 600 }}>{memberCount}/{maxSeats}</span>}
+                    format={() => <span style={{ fontSize: 12, fontWeight: 600 }}>{memberCount}/{maxSeats}</span>}
                   />
                 </Card>
               </Col>
