@@ -20,6 +20,10 @@ import Groups from './pages/Groups'
 import InviteRecords from './pages/InviteRecords'
 import PendingInvites from './pages/PendingInvites'
 import Admins from './pages/Admins'
+import OAuthSettings from './pages/settings/OAuthSettings'
+import SiteSettings from './pages/settings/SiteSettings'
+import EmailSettings from './pages/settings/EmailSettings'
+import AlertSettings from './pages/settings/AlertSettings'
 import { useStore } from './store'
 import { authApi, setupApi } from './api'
 
@@ -133,6 +137,10 @@ function App() {
           <Route path="pending-invites" element={<PendingInvites />} />
           <Route path="logs" element={<Logs />} />
           <Route path="settings" element={<Settings />} />
+          <Route path="settings/oauth" element={<OAuthSettings />} />
+          <Route path="settings/site" element={<SiteSettings />} />
+          <Route path="settings/email" element={<EmailSettings />} />
+          <Route path="settings/alerts" element={<AlertSettings />} />
           <Route path="admins" element={<Admins />} />
         </Route>
       </Routes>
