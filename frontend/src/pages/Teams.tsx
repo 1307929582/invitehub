@@ -130,7 +130,7 @@ export default function Teams() {
       const matchSearch = !searchKeyword || t.name.toLowerCase().includes(searchKeyword.toLowerCase())
       return matchGroup && matchSearch
     })
-    .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN'))
+    .sort((a, b) => a.name.localeCompare(b.name, 'zh-CN', { numeric: true }))
 
   return (
     <div>
