@@ -121,6 +121,7 @@ class TeamGroup(Base):
     name = Column(String(100), unique=True, nullable=False)
     description = Column(String(255), nullable=True)
     color = Column(String(20), default="#1890ff")  # 标签颜色
+    alert_threshold = Column(Integer, default=5)  # 空位预警阈值，0 表示不预警
     created_at = Column(DateTime, default=datetime.utcnow)
     
     teams = relationship("Team", back_populates="group")

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { Card, Table, Button, Space, Modal, Form, Input, message, Popconfirm, ColorPicker } from 'antd'
-import { PlusOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons'
+import { Card, Table, Button, Space, Modal, Form, Input, InputNumber, message, Popconfirm, ColorPicker, Tooltip } from 'antd'
+import { PlusOutlined, EditOutlined, DeleteOutlined, BellOutlined } from '@ant-design/icons'
 import { groupApi } from '../api'
 
 interface Group {
@@ -8,6 +8,7 @@ interface Group {
   name: string
   description?: string
   color: string
+  alert_threshold: number
   team_count: number
   total_seats: number
   used_seats: number
@@ -37,7 +38,7 @@ export default function Groups() {
   const handleCreate = () => {
     setEditingGroup(null)
     form.resetFields()
-    form.setFieldsValue({ color: '#1890ff' })
+    form.setFieldsValue({ color: '#1890ff', alert_threshold: 5 })
     setModalOpen(true)
   }
 
@@ -46,7 +47,8 @@ export default function Groups() {
     form.setFieldsValue({
       name: group.name,
       description: group.description,
-      color: group.color
+      color: group.color,
+      alert_threshold: group.alert_threshold
     })
     setModalOpen(true)
   }
@@ -101,6 +103,19 @@ export default function Groups() {
             </span>
           )}
         </span>
+      )
+    },
+    {
+      title: '预警阈值',
+      dataIndex: 'alert_threshold',
+      width: 100,
+      render: (v: number) => (
+        <Tooltip title={v === 0 ? '不预警' : `空位少于 ${v} 时预警`}>
+          <span>
+            <BellOutlined style={{ marginRight: 4, color: v === 0 ? '#d1d5db' : '#f59e0b' }} />
+            {v === 0 ? '关闭' : v}
+          </span>
+        </Tooltip>
       )
     },
     {
@@ -162,6 +177,13 @@ export default function Groups() {
           </Form.Item>
           <Form.Item name="color" label="标签颜色">
             <ColorPicker />
+          </Form.Item>
+          <Form.Item 
+            name="alert_threshold" 
+            label="空位预警阈值"
+            extra="空位少于此数量时发送预警邮件，设为 0 则不预警"
+          >
+            <InputNumber min={0} max={100} style={{ width: '100%' }} placeholder="5" />
           </Form.Item>
         </Form>
       </Modal>

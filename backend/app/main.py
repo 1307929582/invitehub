@@ -163,9 +163,14 @@ async def check_and_send_alerts():
                     })
                     send_token_expiring_notification(db, team.name, days_left)
         
-        # 检查分组座位情况
+        # 检查分组座位情况（使用每个分组自己的阈值）
         groups = db.query(TeamGroup).all()
         for group in groups:
+            # 获取分组的预警阈值，0 表示不预警
+            group_threshold = group.alert_threshold if group.alert_threshold is not None else 5
+            if group_threshold == 0:
+                continue  # 该分组不需要预警
+            
             # 获取该分组下所有 Team 的座位统计
             group_teams = db.query(Team).filter(
                 Team.group_id == group.id,
@@ -181,9 +186,8 @@ async def check_and_send_alerts():
                 used_seats += db.query(TeamMember).filter(TeamMember.team_id == t.id).count()
             
             available_seats = total_seats - used_seats
-            usage_percent = (used_seats / total_seats * 100) if total_seats > 0 else 0
             
-            # 分组座位预警：剩余座位少于阈值或使用率超过阈值
+            # 分组座位预警：剩余座位少于该分组的阈值
             if available_seats <= 0:
                 alerts.append({
                     "type": "error",
@@ -191,11 +195,11 @@ async def check_and_send_alerts():
                     "message": f"分组座位已满！（{used_seats}/{total_seats}）"
                 })
                 send_group_seat_warning(db, group.name, used_seats, total_seats, available_seats)
-            elif available_seats <= group_seat_warning_threshold:
+            elif available_seats <= group_threshold:
                 alerts.append({
                     "type": "warning",
                     "team": f"分组: {group.name}",
-                    "message": f"分组仅剩 {available_seats} 个空位（{used_seats}/{total_seats}）"
+                    "message": f"分组仅剩 {available_seats} 个空位（{used_seats}/{total_seats}，阈值: {group_threshold}）"
                 })
                 send_group_seat_warning(db, group.name, used_seats, total_seats, available_seats)
         

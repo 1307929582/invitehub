@@ -15,12 +15,14 @@ class GroupCreate(BaseModel):
     name: str
     description: Optional[str] = None
     color: Optional[str] = "#1890ff"
+    alert_threshold: int = 5  # 空位预警阈值，0 表示不预警
 
 
 class GroupUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     color: Optional[str] = None
+    alert_threshold: Optional[int] = None
 
 
 class GroupResponse(BaseModel):
@@ -28,6 +30,7 @@ class GroupResponse(BaseModel):
     name: str
     description: Optional[str]
     color: str
+    alert_threshold: int = 5
     team_count: int = 0
     total_seats: int = 0
     used_seats: int = 0
@@ -61,6 +64,7 @@ async def list_groups(db: Session = Depends(get_db), _=Depends(get_current_user)
             name=group.name,
             description=group.description,
             color=group.color or "#1890ff",
+            alert_threshold=group.alert_threshold if group.alert_threshold is not None else 5,
             team_count=len(teams),
             total_seats=total_seats,
             used_seats=used_seats
@@ -80,7 +84,8 @@ async def create_group(data: GroupCreate, db: Session = Depends(get_db), _=Depen
     group = TeamGroup(
         name=data.name,
         description=data.description,
-        color=data.color
+        color=data.color,
+        alert_threshold=data.alert_threshold
     )
     db.add(group)
     db.commit()
@@ -91,6 +96,7 @@ async def create_group(data: GroupCreate, db: Session = Depends(get_db), _=Depen
         name=group.name,
         description=group.description,
         color=group.color or "#1890ff",
+        alert_threshold=group.alert_threshold if group.alert_threshold is not None else 5,
         team_count=0,
         total_seats=0,
         used_seats=0
@@ -114,6 +120,8 @@ async def update_group(group_id: int, data: GroupUpdate, db: Session = Depends(g
         group.description = data.description
     if data.color:
         group.color = data.color
+    if data.alert_threshold is not None:
+        group.alert_threshold = data.alert_threshold
     
     db.commit()
     db.refresh(group)
@@ -131,6 +139,7 @@ async def update_group(group_id: int, data: GroupUpdate, db: Session = Depends(g
         name=group.name,
         description=group.description,
         color=group.color or "#1890ff",
+        alert_threshold=group.alert_threshold if group.alert_threshold is not None else 5,
         team_count=len(teams),
         total_seats=total_seats,
         used_seats=used_seats

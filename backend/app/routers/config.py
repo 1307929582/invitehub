@@ -217,9 +217,14 @@ async def check_alerts(
                     "message": f"Token 将在 {days_left} 天后过期" if days_left > 0 else "Token 已过期！"
                 })
     
-    # 检查分组空位
+    # 检查分组空位（使用每个分组自己的阈值）
     groups = db.query(TeamGroup).all()
     for group in groups:
+        # 获取分组的预警阈值，0 表示不预警
+        group_threshold = group.alert_threshold if group.alert_threshold is not None else 5
+        if group_threshold == 0:
+            continue  # 该分组不需要预警
+        
         group_teams = db.query(Team).filter(
             Team.group_id == group.id,
             Team.is_active == True
@@ -242,11 +247,11 @@ async def check_alerts(
                 "message": f"分组座位已满！（{used_seats}/{total_seats}）"
             })
             send_group_seat_warning(db, group.name, used_seats, total_seats, available_seats)
-        elif available_seats <= group_seat_threshold:
+        elif available_seats <= group_threshold:
             alerts.append({
                 "type": "warning",
                 "team": f"分组: {group.name}",
-                "message": f"分组仅剩 {available_seats} 个空位（{used_seats}/{total_seats}）"
+                "message": f"分组仅剩 {available_seats} 个空位（{used_seats}/{total_seats}，阈值: {group_threshold}）"
             })
             send_group_seat_warning(db, group.name, used_seats, total_seats, available_seats)
     
