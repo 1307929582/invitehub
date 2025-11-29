@@ -68,19 +68,19 @@ export default function Login() {
         zIndex: 1,
       }}>
         <div style={{ textAlign: 'center', marginBottom: 44 }}>
-          <div style={{ 
-            width: 64, 
-            height: 64, 
-            borderRadius: 18,
-            background: 'linear-gradient(135deg, #1a1a2e 0%, #2d2d44 100%)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            margin: '0 auto 24px',
-            boxShadow: '0 8px 24px rgba(0, 0, 0, 0.15)',
-          }}>
-            <span style={{ color: '#fff', fontWeight: 700, fontSize: 26 }}>Z</span>
-          </div>
+          <img 
+            src="/logo.jpg" 
+            alt="Logo" 
+            style={{ 
+              width: 64, 
+              height: 64, 
+              borderRadius: 18,
+              objectFit: 'cover',
+              margin: '0 auto 24px',
+              boxShadow: '0 8px 24px rgba(0, 0, 0, 0.15)',
+              display: 'block',
+            }} 
+          />
           <h1 style={{ fontSize: 24, fontWeight: 700, margin: '0 0 10px 0', color: '#1a1a2e', letterSpacing: '-0.5px' }}>
             管理后台
           </h1>

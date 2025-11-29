@@ -160,15 +160,19 @@ export default function Home() {
       }}>
         {/* Logo */}
         <div style={{ textAlign: 'center', marginBottom: 28 }}>
-          <div style={{ 
-            width: 56, height: 56, borderRadius: 16,
-            background: 'linear-gradient(135deg, #1a1a2e 0%, #2d2d44 100%)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            margin: '0 auto 20px',
-            boxShadow: '0 8px 24px rgba(0, 0, 0, 0.15)',
-          }}>
-            <span style={{ color: '#fff', fontWeight: 700, fontSize: 22 }}>Z</span>
-          </div>
+          <img 
+            src="/logo.jpg" 
+            alt="Logo" 
+            style={{ 
+              width: 56, 
+              height: 56, 
+              borderRadius: 16,
+              objectFit: 'cover',
+              margin: '0 auto 20px',
+              boxShadow: '0 8px 24px rgba(0, 0, 0, 0.15)',
+              display: 'block',
+            }} 
+          />
           <h1 style={{ fontSize: 22, fontWeight: 700, margin: '0 0 8px', color: '#1a1a2e' }}>
             ChatGPT Team 自助上车
           </h1>
