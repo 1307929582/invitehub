@@ -33,6 +33,11 @@ def get_available_team(db: Session, group_id: Optional[int] = None, group_name: 
     Args:
         group_id: 指定分组 ID
         group_name: 指定分组名称（如果 group_id 为空，则按名称查找）
+    
+    座位判断逻辑：
+    - 只依赖 TeamMember 表的成员数（定时同步的真实数据）
+    - 不再统计本地的 pending 邀请记录，因为可能不准确
+    - 这样当有人退出后，同步更新后空位就能被使用
     """
     team_query = db.query(Team).filter(Team.is_active == True)
     
@@ -51,16 +56,11 @@ def get_available_team(db: Session, group_id: Optional[int] = None, group_name: 
     teams = team_query.with_for_update().all()
     
     for team in teams:
-        # 检查座位
+        # 只检查已同步的成员数（来自定时同步，是真实数据）
         member_count = db.query(TeamMember).filter(TeamMember.team_id == team.id).count()
-        pending_invite_count = db.query(InviteRecord).filter(
-            InviteRecord.team_id == team.id,
-            InviteRecord.status == InviteStatus.SUCCESS,
-            InviteRecord.accepted_at == None
-        ).count()
-        total_used = member_count + pending_invite_count
         
-        if total_used < team.max_seats:
+        # 有空位就返回这个 Team
+        if member_count < team.max_seats:
             return team
     
     return None
