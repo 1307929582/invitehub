@@ -15,8 +15,7 @@ import {
   SettingOutlined,
   AppstoreOutlined,
   UnorderedListOutlined,
-  SunOutlined,
-  MoonOutlined,
+
   BellOutlined,
   WarningOutlined,
   ExclamationCircleOutlined,
@@ -62,7 +61,7 @@ export default function Layout() {
   })
   const navigate = useNavigate()
   const location = useLocation()
-  const { user, logout, theme, toggleTheme, teams, setTeams } = useStore()
+  const { user, logout, teams, setTeams } = useStore()
 
   // 获取 Teams 并检查预警
   useEffect(() => {
@@ -392,30 +391,7 @@ export default function Layout() {
               </Badge>
             </Popover>
 
-            <div 
-              onClick={toggleTheme}
-              style={{ 
-                cursor: 'pointer', 
-                color: '#64748b',
-                width: 32,
-                height: 32,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                borderRadius: 6,
-                transition: 'all 0.2s',
-              }}
-              onMouseEnter={e => {
-                e.currentTarget.style.background = 'rgba(0, 0, 0, 0.04)'
-                e.currentTarget.style.color = '#1a1a2e'
-              }}
-              onMouseLeave={e => {
-                e.currentTarget.style.background = 'transparent'
-                e.currentTarget.style.color = '#64748b'
-              }}
-            >
-              {theme === 'light' ? <MoonOutlined style={{ fontSize: 15 }} /> : <SunOutlined style={{ fontSize: 15 }} />}
-            </div>
+
             <Dropdown menu={userMenu} placement="bottomRight">
               <div style={{ 
                 cursor: 'pointer', 

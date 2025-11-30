@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     
     # 应用配置
     APP_NAME: str = "ChatGPT Team Manager"
-    APP_VERSION: str = "1.1.6"
+    APP_VERSION: str = "1.1.7"
     DEBUG: bool = False
     
     # GitHub 仓库（用于版本检查）
