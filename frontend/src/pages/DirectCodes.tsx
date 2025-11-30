@@ -1,6 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Card, Table, Button, Space, Tag, Modal, Form, Input, InputNumber, message, Popconfirm, Tooltip, Radio, Select, Collapse } from 'antd'
-import { QuestionCircleOutlined } from '@ant-design/icons'
+import { Card, Table, Button, Space, Tag, Modal, Form, Input, InputNumber, message, Popconfirm, Tooltip, Radio, Select } from 'antd'
 import { PlusOutlined, DeleteOutlined, CopyOutlined, StopOutlined, CheckOutlined, LinkOutlined, EyeOutlined } from '@ant-design/icons'
 import { redeemApi, groupApi } from '../api'
 import { formatDate, formatShortDate, toLocalDate } from '../utils/date'
@@ -232,43 +231,7 @@ export default function DirectCodes() {
         <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setNewCodes([]); setModalOpen(true) }} size="large" style={{ borderRadius: 12, height: 44 }}>生成链接</Button>
       </div>
 
-      {/* 使用说明 */}
-      <Card 
-        size="small" 
-        style={{ marginBottom: 16, background: 'linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%)', border: '1px solid #93c5fd' }}
-      >
-        <Collapse 
-          ghost 
-          defaultActiveKey={[]}
-          items={[{
-            key: '1',
-            label: (
-              <span style={{ color: '#1d4ed8', fontWeight: 600, fontSize: 14 }}>
-                <QuestionCircleOutlined style={{ marginRight: 8 }} />
-                📖 使用说明（点击展开）
-              </span>
-            ),
-            children: (
-              <div style={{ color: '#475569', fontSize: 13, lineHeight: 2, paddingTop: 8 }}>
-                <p style={{ margin: '0 0 12px' }}><strong>🎯 适用场景：</strong>闲鱼、淘宝等渠道销售，用户无需登录即可使用</p>
-                <p style={{ margin: '0 0 8px' }}><strong>📋 使用流程：</strong></p>
-                <ol style={{ paddingLeft: 24, margin: '0 0 12px' }}>
-                  <li>点击右上角「生成链接」创建邀请链接</li>
-                  <li>复制链接发送给买家</li>
-                  <li>买家打开链接，输入邮箱即可收到 ChatGPT Team 邀请</li>
-                  <li>买家在邮箱中点击接受邀请，完成加入</li>
-                </ol>
-                <p style={{ margin: '0 0 8px' }}><strong>💡 建议设置：</strong></p>
-                <ul style={{ paddingLeft: 24, margin: 0 }}>
-                  <li>每个链接可用次数设为 <strong>1</strong>，一人一链接，方便追踪</li>
-                  <li>备注填写订单号，便于售后查询</li>
-                  <li>可设置有效期，过期自动失效</li>
-                </ul>
-              </div>
-            )
-          }]}
-        />
-      </Card>
+
 
       <Card bodyStyle={{ padding: 0 }}>
         <div style={{ padding: '16px 20px', borderBottom: '1px solid #f0f0f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>

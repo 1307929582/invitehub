@@ -182,6 +182,17 @@ export default function DirectInvite() {
             >
               获取邀请
             </Button>
+
+            {/* 使用说明 */}
+            <div style={{ marginTop: 24, padding: 16, background: '#f8fafc', borderRadius: 12, fontSize: 13, color: '#64748b', lineHeight: 1.8 }}>
+              <div style={{ fontWeight: 600, color: '#475569', marginBottom: 8 }}>📋 使用说明</div>
+              <ol style={{ paddingLeft: 20, margin: 0 }}>
+                <li>输入您的邮箱地址</li>
+                <li>点击「获取邀请」按钮</li>
+                <li>查收邮箱中的 ChatGPT Team 邀请邮件</li>
+                <li>点击邮件中的链接接受邀请，完成加入</li>
+              </ol>
+            </div>
           </div>
         )}
       </Card>
