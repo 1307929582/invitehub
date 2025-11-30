@@ -73,6 +73,11 @@ async def sync_all_teams():
                     db.add(member)
                 
                 db.commit()
+                
+                # 清除座位缓存
+                from app.cache import invalidate_seat_cache
+                invalidate_seat_cache()
+                
                 logger.info("Team sync completed", extra={
                     "team": team.name,
                     "member_count": len(members_data)
@@ -237,6 +242,8 @@ async def periodic_sync():
 async def lifespan(app: FastAPI):
     """应用生命周期"""
     import os
+    from app.tasks import start_task_worker, stop_task_worker
+    
     logger.info("Application starting", extra={
         "app": settings.APP_NAME,
         "version": settings.APP_VERSION,
@@ -244,6 +251,9 @@ async def lifespan(app: FastAPI):
     })
     # 启动时初始化数据库
     init_db()
+    
+    # 启动异步任务 worker
+    await start_task_worker()
     
     # 只在主 worker 中启动定时任务（通过文件锁实现）
     sync_task = None
@@ -267,6 +277,7 @@ async def lifespan(app: FastAPI):
     
     # 关闭时取消任务
     logger.info("Application shutting down")
+    await stop_task_worker()
     if sync_task:
         sync_task.cancel()
         try:

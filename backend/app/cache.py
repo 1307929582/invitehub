@@ -34,6 +34,11 @@ class CacheKeys:
     PENDING_INVITES = "pending_invites:{team_id}"
     MEMBERS = "members:{team_id}"
     ALL_PENDING_INVITES = "all_pending_invites"
+    # 公开 API 缓存
+    SETUP_STATUS = "setup_status"
+    SITE_CONFIG = "site_config"
+    SEAT_STATS = "seat_stats"
+    LINUXDO_AUTH = "linuxdo_auth"
 
 
 class CacheTTL:
@@ -41,6 +46,11 @@ class CacheTTL:
     SUBSCRIPTION = 600  # 10 分钟
     PENDING_INVITES = 300  # 5 分钟
     MEMBERS = 300  # 5 分钟
+    # 公开 API 缓存时间
+    SETUP_STATUS = 60  # 1 分钟
+    SITE_CONFIG = 300  # 5 分钟
+    SEAT_STATS = 30  # 30 秒（座位变化较频繁）
+    LINUXDO_AUTH = 3600  # 1 小时
 
 
 def cache_get(key: str) -> Optional[Any]:
@@ -142,3 +152,48 @@ def invalidate_all_cache():
     cache_delete_pattern("pending_invites:*")
     cache_delete_pattern("members:*")
     cache_delete(CacheKeys.ALL_PENDING_INVITES)
+
+
+# ========== 公开 API 缓存 ==========
+def get_setup_status_cache() -> Optional[dict]:
+    return cache_get(CacheKeys.SETUP_STATUS)
+
+
+def set_setup_status_cache(data: dict):
+    cache_set(CacheKeys.SETUP_STATUS, data, CacheTTL.SETUP_STATUS)
+
+
+def get_site_config_cache() -> Optional[dict]:
+    return cache_get(CacheKeys.SITE_CONFIG)
+
+
+def set_site_config_cache(data: dict):
+    cache_set(CacheKeys.SITE_CONFIG, data, CacheTTL.SITE_CONFIG)
+
+
+def get_seat_stats_cache() -> Optional[dict]:
+    return cache_get(CacheKeys.SEAT_STATS)
+
+
+def set_seat_stats_cache(data: dict):
+    cache_set(CacheKeys.SEAT_STATS, data, CacheTTL.SEAT_STATS)
+
+
+def get_linuxdo_auth_cache() -> Optional[dict]:
+    return cache_get(CacheKeys.LINUXDO_AUTH)
+
+
+def set_linuxdo_auth_cache(data: dict):
+    cache_set(CacheKeys.LINUXDO_AUTH, data, CacheTTL.LINUXDO_AUTH)
+
+
+def invalidate_public_cache():
+    """清除公开 API 缓存（配置变更时调用）"""
+    cache_delete(CacheKeys.SETUP_STATUS)
+    cache_delete(CacheKeys.SITE_CONFIG)
+    cache_delete(CacheKeys.SEAT_STATS)
+
+
+def invalidate_seat_cache():
+    """清除座位缓存（成员变更时调用）"""
+    cache_delete(CacheKeys.SEAT_STATS)

@@ -38,14 +38,26 @@ class SiteConfig(BaseModel):
 
 @router.get("/site-config", response_model=SiteConfig)
 async def get_site_config(db: Session = Depends(get_db)):
-    """获取站点配置（公开）"""
-    return SiteConfig(
+    """获取站点配置（公开，带缓存）"""
+    from app.cache import get_site_config_cache, set_site_config_cache
+    
+    # 尝试从缓存获取
+    cached = get_site_config_cache()
+    if cached:
+        return SiteConfig(**cached)
+    
+    # 从数据库获取
+    result = SiteConfig(
         site_title=get_config(db, "site_title") or "ChatGPT Team 自助上车",
         site_description=get_config(db, "site_description") or "使用兑换码加入 Team",
         home_notice=get_config(db, "home_notice") or "",
         success_message=get_config(db, "success_message") or "邀请已发送！请查收邮箱并接受邀请",
         footer_text=get_config(db, "footer_text") or "",
     )
+    
+    # 写入缓存
+    set_site_config_cache(result.model_dump())
+    return result
 
 
 def get_available_team(db: Session, group_id: Optional[int] = None, group_name: Optional[str] = None) -> Optional[Team]:
@@ -132,9 +144,19 @@ class UserStatusResponse(BaseModel):
 # ========== LinuxDO OAuth ==========
 @router.get("/linuxdo/auth")
 async def get_linuxdo_auth_url(db: Session = Depends(get_db)):
-    """获取 LinuxDO OAuth 授权 URL"""
-    client_id = get_config(db, "linuxdo_client_id")
-    redirect_uri = get_config(db, "linuxdo_redirect_uri")
+    """获取 LinuxDO OAuth 授权 URL（带缓存）"""
+    from app.cache import get_linuxdo_auth_cache, set_linuxdo_auth_cache
+    
+    # 尝试从缓存获取配置
+    cached = get_linuxdo_auth_cache()
+    if cached:
+        client_id = cached.get("client_id")
+        redirect_uri = cached.get("redirect_uri")
+    else:
+        client_id = get_config(db, "linuxdo_client_id")
+        redirect_uri = get_config(db, "linuxdo_redirect_uri")
+        if client_id:
+            set_linuxdo_auth_cache({"client_id": client_id, "redirect_uri": redirect_uri})
     
     if not client_id:
         raise HTTPException(status_code=500, detail="LinuxDO OAuth 未配置，请联系管理员")
@@ -278,13 +300,18 @@ class SeatStats(BaseModel):
 
 @router.get("/seats", response_model=SeatStats)
 async def get_seat_stats(db: Session = Depends(get_db)):
-    """获取座位统计（公开）
+    """获取座位统计（公开，带缓存）
     
     使用本地缓存的成员数据，不实时调用 ChatGPT API
-    - used_seats: 已同步的成员数（TeamMember 表）
-    - pending_seats: 不再单独统计，因为本地记录不准确
-    - available_seats: total - used
     """
+    from app.cache import get_seat_stats_cache, set_seat_stats_cache
+    
+    # 尝试从缓存获取
+    cached = get_seat_stats_cache()
+    if cached:
+        return SeatStats(**cached)
+    
+    # 从数据库获取
     teams = db.query(Team).filter(Team.is_active == True).all()
     
     total_seats = 0
@@ -292,23 +319,21 @@ async def get_seat_stats(db: Session = Depends(get_db)):
     
     for team in teams:
         total_seats += team.max_seats
-        # 已同步成员（这是最准确的数据，来自定时同步）
         member_count = db.query(TeamMember).filter(TeamMember.team_id == team.id).count()
         used_seats += member_count
     
-    # 可用空位 = 总座位 - 已使用
-    # 注意：这里不减去 pending，因为本地的 pending 记录可能不准确
-    # 实际可用空位可能比这个少（如果有待接受的邀请）
-    available_seats = total_seats - used_seats
-    if available_seats < 0:
-        available_seats = 0
+    available_seats = max(0, total_seats - used_seats)
     
-    return SeatStats(
+    result = SeatStats(
         total_seats=total_seats,
         used_seats=used_seats,
-        pending_seats=0,  # 不再显示，因为本地数据不准确
+        pending_seats=0,
         available_seats=available_seats
     )
+    
+    # 写入缓存（30秒）
+    set_seat_stats_cache(result.model_dump())
+    return result
 
 
 @router.post("/redeem", response_model=RedeemResponse)
