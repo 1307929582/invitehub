@@ -19,9 +19,11 @@ else:
     # PostgreSQL / MySQL 等
     engine = create_engine(
         settings.DATABASE_URL,
-        pool_size=10,
-        max_overflow=20,
-        pool_pre_ping=True
+        pool_size=20,          # 增加连接池大小
+        max_overflow=40,       # 增加溢出连接数
+        pool_pre_ping=True,    # 连接前检测
+        pool_recycle=300,      # 5分钟回收连接
+        pool_timeout=30,       # 连接超时30秒
     )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
