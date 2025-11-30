@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { Layout as AntLayout, Menu, Avatar, Dropdown, Badge, Popover, List, Button, Empty, Tag } from 'antd'
+import VersionChecker from './VersionChecker'
 import {
   DashboardOutlined,
   TeamOutlined,
@@ -444,6 +445,7 @@ export default function Layout() {
           minHeight: 'calc(100vh - 112px)',
           boxShadow: '0 8px 32px rgba(0, 0, 0, 0.04), inset 0 1px 0 rgba(255, 255, 255, 0.8)',
         }}>
+          <VersionChecker />
           <Outlet />
         </Content>
       </AntLayout>

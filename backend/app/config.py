@@ -10,8 +10,11 @@ class Settings(BaseSettings):
     
     # 应用配置
     APP_NAME: str = "ChatGPT Team Manager"
-    APP_VERSION: str = "1.0.0"
+    APP_VERSION: str = "1.1.0"
     DEBUG: bool = False
+    
+    # GitHub 仓库（用于版本检查）
+    GITHUB_REPO: str = "1307929582/team-invite"
     
     # API 配置
     API_PREFIX: str = "/api/v1"
