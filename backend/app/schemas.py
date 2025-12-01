@@ -58,6 +58,7 @@ class TeamUpdate(BaseModel):
     cookie: Optional[str] = None
     is_active: Optional[bool] = None
     group_id: Optional[int] = None
+    max_seats: Optional[int] = None
 
 
 class TeamResponse(BaseModel):
