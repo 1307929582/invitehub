@@ -21,6 +21,10 @@ from app.logger import get_logger
 router = APIRouter(prefix="/public", tags=["public"])
 logger = get_logger(__name__)
 
+# 全局并发控制：最多同时处理 10 个兑换请求
+import asyncio
+_redeem_semaphore = asyncio.Semaphore(10)
+
 
 def get_config(db: Session, key: str) -> Optional[str]:
     """获取系统配置"""
@@ -80,42 +84,39 @@ async def get_site_config(db: Session = Depends(get_db)):
 
 
 def get_available_team(db: Session, group_id: Optional[int] = None, group_name: Optional[str] = None) -> Optional[Team]:
-    """获取有空位的 Team
+    """获取有空位的 Team（优化版，不锁表）
     
-    Args:
-        group_id: 指定分组 ID
-        group_name: 指定分组名称（如果 group_id 为空，则按名称查找）
-    
-    座位判断逻辑：
-    - 只依赖 TeamMember 表的成员数（定时同步的真实数据）
-    - 不再统计本地的 pending 邀请记录，因为可能不准确
-    - 这样当有人退出后，同步更新后空位就能被使用
+    使用子查询统计成员数，避免 N+1 查询和锁表
     """
+    from sqlalchemy import func, and_
+    
     team_query = db.query(Team).filter(Team.is_active == True)
     
     if group_id:
         team_query = team_query.filter(Team.group_id == group_id)
     elif group_name:
-        # 按分组名称查找
         from app.models import TeamGroup
         group = db.query(TeamGroup).filter(TeamGroup.name == group_name).first()
         if group:
             team_query = team_query.filter(Team.group_id == group.id)
         else:
-            # 分组不存在，返回 None
             return None
     
-    teams = team_query.with_for_update().all()
+    # 子查询统计每个 Team 的成员数
+    member_count_subq = db.query(
+        TeamMember.team_id,
+        func.count(TeamMember.id).label('member_count')
+    ).group_by(TeamMember.team_id).subquery()
     
-    for team in teams:
-        # 只检查已同步的成员数（来自定时同步，是真实数据）
-        member_count = db.query(TeamMember).filter(TeamMember.team_id == team.id).count()
-        
-        # 有空位就返回这个 Team
-        if member_count < team.max_seats:
-            return team
+    # 联合查询，找到有空位的 Team
+    available_team = team_query.outerjoin(
+        member_count_subq,
+        Team.id == member_count_subq.c.team_id
+    ).filter(
+        func.coalesce(member_count_subq.c.member_count, 0) < Team.max_seats
+    ).first()
     
-    return None
+    return available_team
 
 
 # ========== Schemas ==========
@@ -356,9 +357,16 @@ async def get_seat_stats(db: Session = Depends(get_db)):
 
 
 @router.post("/redeem", response_model=RedeemResponse)
-@limiter.limit("10/minute")  # 每分钟最多10次
+@limiter.limit("5/minute")  # 每分钟最多5次
 async def use_redeem_code(request: Request, data: RedeemRequest, db: Session = Depends(get_db)):
     """使用兑换码加入 Team"""
+    # 并发控制
+    async with _redeem_semaphore:
+        return await _do_redeem(data, db)
+
+
+async def _do_redeem(data: RedeemRequest, db: Session):
+    """实际执行兑换逻辑"""
     # 验证用户
     user = get_linuxdo_user_from_token(db, data.linuxdo_token)
     
@@ -497,9 +505,16 @@ async def get_direct_code_info(code: str, db: Session = Depends(get_db)):
 
 
 @router.post("/direct-redeem", response_model=DirectRedeemResponse)
-@limiter.limit("10/minute")  # 每分钟最多10次
+@limiter.limit("5/minute")  # 每分钟最多5次
 async def direct_redeem(request: Request, data: DirectRedeemRequest, db: Session = Depends(get_db)):
     """直接兑换（无需登录，只需邮箱和兑换码）"""
+    # 并发控制
+    async with _redeem_semaphore:
+        return await _do_direct_redeem(data, db)
+
+
+async def _do_direct_redeem(data: DirectRedeemRequest, db: Session):
+    """实际执行直接兑换逻辑"""
     # 验证兑换码（加锁防止并发）
     code = db.query(RedeemCode).filter(
         RedeemCode.code == data.code.strip().upper(),

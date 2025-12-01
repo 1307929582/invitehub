@@ -49,7 +49,7 @@ class CacheTTL:
     # 公开 API 缓存时间
     SETUP_STATUS = 60  # 1 分钟
     SITE_CONFIG = 300  # 5 分钟
-    SEAT_STATS = 30  # 30 秒（座位变化较频繁）
+    SEAT_STATS = 60  # 60 秒
     LINUXDO_AUTH = 3600  # 1 小时
 
 
