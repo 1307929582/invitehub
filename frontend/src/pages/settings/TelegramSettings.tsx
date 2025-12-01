@@ -27,6 +27,8 @@ export default function TelegramSettings() {
       form.setFieldsValue({
         telegram_bot_token: configs.telegram_bot_token,
         telegram_chat_id: configs.telegram_chat_id,
+        telegram_admin_chat_id: configs.telegram_admin_chat_id,
+        telegram_admin_users: configs.telegram_admin_users,
         telegram_enabled: configs.telegram_enabled === 'true',
         telegram_notify_invite: configs.telegram_notify_invite === 'true',
         telegram_notify_alert: configs.telegram_notify_alert === 'true',
@@ -43,6 +45,8 @@ export default function TelegramSettings() {
       await configApi.batchUpdate([
         { key: 'telegram_bot_token', value: values.telegram_bot_token || '' },
         { key: 'telegram_chat_id', value: values.telegram_chat_id || '' },
+        { key: 'telegram_admin_chat_id', value: values.telegram_admin_chat_id || '' },
+        { key: 'telegram_admin_users', value: values.telegram_admin_users || '' },
         { key: 'telegram_enabled', value: values.telegram_enabled ? 'true' : 'false' },
         { key: 'telegram_notify_invite', value: values.telegram_notify_invite ? 'true' : 'false' },
         { key: 'telegram_notify_alert', value: values.telegram_notify_alert ? 'true' : 'false' },
@@ -112,10 +116,30 @@ export default function TelegramSettings() {
 
           <Form.Item 
             name="telegram_chat_id" 
-            label="Chat ID"
-            extra="个人 ID 或群组 ID（群组 ID 以 - 开头）"
+            label="通知 Chat ID"
+            extra="接收系统通知的群组或个人 ID"
           >
             <Input placeholder="123456789 或 -100123456789" />
+          </Form.Item>
+
+          <Divider>
+            <span style={{ fontSize: 12, color: '#64748b' }}>Bot 交互设置（可选）</span>
+          </Divider>
+
+          <Form.Item 
+            name="telegram_admin_chat_id" 
+            label="管理 Chat ID"
+            extra="可以使用管理命令的群组 ID（留空则使用通知 Chat ID）"
+          >
+            <Input placeholder="-100123456789" />
+          </Form.Item>
+
+          <Form.Item 
+            name="telegram_admin_users" 
+            label="管理员用户 ID"
+            extra="可以使用管理命令的用户 ID，多个用逗号分隔"
+          >
+            <Input placeholder="123456789,987654321" />
           </Form.Item>
 
           <Divider />
@@ -169,14 +193,18 @@ export default function TelegramSettings() {
             <div>
               <p style={{ margin: '8px 0' }}>设置 Webhook 后，可以在 Telegram 中使用以下命令管理系统：</p>
               <ul style={{ paddingLeft: 20, margin: '8px 0' }}>
-                <li><code>/status</code> - 查看系统状态</li>
+                <li><code>/status</code> - 系统概览</li>
                 <li><code>/seats</code> - 座位统计</li>
                 <li><code>/teams</code> - Team 列表</li>
                 <li><code>/alerts</code> - 查看预警</li>
-                <li><code>/sync</code> - 同步所有成员</li>
-                <li><code>/code 5</code> - 生成 5 个兑换码</li>
-                <li><code>/dcode 5</code> - 生成 5 个直接链接</li>
+                <li><code>/stats</code> - 今日统计</li>
+                <li><code>/search</code> - 搜索用户</li>
+                <li><code>/pending</code> - 待处理邀请</li>
+                <li><code>/recent</code> - 最近加入</li>
               </ul>
+              <p style={{ margin: '8px 0 0', fontSize: 12, color: '#64748b' }}>
+                管理员专属：<code>/sync</code> 同步成员、<code>/newteam</code> 创建 Team
+              </p>
             </div>
           }
           type="info"
