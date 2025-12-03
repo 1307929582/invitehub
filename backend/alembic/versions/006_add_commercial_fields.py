@@ -11,7 +11,7 @@ import sqlalchemy as sa
 
 # revision identifiers, used by Alembic.
 revision = '006_add_commercial_fields'
-down_revision = '005_add_is_unauthorized_to_team_members'
+down_revision = '005_add_unauthorized'
 branch_labels = None
 depends_on = None
 
