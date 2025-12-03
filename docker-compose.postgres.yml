@@ -33,7 +33,7 @@ services:
   backend:
     build: ./backend
     ports:
-      - "4567:4567"
+      - "18000:18000"
     environment:
       - DEBUG=false
       - SECRET_KEY=${SECRET_KEY:-your-secret-key-change-this}
@@ -49,7 +49,7 @@ services:
   frontend:
     build: ./frontend
     ports:
-      - "3456:80"
+      - "15000:80"
     depends_on:
       - backend
     restart: unless-stopped

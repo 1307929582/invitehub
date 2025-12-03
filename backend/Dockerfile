@@ -13,7 +13,7 @@ RUN mkdir -p data
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
-EXPOSE 4567
+EXPOSE 18000
 
 # 使用启动脚本
 CMD ["/entrypoint.sh"]

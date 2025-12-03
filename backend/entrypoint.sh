@@ -59,4 +59,4 @@ alembic upgrade head
 
 # 启动应用
 echo "Starting application..."
-exec uvicorn app.main:app --host 0.0.0.0 --port 4567 --workers 4
+exec uvicorn app.main:app --host 0.0.0.0 --port 18000 --workers 4
