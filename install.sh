@@ -48,7 +48,7 @@ fi
 success "依赖检查通过"
 
 # 设置安装目录
-INSTALL_DIR="$HOME/team-invite"
+INSTALL_DIR="$HOME/invitehub"
 
 # 选择数据库类型
 echo ""
@@ -67,7 +67,7 @@ if [ -d "$INSTALL_DIR" ]; then
     git pull
 else
     info "克隆代码..."
-    git clone https://github.com/1307929582/team-invite.git "$INSTALL_DIR"
+    git clone https://github.com/1307929582/invitehub.git "$INSTALL_DIR"
     cd "$INSTALL_DIR"
 fi
 
