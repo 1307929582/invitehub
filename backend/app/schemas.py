@@ -168,3 +168,19 @@ class DashboardStats(BaseModel):
 class MessageResponse(BaseModel):
     message: str
     success: bool = True
+
+
+# ========== Public Redeem API (Commercial) ==========
+class RedeemRequest(BaseModel):
+    """兑换请求"""
+    email: EmailStr
+    code: str
+
+
+class RedeemResponse(BaseModel):
+    """兑换响应"""
+    success: bool
+    message: str
+    team_name: Optional[str] = None
+    expires_at: Optional[datetime] = None
+    remaining_days: Optional[int] = None
