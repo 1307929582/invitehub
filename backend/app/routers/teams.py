@@ -148,9 +148,11 @@ async def sync_all_teams(
                 seen_emails.add(email)
                 
                 # 检查是否为未授权成员
-                member_role = m.get("role", "member")
+                # owner/admin/workspace_owner 等管理员角色不检查
+                member_role = m.get("role", "member").lower()
                 is_unauthorized = False
-                if member_role != "owner":
+                admin_roles = {"owner", "admin", "workspace_owner", "workspace_admin", "billing_admin"}
+                if member_role not in admin_roles:
                     if email not in all_invited_emails and email not in admin_emails:
                         is_unauthorized = True
                         unauthorized_members.append(email)
@@ -414,10 +416,11 @@ async def sync_team_members(
         seen_emails.add(email)
         
         # 检查是否为未授权成员
-        # owner 角色不检查（Team 所有者）
-        member_role = m.get("role", "member")
+        # owner/admin/workspace_owner 等管理员角色不检查
+        member_role = m.get("role", "member").lower()
         is_unauthorized = False
-        if member_role != "owner":
+        admin_roles = {"owner", "admin", "workspace_owner", "workspace_admin", "billing_admin"}
+        if member_role not in admin_roles:
             if email not in invited_emails and email not in admin_emails:
                 is_unauthorized = True
                 unauthorized_members.append(email)
