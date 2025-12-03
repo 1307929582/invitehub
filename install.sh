@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # ChatGPT Team Manager 一键部署脚本
-# 使用方法: bash <(curl -fsSL https://raw.githubusercontent.com/1307929582/team-invite/main/install.sh)
+# 使用方法: bash <(curl -fsSL https://raw.githubusercontent.com/1307929582/invitehub/main/install.sh)
 
 set -e
 
