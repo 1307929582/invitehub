@@ -15,6 +15,10 @@ interface RedeemCode {
   group_id?: number
   group_name?: string
   created_at: string
+  // 商业版新增字段
+  validity_days?: number
+  activated_at?: string
+  bound_email?: string
 }
 
 interface Group {
@@ -51,7 +55,8 @@ export default function RedeemCodes() {
   const fetchCodes = async () => {
     setLoading(true)
     try {
-      const res: any = await redeemApi.list(undefined, undefined, 'linuxdo')
+      // 获取所有类型的兑换码（商业版合并管理）
+      const res: any = await redeemApi.list()
       setCodes(res.codes)
     } finally {
       setLoading(false)
@@ -104,7 +109,7 @@ export default function RedeemCodes() {
     try {
       const res: any = await redeemApi.batchCreate({
         ...values,
-        code_type: 'linuxdo'
+        code_type: 'direct'  // 商业版使用 direct 类型
       })
       setNewCodes(res.codes)
       message.success(`成功创建 ${res.count} 个兑换码`)
@@ -159,14 +164,22 @@ export default function RedeemCodes() {
     fetchCodes()
   }
 
+  // 获取完整的兑换链接
+  const getInviteUrl = (code: string) => {
+    const baseUrl = window.location.origin
+    return `${baseUrl}/invite/${code}`
+  }
+
   const copyCode = (code: string) => {
-    navigator.clipboard.writeText(code)
-    message.success('已复制')
+    const url = getInviteUrl(code)
+    navigator.clipboard.writeText(url)
+    message.success('已复制链接')
   }
 
   const copyAllCodes = () => {
-    navigator.clipboard.writeText(newCodes.join('\n'))
-    message.success('已复制全部')
+    const urls = newCodes.map(code => getInviteUrl(code))
+    navigator.clipboard.writeText(urls.join('\n'))
+    message.success('已复制全部链接')
   }
 
   const columns = [
@@ -188,7 +201,15 @@ export default function RedeemCodes() {
       width: 100,
       render: (v: string, r: RedeemCode) => v ? (
         <Tag color={groups.find(g => g.id === r.group_id)?.color}>{v}</Tag>
-      ) : <span style={{ color: '#94a3b8' }}>默认(LinuxDO)</span>
+      ) : <span style={{ color: '#94a3b8' }}>默认</span>
+    },
+    {
+      title: '绑定邮箱',
+      dataIndex: 'bound_email',
+      width: 180,
+      render: (v: string) => v ? (
+        <span style={{ fontSize: 12, color: '#64748b' }}>{v}</span>
+      ) : <span style={{ color: '#94a3b8' }}>未绑定</span>
     },
     { 
       title: '使用情况', 
@@ -200,14 +221,32 @@ export default function RedeemCodes() {
       )
     },
     { 
-      title: '过期时间', 
-      dataIndex: 'expires_at', 
+      title: '有效期', 
       width: 140,
-      render: (v: string) => v ? (
-        <span style={{ color: toLocalDate(v)?.isBefore(dayjs()) ? '#ef4444' : '#64748b', fontSize: 13 }}>
-          {formatDateOnly(v)}
-        </span>
-      ) : <span style={{ color: '#94a3b8' }}>永不</span>
+      render: (_: any, r: RedeemCode) => {
+        if (r.activated_at && r.validity_days) {
+          const activatedDate = toLocalDate(r.activated_at)
+          const expiresDate = activatedDate?.add(r.validity_days, 'day')
+          const remaining = expiresDate?.diff(dayjs(), 'day') || 0
+          const isExpired = remaining <= 0
+          return (
+            <div>
+              <div style={{ color: isExpired ? '#ef4444' : remaining <= 7 ? '#f59e0b' : '#64748b', fontSize: 13 }}>
+                {isExpired ? '已过期' : `剩余 ${remaining} 天`}
+              </div>
+              <div style={{ fontSize: 11, color: '#94a3b8' }}>{r.validity_days} 天有效</div>
+            </div>
+          )
+        }
+        if (r.expires_at) {
+          return (
+            <span style={{ color: toLocalDate(r.expires_at)?.isBefore(dayjs()) ? '#ef4444' : '#64748b', fontSize: 13 }}>
+              {formatDateOnly(r.expires_at)}
+            </span>
+          )
+        }
+        return <span style={{ color: '#94a3b8' }}>{r.validity_days ? `${r.validity_days} 天` : '永不'}</span>
+      }
     },
     { 
       title: '状态', 
@@ -260,8 +299,8 @@ export default function RedeemCodes() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 28 }}>
         <div>
-          <h2 style={{ fontSize: 26, fontWeight: 700, margin: 0, color: '#1a1a2e', letterSpacing: '-0.5px' }}>LinuxDO 兑换码</h2>
-          <p style={{ color: '#64748b', fontSize: 14, margin: '8px 0 0' }}>需要 LinuxDO 登录后使用</p>
+          <h2 style={{ fontSize: 26, fontWeight: 700, margin: 0, color: '#1a1a2e', letterSpacing: '-0.5px' }}>兑换码管理</h2>
+          <p style={{ color: '#64748b', fontSize: 14, margin: '8px 0 0' }}>管理所有兑换码，支持有效期和邮箱绑定</p>
         </div>
         <Button type="primary" icon={<PlusOutlined />} onClick={() => { form.resetFields(); setNewCodes([]); setModalOpen(true) }} size="large" style={{ borderRadius: 12, height: 44 }}>
           生成兑换码
@@ -339,8 +378,11 @@ export default function RedeemCodes() {
             <Form.Item name="max_uses" label="每码可用次数" rules={[{ required: true }]}>
               <InputNumber min={1} max={1000} style={{ width: '100%' }} />
             </Form.Item>
-            <Form.Item name="expires_days" label="有效天数">
+            <Form.Item name="expires_days" label="管理员过期天数" extra="从创建时开始计算的过期时间">
               <InputNumber min={1} placeholder="不填则永不过期" style={{ width: '100%' }} />
+            </Form.Item>
+            <Form.Item name="validity_days" label="用户有效天数" extra="从首次激活开始计算的有效期" initialValue={30}>
+              <InputNumber min={1} max={365} placeholder="默认 30 天" style={{ width: '100%' }} />
             </Form.Item>
             <Form.Item name="prefix" label="前缀">
               <Input placeholder="如 VIP-、PROMO-" />

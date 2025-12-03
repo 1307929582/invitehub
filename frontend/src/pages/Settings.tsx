@@ -4,18 +4,11 @@ import {
   GlobalOutlined,
   MailOutlined,
   BellOutlined,
-  SafetyOutlined,
   SettingOutlined,
+  DollarOutlined,
 } from '@ant-design/icons'
 
 const settingModules = [
-  {
-    key: 'oauth',
-    title: 'LinuxDO OAuth',
-    description: '配置 LinuxDO 登录授权',
-    icon: <SafetyOutlined style={{ fontSize: 28, color: '#3b82f6' }} />,
-    path: '/admin/settings/oauth',
-  },
   {
     key: 'site',
     title: '站点配置',
@@ -43,6 +36,13 @@ const settingModules = [
     description: '配置预警阈值和规则',
     icon: <BellOutlined style={{ fontSize: 28, color: '#ef4444' }} />,
     path: '/admin/settings/alerts',
+  },
+  {
+    key: 'price',
+    title: '价格配置',
+    description: '配置兑换码单价，用于销售统计',
+    icon: <DollarOutlined style={{ fontSize: 28, color: '#10b981' }} />,
+    path: '/admin/settings/price',
   },
 ]
 

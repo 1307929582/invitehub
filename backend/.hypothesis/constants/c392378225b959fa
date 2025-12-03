@@ -1,0 +1,4 @@
+# file: /Users/xmdbd/项目/team自助/invitehub/backend/app/models.py
+# hypothesis_version: 6.148.5
+
+[100, 255, 500, '#1890ff', 'InviteRecord', 'LinuxDOUser', 'OperationLog', 'RedeemCode', 'Team', 'TeamGroup', 'TeamMember', 'User', 'admin', 'direct', 'failed', 'group', 'invite_queue', 'invite_records', 'invites', 'linuxdo', 'linuxdo_users', 'linuxdo_users.id', 'member', 'members', 'operation_logs', 'operator', 'pending', 'processing', 'redeem_codes', 'success', 'system_configs', 'team', 'team_groups', 'team_groups.id', 'team_members', 'teams', 'teams.id', 'user', 'users', 'users.id', 'viewer']

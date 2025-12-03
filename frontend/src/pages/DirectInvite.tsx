@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { Card, Input, Button, message, Spin, Result } from 'antd'
-import { MailOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons'
+import { MailOutlined, KeyOutlined, CheckCircleOutlined } from '@ant-design/icons'
 import axios from 'axios'
 import { publicApi } from '../api'
 
@@ -13,58 +13,62 @@ interface SiteConfig {
 }
 
 export default function DirectInvite() {
-  const { code } = useParams<{ code: string }>()
+  const { code: urlCode } = useParams<{ code: string }>()
   const [loading, setLoading] = useState(true)
-  const [valid, setValid] = useState(false)
-  const [error, setError] = useState('')
   const [email, setEmail] = useState('')
+  const [code, setCode] = useState(urlCode?.toUpperCase() || '')
   const [submitting, setSubmitting] = useState(false)
   const [success, setSuccess] = useState(false)
   const [teamName, setTeamName] = useState('')
+  const [remainingDays, setRemainingDays] = useState<number | null>(null)
   const [siteConfig, setSiteConfig] = useState<SiteConfig | null>(null)
 
   useEffect(() => {
     // 获取站点配置
-    publicApi.getSiteConfig().then((res: any) => {
-      setSiteConfig(res)
-      if (res.site_title) {
-        document.title = res.site_title
-      }
-    }).catch(() => {})
-
-    if (!code) {
-      setError('无效的链接')
-      setLoading(false)
-      return
-    }
-
-    // 验证兑换码
-    axios.get(`/api/v1/public/direct/${code}`)
-      .then(() => {
-        setValid(true)
+    publicApi.getSiteConfig()
+      .then((res: any) => {
+        setSiteConfig(res)
+        if (res.site_title) {
+          document.title = res.site_title
+        }
       })
-      .catch((e) => {
-        setError(e.response?.data?.detail || '兑换码无效')
-      })
+      .catch(() => {})
       .finally(() => setLoading(false))
-  }, [code])
+  }, [])
+
+  // URL 中的兑换码变化时更新
+  useEffect(() => {
+    if (urlCode) {
+      setCode(urlCode.toUpperCase())
+    }
+  }, [urlCode])
 
   const handleSubmit = async () => {
     if (!email || !email.includes('@')) {
       message.error('请输入有效的邮箱地址')
       return
     }
+    if (!code || code.trim().length === 0) {
+      message.error('请输入兑换码')
+      return
+    }
 
     setSubmitting(true)
     try {
-      const res = await axios.post('/api/v1/public/direct-redeem', {
-        email: email.trim(),
-        code: code
+      const res = await axios.post('/api/v1/public/redeem', {
+        email: email.trim().toLowerCase(),
+        code: code.trim().toUpperCase()
       })
       setSuccess(true)
       setTeamName(res.data.team_name)
+      setRemainingDays(res.data.remaining_days)
     } catch (e: any) {
-      message.error(e.response?.data?.detail || '兑换失败')
+      const detail = e.response?.data?.detail
+      if (typeof detail === 'object') {
+        message.error(detail.message || '兑换失败')
+      } else {
+        message.error(detail || '兑换失败')
+      }
     } finally {
       setSubmitting(false)
     }
@@ -72,7 +76,7 @@ export default function DirectInvite() {
 
   if (loading) {
     return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(135deg, #f0f4f8 0%, #e8eef5 100%)' }}>
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(180deg, #fafafa 0%, #f5f5f7 100%)' }}>
         <Spin size="large" />
       </div>
     )
@@ -84,21 +88,21 @@ export default function DirectInvite() {
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      background: 'linear-gradient(135deg, #f0f4f8 0%, #e8eef5 100%)',
+      background: 'linear-gradient(180deg, #fafafa 0%, #f5f5f7 100%)',
       padding: 20,
     }}>
       {/* 装饰光晕 */}
-      <div style={{ position: 'fixed', top: '10%', right: '20%', width: 400, height: 400, background: 'radial-gradient(circle, rgba(147, 197, 253, 0.3) 0%, transparent 70%)', borderRadius: '50%', zIndex: 0 }} />
-      <div style={{ position: 'fixed', bottom: '20%', left: '15%', width: 300, height: 300, background: 'radial-gradient(circle, rgba(196, 181, 253, 0.25) 0%, transparent 70%)', borderRadius: '50%', zIndex: 0 }} />
+      <div style={{ position: 'fixed', top: '-20%', right: '-10%', width: 600, height: 600, background: 'radial-gradient(circle, rgba(0, 122, 255, 0.08) 0%, transparent 70%)', borderRadius: '50%', zIndex: 0 }} />
+      <div style={{ position: 'fixed', bottom: '-15%', left: '-5%', width: 500, height: 500, background: 'radial-gradient(circle, rgba(88, 86, 214, 0.06) 0%, transparent 70%)', borderRadius: '50%', zIndex: 0 }} />
 
       <Card style={{
         width: 420,
         background: 'rgba(255, 255, 255, 0.8)',
-        backdropFilter: 'blur(40px)',
-        WebkitBackdropFilter: 'blur(40px)',
+        backdropFilter: 'blur(20px)',
+        WebkitBackdropFilter: 'blur(20px)',
         borderRadius: 24,
-        border: '1px solid rgba(255, 255, 255, 0.9)',
-        boxShadow: '0 20px 60px rgba(0, 0, 0, 0.08)',
+        border: 'none',
+        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.08)',
         position: 'relative',
         zIndex: 1,
       }}>
@@ -108,66 +112,72 @@ export default function DirectInvite() {
             src="/logo.jpg" 
             alt="Logo" 
             style={{ 
-              width: 56, 
-              height: 56, 
+              width: 64, 
+              height: 64, 
               borderRadius: 16,
               objectFit: 'cover',
               margin: '0 auto 20px',
-              boxShadow: '0 8px 24px rgba(0, 0, 0, 0.15)',
+              boxShadow: '0 8px 24px rgba(0, 0, 0, 0.12)',
               display: 'block',
             }} 
           />
-          <h1 style={{ fontSize: 22, fontWeight: 700, margin: '0 0 8px', color: '#1a1a2e' }}>
-            {siteConfig?.site_title || 'ChatGPT Team 邀请'}
+          <h1 style={{ fontSize: 24, fontWeight: 700, margin: '0 0 8px', color: '#1d1d1f' }}>
+            {siteConfig?.site_title || 'ChatGPT Team'}
           </h1>
-          <p style={{ color: '#64748b', fontSize: 14, margin: 0 }}>
-            输入邮箱即可加入
+          <p style={{ color: '#86868b', fontSize: 15, margin: 0 }}>
+            输入邮箱和兑换码加入 Team
           </p>
         </div>
 
-        {/* 错误状态 */}
-        {error && (
-          <Result
-            status="error"
-            icon={<CloseCircleOutlined style={{ color: '#ef4444' }} />}
-            title="链接无效"
-            subTitle={error}
-          />
-        )}
-
         {/* 成功状态 */}
-        {success && (
+        {success ? (
           <Result
             status="success"
-            icon={<CheckCircleOutlined style={{ color: '#10b981' }} />}
+            icon={<CheckCircleOutlined style={{ color: '#34c759' }} />}
             title="邀请已发送！"
             subTitle={
               <div>
-                <p>已加入 {teamName || 'Team'}</p>
-                <p style={{ color: '#f59e0b', fontSize: 13, marginTop: 12 }}>
+                <p style={{ margin: '0 0 8px' }}>已加入 {teamName || 'Team'}</p>
+                {remainingDays !== null && (
+                  <p style={{ color: '#007aff', fontSize: 14, margin: '0 0 8px' }}>
+                    有效期剩余 {remainingDays} 天
+                  </p>
+                )}
+                <p style={{ color: '#ff9500', fontSize: 13, marginTop: 12 }}>
                   {siteConfig?.success_message || '请查收邮箱并接受邀请'}
                 </p>
               </div>
             }
           />
-        )}
-
-        {/* 输入邮箱 */}
-        {valid && !success && (
+        ) : (
           <div>
-            <div style={{ marginBottom: 24 }}>
-              <div style={{ marginBottom: 8, fontWeight: 500 }}>邮箱地址</div>
+            {/* 邮箱输入 */}
+            <div style={{ marginBottom: 16 }}>
+              <div style={{ marginBottom: 8, fontWeight: 500, color: '#1d1d1f' }}>邮箱地址</div>
               <Input
-                prefix={<MailOutlined style={{ color: '#94a3b8', marginRight: 8 }} />}
-                placeholder="  your@email.com"
+                prefix={<MailOutlined style={{ color: '#86868b' }} />}
+                placeholder="your@email.com"
                 size="large"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
-                onPressEnter={handleSubmit}
-                style={{ height: 48, borderRadius: 12 }}
+                style={{ height: 48, borderRadius: 12, border: '1px solid #d2d2d7' }}
               />
-              <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 6 }}>
-                邀请邮件将发送到此邮箱
+            </div>
+
+            {/* 兑换码输入 */}
+            <div style={{ marginBottom: 24 }}>
+              <div style={{ marginBottom: 8, fontWeight: 500, color: '#1d1d1f' }}>兑换码</div>
+              <Input
+                prefix={<KeyOutlined style={{ color: '#86868b' }} />}
+                placeholder="输入兑换码"
+                size="large"
+                value={code}
+                onChange={e => setCode(e.target.value.toUpperCase())}
+                onPressEnter={handleSubmit}
+                style={{ height: 48, borderRadius: 12, border: '1px solid #d2d2d7', fontFamily: 'monospace', letterSpacing: 1 }}
+              />
+              <div style={{ fontSize: 12, color: '#86868b', marginTop: 6 }}>
+                邀请邮件将发送到您的邮箱
               </div>
             </div>
 
@@ -177,20 +187,26 @@ export default function DirectInvite() {
               size="large" 
               loading={submitting}
               onClick={handleSubmit}
-              disabled={!email}
-              style={{ height: 48, borderRadius: 12, fontWeight: 600 }}
+              disabled={!email || !code}
+              style={{ 
+                height: 48, 
+                borderRadius: 12, 
+                fontWeight: 600,
+                background: '#007aff',
+                border: 'none',
+              }}
             >
-              获取邀请
+              立即上车
             </Button>
 
             {/* 使用说明 */}
-            <div style={{ marginTop: 24, padding: 16, background: '#f8fafc', borderRadius: 12, fontSize: 13, color: '#64748b', lineHeight: 1.8 }}>
-              <div style={{ fontWeight: 600, color: '#475569', marginBottom: 8 }}>📋 使用说明</div>
+            <div style={{ marginTop: 24, padding: 16, background: 'rgba(0, 122, 255, 0.04)', borderRadius: 12, fontSize: 13, color: '#86868b', lineHeight: 1.8 }}>
+              <div style={{ fontWeight: 600, color: '#1d1d1f', marginBottom: 8 }}>📋 使用说明</div>
               <ol style={{ paddingLeft: 20, margin: 0 }}>
-                <li>输入您的邮箱地址</li>
-                <li>点击「获取邀请」按钮</li>
+                <li>输入您的邮箱地址和兑换码</li>
+                <li>点击「立即上车」按钮</li>
                 <li>查收邮箱中的 ChatGPT Team 邀请邮件</li>
-                <li>点击邮件中的链接接受邀请，完成加入</li>
+                <li>点击邮件中的链接接受邀请</li>
               </ol>
             </div>
           </div>

@@ -17,9 +17,10 @@ router = APIRouter(prefix="/redeem-codes", tags=["redeem-codes"])
 class RedeemCodeCreate(BaseModel):
     max_uses: int = 1
     expires_days: Optional[int] = None
+    validity_days: int = 30  # 用户有效天数（从激活开始计算）
     count: int = 1
     prefix: str = ""
-    code_type: str = "linuxdo"  # linuxdo 或 direct
+    code_type: str = "direct"  # linuxdo 或 direct（商业版默认 direct）
     note: Optional[str] = None
     group_id: Optional[int] = None  # 绑定分组
 
@@ -36,6 +37,10 @@ class RedeemCodeResponse(BaseModel):
     group_id: Optional[int] = None
     group_name: Optional[str] = None
     created_at: datetime
+    # 商业版新增字段
+    validity_days: int = 30
+    activated_at: Optional[datetime] = None
+    bound_email: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -86,7 +91,7 @@ async def list_redeem_codes(
         codes=[RedeemCodeResponse(
             id=c.id,
             code=c.code,
-            code_type=c.code_type.value if c.code_type else "linuxdo",
+            code_type=c.code_type.value if c.code_type else "direct",
             max_uses=c.max_uses,
             used_count=c.used_count,
             expires_at=c.expires_at,
@@ -94,7 +99,10 @@ async def list_redeem_codes(
             note=c.note,
             group_id=c.group_id,
             group_name=groups.get(c.group_id) if c.group_id else None,
-            created_at=c.created_at
+            created_at=c.created_at,
+            validity_days=c.validity_days or 30,
+            activated_at=c.activated_at,
+            bound_email=c.bound_email
         ) for c in codes],
         total=len(codes)
     )
@@ -130,6 +138,7 @@ async def batch_create_codes(
             code_type=code_type,
             max_uses=data.max_uses,
             expires_at=expires_at,
+            validity_days=data.validity_days,
             note=data.note,
             group_id=data.group_id,
             created_by=current_user.id

@@ -22,8 +22,16 @@ async def get_invite_queue() -> asyncio.Queue:
     return _invite_queue
 
 
-async def enqueue_invite(email: str, redeem_code: str, group_id: int = None, linuxdo_user_id: int = None) -> str:
-    """添加邀请到队列，返回队列 ID"""
+async def enqueue_invite(email: str, redeem_code: str, group_id: int = None, linuxdo_user_id: int = None, is_rebind: bool = False) -> str:
+    """添加邀请到队列，返回队列 ID
+    
+    Args:
+        email: 邮箱地址
+        redeem_code: 兑换码
+        group_id: 分组 ID
+        linuxdo_user_id: LinuxDO 用户 ID (已废弃)
+        is_rebind: 是否为换车操作
+    """
     queue = await get_invite_queue()
     queue_id = f"q-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}-{queue.qsize()}"
     
@@ -33,12 +41,13 @@ async def enqueue_invite(email: str, redeem_code: str, group_id: int = None, lin
         "redeem_code": redeem_code,
         "group_id": group_id,
         "linuxdo_user_id": linuxdo_user_id,
+        "is_rebind": is_rebind,
         "created_at": datetime.utcnow()
     }
     
     try:
         queue.put_nowait(task)
-        logger.info(f"Invite enqueued: {email}, queue size: {queue.qsize()}")
+        logger.info(f"Invite enqueued: {email}, is_rebind: {is_rebind}, queue size: {queue.qsize()}")
         return queue_id
     except asyncio.QueueFull:
         logger.warning(f"Invite queue full!")
@@ -127,7 +136,8 @@ async def process_invite_batch(batch: List[Dict]):
                         linuxdo_user_id=item.get("linuxdo_user_id"),
                         status=InviteStatus.SUCCESS,
                         redeem_code=item.get("redeem_code"),
-                        batch_id=f"batch-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+                        batch_id=f"batch-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
+                        is_rebind=item.get("is_rebind", False)
                     )
                     db.add(invite)
                 
@@ -150,7 +160,8 @@ async def process_invite_batch(batch: List[Dict]):
                             linuxdo_user_id=item.get("linuxdo_user_id"),
                             status=InviteStatus.SUCCESS,
                             redeem_code=item.get("redeem_code"),
-                            batch_id=f"retry-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+                            batch_id=f"retry-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
+                            is_rebind=item.get("is_rebind", False)
                         )
                         db.add(invite)
                     except Exception as e2:
@@ -160,7 +171,8 @@ async def process_invite_batch(batch: List[Dict]):
                             linuxdo_user_id=item.get("linuxdo_user_id"),
                             status=InviteStatus.FAILED,
                             redeem_code=item.get("redeem_code"),
-                            error_message=str(e2)[:200]
+                            error_message=str(e2)[:200],
+                            is_rebind=item.get("is_rebind", False)
                         )
                         db.add(invite)
                     await asyncio.sleep(0.5)

@@ -47,10 +47,11 @@ curl -fsSL https://raw.githubusercontent.com/1307929582/team-invite/main/install
 <td width="50%">
 
 ### 👤 用户端
-- 🎫 兑换码自助上车
-- 🔐 LinuxDO OAuth 登录
-- 🔗 直接邀请链接（无需登录）
+- 🎫 兑换码自助上车（邮箱 + 兑换码）
+- ⏰ 30 天有效期机制
+- 🔄 换车功能（Team 不可用时重新分配）
 - 📊 实时座位统计
+- 🔍 订阅状态查询
 - 🎯 智能 Team 分配
 
 </td>
@@ -61,7 +62,8 @@ curl -fsSL https://raw.githubusercontent.com/1307929582/team-invite/main/install
 - 🎟️ 批量生成兑换码
 - 📧 一键批量邀请
 - 🔄 成员自动同步
-- 📈 Dashboard 数据统计
+- 📈 Dashboard 数据统计 + 销售统计
+- 💰 价格配置与销售额计算
 - 📝 完整操作日志
 
 </td>
@@ -116,10 +118,10 @@ docker compose -f docker-compose.postgres.yml up -d --build
 
 ```
 1️⃣ 首次访问 → 初始化管理员账号
-2️⃣ 管理后台 → 配置 LinuxDO OAuth
-3️⃣ 添加 Team → 填写 Token 信息
-4️⃣ 生成兑换码 → 分发给用户
-5️⃣ 用户上车 → 登录 → 输入兑换码 → 完成
+2️⃣ 管理后台 → 添加 Team → 填写 Token 信息
+3️⃣ 生成兑换码 → 设置有效天数 → 分发给用户
+4️⃣ 用户上车 → 输入邮箱 + 兑换码 → 完成
+5️⃣ 用户查询 → 输入邮箱查看订阅状态
 ```
 
 📖 Token 获取参考 [Token 指南](docs/TOKEN_GUIDE.md)

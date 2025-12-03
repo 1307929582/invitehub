@@ -108,11 +108,9 @@ export const configApi = {
   checkAlerts: () => api.post('/config/check-alerts'),
 }
 
-// LinuxDO User API
-export const linuxdoUserApi = {
-  list: (search?: string, hasInvite?: boolean) => 
-    api.get('/linuxdo-users', { params: { search, has_invite: hasInvite } }),
-  get: (id: number) => api.get(`/linuxdo-users/${id}`),
+// Revenue API (商业版)
+export const revenueApi = {
+  getStats: () => api.get('/dashboard/revenue'),
 }
 
 // Invite Record API
@@ -150,11 +148,12 @@ publicApiClient.interceptors.response.use(
 )
 
 export const publicApi = {
-  getLinuxDOAuthUrl: () => publicApiClient.get('/linuxdo/auth'),
-  linuxdoCallback: (code: string, state: string) => publicApiClient.post('/linuxdo/callback', { code, state }),
-  getUserStatus: (token: string) => publicApiClient.get('/user/status', { params: { token } }),
-  redeem: (data: { email: string; redeem_code: string; linuxdo_token: string }) =>
+  // 商业版 API
+  redeem: (data: { email: string; code: string }) =>
     publicApiClient.post('/redeem', data),
+  getStatus: (email: string) => publicApiClient.get('/status', { params: { email } }),
+  rebind: (data: { email: string; code: string }) =>
+    publicApiClient.post('/rebind', data),
   getSeats: () => publicApiClient.get('/seats'),
   getSiteConfig: () => publicApiClient.get('/site-config'),
 }

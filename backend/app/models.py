@@ -1,5 +1,6 @@
 # 数据库模型
-from datetime import datetime
+from datetime import datetime, timedelta
+from typing import Optional
 from sqlalchemy import Column, Integer, String, DateTime, Boolean, Text, ForeignKey, Enum
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
@@ -84,7 +85,7 @@ class InviteRecord(Base):
     id = Column(Integer, primary_key=True, index=True)
     team_id = Column(Integer, ForeignKey("teams.id"), nullable=False)
     email = Column(String(100), nullable=False)
-    linuxdo_user_id = Column(Integer, ForeignKey("linuxdo_users.id"), nullable=True)
+    linuxdo_user_id = Column(Integer, nullable=True)  # 保留字段但移除外键约束
     status = Column(Enum(InviteStatus), default=InviteStatus.PENDING)
     error_message = Column(Text, nullable=True)
     invited_by = Column(Integer, ForeignKey("users.id"), nullable=True)
@@ -93,8 +94,10 @@ class InviteRecord(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     accepted_at = Column(DateTime, nullable=True)  # 接受邀请时间
     
+    # 新增字段 - 商业版功能
+    is_rebind = Column(Boolean, default=False)  # 是否为换车操作
+    
     team = relationship("Team", back_populates="invites")
-    linuxdo_user = relationship("LinuxDOUser", back_populates="invites")
 
 
 class OperationLog(Base):
@@ -150,11 +153,38 @@ class RedeemCode(Base):
     created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     
+    # 新增字段 - 商业版功能
+    validity_days = Column(Integer, default=30)  # 有效天数
+    activated_at = Column(DateTime, nullable=True)  # 首次激活时间
+    bound_email = Column(String(100), nullable=True)  # 绑定邮箱
+    
     group = relationship("TeamGroup", back_populates="redeem_codes")
+    
+    @property
+    def user_expires_at(self) -> Optional[datetime]:
+        """用户有效期（从激活开始计算）"""
+        if self.activated_at:
+            return self.activated_at + timedelta(days=self.validity_days)
+        return None
+    
+    @property
+    def is_user_expired(self) -> bool:
+        """是否已过用户有效期"""
+        if self.user_expires_at:
+            return datetime.utcnow() > self.user_expires_at
+        return False
+    
+    @property
+    def remaining_days(self) -> Optional[int]:
+        """剩余有效天数"""
+        if self.user_expires_at:
+            delta = self.user_expires_at - datetime.utcnow()
+            return max(0, delta.days)
+        return None
 
 
 class LinuxDOUser(Base):
-    """LinuxDO 用户"""
+    """LinuxDO 用户 (保留用于历史数据，不再新增)"""
     __tablename__ = "linuxdo_users"
     
     id = Column(Integer, primary_key=True, index=True)
@@ -166,8 +196,6 @@ class LinuxDOUser(Base):
     avatar_url = Column(String(500), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     last_login = Column(DateTime, default=datetime.utcnow)
-    
-    invites = relationship("InviteRecord", back_populates="linuxdo_user")
 
 
 class SystemConfig(Base):

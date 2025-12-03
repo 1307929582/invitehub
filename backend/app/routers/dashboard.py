@@ -7,7 +7,7 @@ from sqlalchemy import func
 from pydantic import BaseModel
 
 from app.database import get_db
-from app.models import Team, TeamMember, InviteRecord, OperationLog, User, InviteStatus
+from app.models import Team, TeamMember, InviteRecord, OperationLog, User, InviteStatus, RedeemCode, SystemConfig
 from app.schemas import DashboardStats, OperationLogResponse, OperationLogListResponse
 from app.services.auth import get_current_user
 
@@ -129,6 +129,89 @@ async def get_seat_stats(
         pending_seats=total_pending,
         available_seats=total_available,
         teams=team_infos
+    )
+
+
+# ========== 销售统计 API ==========
+class DailyRevenue(BaseModel):
+    date: str
+    count: int
+    revenue: float
+
+
+class RevenueStats(BaseModel):
+    today: float
+    this_week: float
+    this_month: float
+    daily_trend: List[DailyRevenue]
+    unit_price: float
+
+
+def get_unit_price(db: Session) -> float:
+    """获取兑换码单价配置"""
+    config = db.query(SystemConfig).filter(SystemConfig.key == "redeem_unit_price").first()
+    if config and config.value:
+        try:
+            return float(config.value)
+        except ValueError:
+            return 0.0
+    return 0.0
+
+
+@router.get("/revenue", response_model=RevenueStats)
+async def get_revenue_stats(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    获取销售统计数据
+    
+    - 计算今日/本周/本月销售额
+    - 生成近 7 天销售趋势数据
+    
+    Requirements: 5.1, 5.2, 5.3
+    """
+    unit_price = get_unit_price(db)
+    
+    now = datetime.utcnow()
+    today = now.date()
+    week_ago = now - timedelta(days=7)
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    
+    # 今日激活的兑换码数量
+    today_count = db.query(RedeemCode).filter(
+        func.date(RedeemCode.activated_at) == today
+    ).count()
+    
+    # 本周激活的兑换码数量
+    week_count = db.query(RedeemCode).filter(
+        RedeemCode.activated_at >= week_ago
+    ).count()
+    
+    # 本月激活的兑换码数量
+    month_count = db.query(RedeemCode).filter(
+        RedeemCode.activated_at >= month_start
+    ).count()
+    
+    # 近 7 天销售趋势
+    daily_trend = []
+    for i in range(6, -1, -1):
+        date = (now - timedelta(days=i)).date()
+        count = db.query(RedeemCode).filter(
+            func.date(RedeemCode.activated_at) == date
+        ).count()
+        daily_trend.append(DailyRevenue(
+            date=date.isoformat(),
+            count=count,
+            revenue=count * unit_price
+        ))
+    
+    return RevenueStats(
+        today=today_count * unit_price,
+        this_week=week_count * unit_price,
+        this_month=month_count * unit_price,
+        daily_trend=daily_trend,
+        unit_price=unit_price
     )
 
 

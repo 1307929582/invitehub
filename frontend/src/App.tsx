@@ -9,31 +9,28 @@ import TeamDetail from './pages/TeamDetail'
 import Invite from './pages/Invite'
 import Logs from './pages/Logs'
 import RedeemCodes from './pages/RedeemCodes'
-import DirectCodes from './pages/DirectCodes'
-import LinuxDOUsers from './pages/LinuxDOUsers'
 import Settings from './pages/Settings'
 import Home from './pages/Home'
-import Callback from './pages/Callback'
 import Setup from './pages/Setup'
 import DirectInvite from './pages/DirectInvite'
 import Groups from './pages/Groups'
 import InviteRecords from './pages/InviteRecords'
 import PendingInvites from './pages/PendingInvites'
 import Admins from './pages/Admins'
-import OAuthSettings from './pages/settings/OAuthSettings'
 import SiteSettings from './pages/settings/SiteSettings'
 import EmailSettings from './pages/settings/EmailSettings'
 import AlertSettings from './pages/settings/AlertSettings'
 import TelegramSettings from './pages/settings/TelegramSettings'
+import PriceSettings from './pages/settings/PriceSettings'
 import { useStore } from './store'
 import { authApi, setupApi } from './api'
 
-function PrivateRoute({ children, initialized }: { children: React.ReactNode; initialized: boolean }) {
+function PrivateRoute({ children, initialized }: { children: React.ReactNode; initialized: boolean | null }) {
   const { user } = useStore()
   const token = localStorage.getItem('token')
   
   // 未初始化时跳转到设置页
-  if (!initialized) {
+  if (initialized === false) {
     return <Navigate to="/setup" replace />
   }
   
@@ -55,7 +52,7 @@ function PrivateRoute({ children, initialized }: { children: React.ReactNode; in
 function App() {
   const { setUser } = useStore()
   const [loading, setLoading] = useState(true)
-  const [initialized, setInitialized] = useState(true)
+  const [initialized, setInitialized] = useState<boolean | null>(null)  // 初始为 null，等待 API 返回
 
   useEffect(() => {
     // 先检查系统是否已初始化
@@ -95,19 +92,19 @@ function App() {
       <Routes>
         {/* 初始化设置页 */}
         <Route path="/setup" element={
-          initialized ? <Navigate to="/" replace /> : <Setup />
+          initialized === true ? <Navigate to="/" replace /> : <Setup />
         } />
         
         {/* 用户页面 */}
         <Route path="/" element={
-          initialized ? <Home /> : <Navigate to="/setup" replace />
+          initialized === false ? <Navigate to="/setup" replace /> : <Home />
         } />
-        <Route path="/callback" element={<Callback />} />
+        <Route path="/invite" element={<DirectInvite />} />
         <Route path="/invite/:code" element={<DirectInvite />} />
         
         {/* 管理员登录 */}
         <Route path="/admin/login" element={
-          initialized ? <Login /> : <Navigate to="/setup" replace />
+          initialized === false ? <Navigate to="/setup" replace /> : <Login />
         } />
         
         {/* 管理后台 */}
@@ -123,17 +120,15 @@ function App() {
           <Route path="groups" element={<Groups />} />
           <Route path="invite" element={<Invite />} />
           <Route path="redeem-codes" element={<RedeemCodes />} />
-          <Route path="direct-codes" element={<DirectCodes />} />
-          <Route path="users" element={<LinuxDOUsers />} />
           <Route path="invite-records" element={<InviteRecords />} />
           <Route path="pending-invites" element={<PendingInvites />} />
           <Route path="logs" element={<Logs />} />
           <Route path="settings" element={<Settings />} />
-          <Route path="settings/oauth" element={<OAuthSettings />} />
           <Route path="settings/site" element={<SiteSettings />} />
           <Route path="settings/email" element={<EmailSettings />} />
           <Route path="settings/alerts" element={<AlertSettings />} />
           <Route path="settings/telegram" element={<TelegramSettings />} />
+          <Route path="settings/price" element={<PriceSettings />} />
           <Route path="admins" element={<Admins />} />
         </Route>
       </Routes>

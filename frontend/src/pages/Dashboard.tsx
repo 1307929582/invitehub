@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Row, Col, Card, Table, Spin, Tag, Progress, Button } from 'antd'
 import { TeamOutlined, UserOutlined, MailOutlined, RightOutlined } from '@ant-design/icons'
 import { Line } from '@ant-design/charts'
-import { dashboardApi, teamApi } from '../api'
+import { dashboardApi, teamApi, revenueApi } from '../api'
 import { useStore } from '../store'
 import { formatShortDate, formatDateOnly } from '../utils/date'
 
@@ -15,6 +15,14 @@ interface Stats {
   invite_trend?: { date: string; count: number }[]
   queue_pending?: number
   daily_invite_limit?: number
+}
+
+interface RevenueStats {
+  today: number
+  this_week: number
+  this_month: number
+  daily_trend: { date: string; count: number; revenue: number }[]
+  unit_price: number
 }
 
 interface Log {
@@ -84,21 +92,24 @@ export default function Dashboard() {
   const [logs, setLogs] = useState<Log[]>([])
   const [loading, setLoading] = useState(true)
   const [teamList, setTeamList] = useState<Team[]>([])
+  const [revenue, setRevenue] = useState<RevenueStats | null>(null)
   const { teams, setTeams } = useStore()
   const navigate = useNavigate()
 
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [statsRes, logsRes, teamsRes]: any = await Promise.all([
+        const [statsRes, logsRes, teamsRes, revenueRes]: any = await Promise.all([
           dashboardApi.getStats(),
           dashboardApi.getLogs(10),
           teamApi.list(),
+          revenueApi.getStats().catch(() => null),
         ])
         setStats(statsRes)
         setLogs(logsRes.logs)
         setTeams(teamsRes.teams)
         setTeamList(teamsRes.teams)
+        if (revenueRes) setRevenue(revenueRes)
       } finally {
         setLoading(false)
       }
@@ -192,6 +203,45 @@ export default function Dashboard() {
           />
         </Col>
       </Row>
+
+      {/* 销售统计卡片 */}
+      {revenue && revenue.unit_price > 0 && (
+        <Row gutter={20} style={{ marginBottom: 28 }}>
+          <Col span={8}>
+            <div style={{ 
+              padding: 20,
+              background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(52, 211, 153, 0.05) 100%)',
+              borderRadius: 16,
+              border: '1px solid rgba(16, 185, 129, 0.2)',
+            }}>
+              <div style={{ color: '#64748b', fontSize: 13, marginBottom: 4 }}>今日销售额</div>
+              <div style={{ fontSize: 28, fontWeight: 700, color: '#10b981' }}>¥{revenue.today.toFixed(2)}</div>
+            </div>
+          </Col>
+          <Col span={8}>
+            <div style={{ 
+              padding: 20,
+              background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(96, 165, 250, 0.05) 100%)',
+              borderRadius: 16,
+              border: '1px solid rgba(59, 130, 246, 0.2)',
+            }}>
+              <div style={{ color: '#64748b', fontSize: 13, marginBottom: 4 }}>本周销售额</div>
+              <div style={{ fontSize: 28, fontWeight: 700, color: '#3b82f6' }}>¥{revenue.this_week.toFixed(2)}</div>
+            </div>
+          </Col>
+          <Col span={8}>
+            <div style={{ 
+              padding: 20,
+              background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(167, 139, 250, 0.05) 100%)',
+              borderRadius: 16,
+              border: '1px solid rgba(139, 92, 246, 0.2)',
+            }}>
+              <div style={{ color: '#64748b', fontSize: 13, marginBottom: 4 }}>本月销售额</div>
+              <div style={{ fontSize: 28, fontWeight: 700, color: '#8b5cf6' }}>¥{revenue.this_month.toFixed(2)}</div>
+            </div>
+          </Col>
+        </Row>
+      )}
 
       {/* 座位使用率 + 邀请趋势 */}
       <Row gutter={20} style={{ marginBottom: 20 }}>

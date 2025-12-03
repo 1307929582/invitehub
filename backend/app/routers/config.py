@@ -43,6 +43,8 @@ DEFAULT_CONFIGS = [
     {"key": "site_title", "description": "站点标题"},
     {"key": "site_description", "description": "站点描述"},
     {"key": "min_trust_level", "description": "最低信任等级要求（0-4）"},
+    # 商业版配置
+    {"key": "redeem_unit_price", "description": "兑换码单价（用于销售统计）"},
     # SMTP 邮件配置
     {"key": "smtp_host", "description": "SMTP 服务器地址"},
     {"key": "smtp_port", "description": "SMTP 端口（465 SSL / 587 TLS）"},

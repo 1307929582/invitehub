@@ -271,7 +271,7 @@ async def _do_direct_redeem(data: DirectRedeemRequest, db: Session):
 
 
 # ========== 商业版兑换 API ==========
-from app.schemas import RedeemRequest, RedeemResponse
+from app.schemas import RedeemRequest, RedeemResponse, StatusResponse, RebindRequest, RebindResponse
 
 
 class RedeemError:
@@ -436,3 +436,207 @@ def _mask_email(email: str) -> str:
         masked_local = local[0] + "*" * (len(local) - 2) + local[-1]
     
     return f"{masked_local}@{domain}"
+
+
+def _mask_code(code: str) -> str:
+    """遮蔽兑换码，只显示前4位和后2位"""
+    if not code or len(code) <= 6:
+        return code[:2] + "***" if code else "***"
+    return code[:4] + "*" * (len(code) - 6) + code[-2:]
+
+
+# ========== 用户状态查询 API ==========
+@router.get("/status", response_model=StatusResponse)
+async def get_user_status(email: str, db: Session = Depends(get_db)):
+    """
+    用户状态查询 API
+    
+    根据邮箱查询绑定的兑换码，返回 Team 信息、有效期、换车可用性。
+    
+    Requirements: 8.1, 8.2, 8.3
+    """
+    normalized_email = email.lower().strip()
+    
+    if not normalized_email:
+        return StatusResponse(found=False)
+    
+    # 查找绑定到该邮箱的兑换码
+    redeem_code = db.query(RedeemCode).filter(
+        RedeemCode.bound_email == normalized_email,
+        RedeemCode.is_active == True
+    ).first()
+    
+    if not redeem_code:
+        # 没有找到绑定的兑换码 (Requirements 8.3)
+        return StatusResponse(found=False)
+    
+    # 查找最近的邀请记录以获取 Team 信息
+    invite_record = db.query(InviteRecord).filter(
+        InviteRecord.email == normalized_email,
+        InviteRecord.redeem_code == redeem_code.code,
+        InviteRecord.status == InviteStatus.SUCCESS
+    ).order_by(InviteRecord.created_at.desc()).first()
+    
+    team_name = None
+    team_active = None
+    can_rebind = False
+    
+    if invite_record and invite_record.team_id:
+        team = db.query(Team).filter(Team.id == invite_record.team_id).first()
+        if team:
+            team_name = team.name
+            team_active = team.is_active
+            # 换车可用性：Team 不活跃且兑换码未过期 (Requirements 8.2)
+            can_rebind = not team.is_active and not redeem_code.is_user_expired
+    
+    # 返回完整状态信息 (Requirements 8.1, 8.2)
+    return StatusResponse(
+        found=True,
+        email=normalized_email,
+        team_name=team_name,
+        team_active=team_active,
+        code=_mask_code(redeem_code.code),  # 遮蔽兑换码
+        expires_at=redeem_code.user_expires_at,
+        remaining_days=redeem_code.remaining_days,
+        can_rebind=can_rebind
+    )
+
+
+# ========== 换车 API ==========
+class RebindError:
+    """换车错误码"""
+    INVALID_CODE = "INVALID_CODE"
+    EMAIL_MISMATCH = "EMAIL_MISMATCH"
+    CODE_EXPIRED = "CODE_EXPIRED"
+    TEAM_STILL_ACTIVE = "TEAM_STILL_ACTIVE"
+    NO_AVAILABLE_TEAM = "NO_AVAILABLE_TEAM"
+    NO_PREVIOUS_INVITE = "NO_PREVIOUS_INVITE"
+
+
+@router.post("/rebind", response_model=RebindResponse)
+@limiter.limit("3/minute")
+async def rebind(request: Request, data: RebindRequest, db: Session = Depends(get_db)):
+    """
+    换车 API
+    
+    当用户所在 Team 被封或不可用时，使用同一兑换码重新分配到其他 Team。
+    
+    - 验证兑换码和邮箱
+    - 检查当前 Team 是否不可用
+    - 随机分配新 Team
+    - 记录换车操作
+    - 发送新邀请
+    
+    Requirements: 3.1, 3.2, 3.3, 3.4, 3.5
+    """
+    async with _redeem_semaphore:
+        return await _do_rebind(data, db)
+
+
+async def _do_rebind(data: RebindRequest, db: Session) -> RebindResponse:
+    """执行换车逻辑"""
+    from app.tasks import enqueue_invite
+    
+    email = data.email.lower().strip()
+    code_str = data.code.strip().upper()
+    
+    # 1. 查找兑换码
+    redeem_code = db.query(RedeemCode).filter(
+        RedeemCode.code == code_str,
+        RedeemCode.is_active == True
+    ).first()
+    
+    if not redeem_code:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": RebindError.INVALID_CODE, "message": "兑换码无效或不存在"}
+        )
+    
+    # 2. 检查邮箱绑定一致性 (Requirements 3.1)
+    if not redeem_code.bound_email:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": RebindError.INVALID_CODE, "message": "此兑换码尚未激活，请先使用兑换功能"}
+        )
+    
+    if redeem_code.bound_email.lower() != email:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": RebindError.EMAIL_MISMATCH,
+                "message": f"邮箱与兑换码绑定邮箱不匹配"
+            }
+        )
+    
+    # 3. 检查用户有效期 (Requirements 3.5)
+    if redeem_code.is_user_expired:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": RebindError.CODE_EXPIRED,
+                "message": f"兑换码已于 {redeem_code.user_expires_at.strftime('%Y-%m-%d')} 过期，无法换车"
+            }
+        )
+    
+    # 4. 查找最近的邀请记录
+    last_invite = db.query(InviteRecord).filter(
+        InviteRecord.email == email,
+        InviteRecord.redeem_code == redeem_code.code,
+        InviteRecord.status == InviteStatus.SUCCESS
+    ).order_by(InviteRecord.created_at.desc()).first()
+    
+    if not last_invite:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": RebindError.NO_PREVIOUS_INVITE, "message": "未找到之前的邀请记录"}
+        )
+    
+    # 5. 检查当前 Team 是否不可用 (Requirements 3.1)
+    current_team = db.query(Team).filter(Team.id == last_invite.team_id).first()
+    
+    if current_team and current_team.is_active:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": RebindError.TEAM_STILL_ACTIVE,
+                "message": f"当前 Team「{current_team.name}」仍然可用，无需换车"
+            }
+        )
+    
+    # 6. 随机分配新 Team (Requirements 3.2)
+    # 排除当前 Team，在同一分组内寻找可用 Team
+    new_team = get_available_team(db, group_id=redeem_code.group_id)
+    
+    if not new_team:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": RebindError.NO_AVAILABLE_TEAM, "message": "暂无可用的 Team，请稍后重试"}
+        )
+    
+    # 7. 发送新邀请并记录换车操作 (Requirements 3.3, 3.4)
+    try:
+        await enqueue_invite(
+            email=email,
+            redeem_code=redeem_code.code,
+            group_id=redeem_code.group_id,
+            is_rebind=True  # 标记为换车操作
+        )
+        
+        logger.info(f"Rebind request queued", extra={
+            "email": email,
+            "code": redeem_code.code,
+            "old_team": current_team.name if current_team else "unknown",
+            "new_team_group": redeem_code.group_id
+        })
+        
+        return RebindResponse(
+            success=True,
+            message="换车请求已提交，新邀请将在几秒内发送，请查收邮箱",
+            new_team_name=None  # 队列模式下不知道具体分配到哪个 Team
+        )
+    except Exception as e:
+        logger.error(f"Rebind enqueue failed: {e}")
+        raise HTTPException(
+            status_code=503,
+            detail={"error": "QUEUE_ERROR", "message": str(e)}
+        )

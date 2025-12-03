@@ -184,3 +184,36 @@ class RedeemResponse(BaseModel):
     team_name: Optional[str] = None
     expires_at: Optional[datetime] = None
     remaining_days: Optional[int] = None
+
+
+# ========== Status Query API (Commercial) ==========
+class StatusResponse(BaseModel):
+    """用户状态查询响应
+    
+    Requirements: 8.1, 8.2, 8.3
+    """
+    found: bool
+    email: Optional[str] = None
+    team_name: Optional[str] = None
+    team_active: Optional[bool] = None
+    code: Optional[str] = None
+    expires_at: Optional[datetime] = None
+    remaining_days: Optional[int] = None
+    can_rebind: Optional[bool] = None
+
+
+# ========== Rebind API (Commercial) ==========
+class RebindRequest(BaseModel):
+    """换车请求
+    
+    Requirements: 3.1, 3.2, 3.3, 3.4, 3.5
+    """
+    email: EmailStr
+    code: str
+
+
+class RebindResponse(BaseModel):
+    """换车响应"""
+    success: bool
+    message: str
+    new_team_name: Optional[str] = None
