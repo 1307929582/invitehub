@@ -279,6 +279,8 @@ async def send_admin_notification(db, action: str, **kwargs):
             await notify_batch_invite(bot_token, chat_id, kwargs.get("team_name", ""), kwargs.get("total", 0), kwargs.get("success", 0), kwargs.get("fail", 0), kwargs.get("operator", ""))
         elif action == "unauthorized_members":
             await notify_unauthorized_members(bot_token, chat_id, kwargs.get("team_name", ""), kwargs.get("members", []))
+        elif action == "unauthorized_removed":
+            await notify_unauthorized_removed(bot_token, chat_id, kwargs.get("team_name", ""), kwargs.get("count", 0), kwargs.get("emails", []), kwargs.get("operator", ""))
     except Exception as e:
         logger.warning(f"Admin notification failed: {e}")
 
@@ -299,6 +301,26 @@ async def notify_unauthorized_members(bot_token: str, chat_id: str, team_name: s
         message += f"\n... 还有 {len(members) - 10} 个\n"
     
     message += f"\n💡 请检查是否有人私自拉人进 Team"
+    
+    try:
+        await send_telegram_message(bot_token, chat_id, message)
+    except:
+        pass
+
+
+async def notify_unauthorized_removed(bot_token: str, chat_id: str, team_name: str, count: int, emails: list, operator: str):
+    """通知清理未授权成员"""
+    message = f"🧹 <b>清理未授权成员</b>\n\n"
+    message += f"👥 Team: {team_name}\n"
+    message += f"🗑️ 已删除: {count} 人\n"
+    message += f"👤 操作人: {operator}\n\n"
+    
+    if emails:
+        message += "已删除邮箱：\n"
+        for email in emails[:5]:
+            message += f"• <code>{email}</code>\n"
+        if len(emails) > 5:
+            message += f"... 还有 {len(emails) - 5} 个\n"
     
     try:
         await send_telegram_message(bot_token, chat_id, message)

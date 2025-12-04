@@ -44,6 +44,7 @@ const menuItems = [
   { key: '/admin/pending-invites', icon: <MailOutlined />, label: '待处理邀请' },
   { key: '/admin/redeem-codes', icon: <GiftOutlined />, label: '兑换码管理' },
   { key: '/admin/invite-records', icon: <UnorderedListOutlined />, label: '邀请记录' },
+  { key: '/admin/unauthorized', icon: <WarningOutlined />, label: '未授权成员' },
   { type: 'divider' as const },
   { key: '/admin/logs', icon: <FileTextOutlined />, label: '操作日志' },
   { key: '/admin/admins', icon: <UserOutlined />, label: '管理员管理' },

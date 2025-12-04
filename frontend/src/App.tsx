@@ -22,6 +22,8 @@ import EmailSettings from './pages/settings/EmailSettings'
 import AlertSettings from './pages/settings/AlertSettings'
 import TelegramSettings from './pages/settings/TelegramSettings'
 import PriceSettings from './pages/settings/PriceSettings'
+import WhitelistSettings from './pages/settings/WhitelistSettings'
+import UnauthorizedMembers from './pages/UnauthorizedMembers'
 import { useStore } from './store'
 import { authApi, setupApi } from './api'
 
@@ -129,6 +131,8 @@ function App() {
           <Route path="settings/alerts" element={<AlertSettings />} />
           <Route path="settings/telegram" element={<TelegramSettings />} />
           <Route path="settings/price" element={<PriceSettings />} />
+          <Route path="settings/whitelist" element={<WhitelistSettings />} />
+          <Route path="unauthorized" element={<UnauthorizedMembers />} />
           <Route path="admins" element={<Admins />} />
         </Route>
       </Routes>

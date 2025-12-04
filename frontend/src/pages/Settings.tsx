@@ -44,6 +44,13 @@ const settingModules = [
     icon: <DollarOutlined style={{ fontSize: 28, color: '#10b981' }} />,
     path: '/admin/settings/price',
   },
+  {
+    key: 'whitelist',
+    title: '白名单配置',
+    description: '配置管理员邮箱后缀白名单',
+    icon: <SettingOutlined style={{ fontSize: 28, color: '#6366f1' }} />,
+    path: '/admin/settings/whitelist',
+  },
 ]
 
 export default function Settings() {
