@@ -41,6 +41,31 @@ async def list_teams(
     return TeamListResponse(teams=result, total=len(result))
 
 
+@router.get("/unauthorized/all")
+async def get_all_unauthorized_members(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """获取所有 Team 的未授权成员"""
+    unauthorized = db.query(TeamMember).filter(TeamMember.is_unauthorized == True).all()
+    
+    result = []
+    for m in unauthorized:
+        team = db.query(Team).filter(Team.id == m.team_id).first()
+        result.append({
+            "id": m.id,
+            "team_id": m.team_id,
+            "team_name": team.name if team else "未知",
+            "email": m.email,
+            "name": m.name,
+            "role": m.role,
+            "chatgpt_user_id": m.chatgpt_user_id,
+            "synced_at": m.synced_at.isoformat() if m.synced_at else None
+        })
+    
+    return {"members": result, "total": len(result)}
+
+
 @router.post("", response_model=TeamResponse)
 async def create_team(
     team_data: TeamCreate,
@@ -626,31 +651,6 @@ async def cancel_team_invite(
         return MessageResponse(message="邀请已取消")
     except ChatGPTAPIError as e:
         raise HTTPException(status_code=400, detail=f"取消失败: {e.message}")
-
-
-@router.get("/unauthorized/all")
-async def get_all_unauthorized_members(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """获取所有 Team 的未授权成员"""
-    unauthorized = db.query(TeamMember).filter(TeamMember.is_unauthorized == True).all()
-    
-    result = []
-    for m in unauthorized:
-        team = db.query(Team).filter(Team.id == m.team_id).first()
-        result.append({
-            "id": m.id,
-            "team_id": m.team_id,
-            "team_name": team.name if team else "未知",
-            "email": m.email,
-            "name": m.name,
-            "role": m.role,
-            "chatgpt_user_id": m.chatgpt_user_id,
-            "synced_at": m.synced_at.isoformat() if m.synced_at else None
-        })
-    
-    return {"members": result, "total": len(result)}
 
 
 @router.delete("/{team_id}/unauthorized-members", response_model=MessageResponse)
