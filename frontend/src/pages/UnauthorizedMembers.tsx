@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Table, Button, message, Modal, Tag, Space, Card, Empty } from 'antd'
 import { DeleteOutlined, ExclamationCircleOutlined, ReloadOutlined, WarningOutlined } from '@ant-design/icons'
-import axios from 'axios'
+import { teamApi } from '../api'
 
 interface UnauthorizedMember {
   id: number
@@ -22,8 +22,8 @@ export default function UnauthorizedMembers() {
   const fetchMembers = async () => {
     setLoading(true)
     try {
-      const res = await axios.get('/api/v1/teams/unauthorized/all')
-      setMembers(res.data.members || [])
+      const res: any = await teamApi.getUnauthorizedMembers()
+      setMembers(res.members || [])
     } catch {
       message.error('获取未授权成员失败')
     } finally {
@@ -57,7 +57,7 @@ export default function UnauthorizedMembers() {
       onOk: async () => {
         setRemoving(teamId)
         try {
-          await axios.delete(`/api/v1/teams/${teamId}/unauthorized-members`)
+          await teamApi.removeUnauthorizedMembers(teamId)
           message.success('清理完成')
           fetchMembers()
         } catch (e: any) {

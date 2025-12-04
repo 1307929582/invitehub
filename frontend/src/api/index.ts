@@ -59,6 +59,8 @@ export const teamApi = {
   getAllPendingInvites: (refresh?: boolean) => api.get('/teams/all-pending-invites', { params: { refresh } }),
   removeMember: (teamId: number, userId: string) => api.delete(`/teams/${teamId}/members/${userId}`),
   cancelInvite: (teamId: number, email: string) => api.delete(`/teams/${teamId}/invites`, { params: { email } }),
+  getUnauthorizedMembers: () => api.get('/teams/unauthorized/all'),
+  removeUnauthorizedMembers: (teamId: number) => api.delete(`/teams/${teamId}/unauthorized-members`),
 }
 
 // Invite API
