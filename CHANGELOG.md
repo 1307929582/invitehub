@@ -5,6 +5,27 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.2.0] - 2025-12-05
+
+### 修复
+
+- 🔧 **Team 分配并发问题修复** - 解决高并发场景下多人同时进入同一 Team 导致超载的问题
+  - 新增 SeatCalculator 模块：精确计算可用座位，包含 24h 内的 pending 邀请
+  - 新增 BatchAllocator 模块：智能分配算法，round-robin 分配到多个 Team
+  - 使用数据库锁（SELECT FOR UPDATE）防止并发超载
+  - 座位统计 API 现在显示 pending 邀请数
+
+### 优化
+
+- 📊 座位统计更精确
+  - `/public/seats` 端点现在返回 `pending_seats` 字段
+  - 可用座位计算：`available = total - confirmed - pending`
+- 🔍 分配决策日志
+  - 记录每次批量分配的决策详情
+  - 容量不足时发出警告日志
+
+---
+
 ## [2.1.0] - 2025-12-03
 
 ### 新增

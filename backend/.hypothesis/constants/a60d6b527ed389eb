@@ -1,0 +1,4 @@
+# file: /Users/xmdbd/项目/team自助/invitehub/backend/app/services/seat_calculator.py
+# hypothesis_version: 6.148.5
+
+['available_seats', 'confirmed_members', 'count', 'email', 'pending_invites', 'total_seats']

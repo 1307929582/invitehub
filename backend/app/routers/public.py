@@ -82,39 +82,39 @@ async def get_site_config(db: Session = Depends(get_db)):
 
 
 def get_available_team(db: Session, group_id: Optional[int] = None, group_name: Optional[str] = None) -> Optional[Team]:
-    """获取有空位的 Team（优化版，不锁表）
-    
-    使用子查询统计成员数，避免 N+1 查询和锁表
     """
-    from sqlalchemy import func, and_
+    获取有空位的 Team（使用 SeatCalculator 精确计算）
     
-    team_query = db.query(Team).filter(Team.is_active == True)
+    使用 SeatCalculator 统计成员数和 pending 邀请，避免超载
     
-    if group_id:
-        team_query = team_query.filter(Team.group_id == group_id)
-    elif group_name:
-        from app.models import TeamGroup
+    Requirements: 1.1, 2.1
+    """
+    from app.services.seat_calculator import get_all_teams_with_seats
+    from app.models import TeamGroup
+    
+    # 处理 group_name 转换为 group_id
+    actual_group_id = group_id
+    if not actual_group_id and group_name:
         group = db.query(TeamGroup).filter(TeamGroup.name == group_name).first()
         if group:
-            team_query = team_query.filter(Team.group_id == group.id)
+            actual_group_id = group.id
         else:
             return None
     
-    # 子查询统计每个 Team 的成员数
-    member_count_subq = db.query(
-        TeamMember.team_id,
-        func.count(TeamMember.id).label('member_count')
-    ).group_by(TeamMember.team_id).subquery()
+    # 使用 SeatCalculator 获取所有 Team 的精确座位信息
+    teams_with_seats = get_all_teams_with_seats(
+        db, 
+        group_id=actual_group_id,
+        only_active=True
+    )
     
-    # 联合查询，找到有空位的 Team
-    available_team = team_query.outerjoin(
-        member_count_subq,
-        Team.id == member_count_subq.c.team_id
-    ).filter(
-        func.coalesce(member_count_subq.c.member_count, 0) < Team.max_seats
-    ).first()
+    # 返回第一个有空位的 Team
+    for team_info in teams_with_seats:
+        if team_info.available_seats > 0:
+            # 返回实际的 Team 对象
+            return db.query(Team).filter(Team.id == team_info.team_id).first()
     
-    return available_team
+    return None
 
 
 
@@ -130,35 +130,29 @@ class SeatStats(BaseModel):
 
 @router.get("/seats", response_model=SeatStats)
 async def get_seat_stats(db: Session = Depends(get_db)):
-    """获取座位统计（公开，带缓存）
+    """
+    获取座位统计（公开，带缓存）
     
-    使用本地缓存的成员数据，不实时调用 ChatGPT API
+    使用 SeatCalculator 精确计算，包含 pending 邀请
+    
+    Requirements: 4.1, 4.2
     """
     from app.cache import get_seat_stats_cache, set_seat_stats_cache
+    from app.services.seat_calculator import get_total_seat_stats
     
     # 尝试从缓存获取
     cached = get_seat_stats_cache()
     if cached:
         return SeatStats(**cached)
     
-    # 从数据库获取
-    teams = db.query(Team).filter(Team.is_active == True).all()
-    
-    total_seats = 0
-    used_seats = 0
-    
-    for team in teams:
-        total_seats += team.max_seats
-        member_count = db.query(TeamMember).filter(TeamMember.team_id == team.id).count()
-        used_seats += member_count
-    
-    available_seats = max(0, total_seats - used_seats)
+    # 使用 SeatCalculator 获取精确统计
+    stats = get_total_seat_stats(db)
     
     result = SeatStats(
-        total_seats=total_seats,
-        used_seats=used_seats,
-        pending_seats=0,
-        available_seats=available_seats
+        total_seats=stats["total_seats"],
+        used_seats=stats["confirmed_members"],
+        pending_seats=stats["pending_invites"],
+        available_seats=stats["available_seats"]
     )
     
     # 写入缓存（30秒）

@@ -66,12 +66,23 @@ async def get_queue_status() -> dict:
 
 
 async def process_invite_batch(batch: List[Dict]):
-    """批量处理邀请"""
+    """
+    批量处理邀请 - 使用智能分配算法
+    
+    改进点：
+    1. 使用 SeatCalculator 精确计算可用座位（包含 pending 邀请）
+    2. 使用 BatchAllocator 智能分配到多个 Team
+    3. 使用数据库锁防止并发超载
+    
+    Requirements: 1.1, 2.1, 2.2, 2.3, 2.4, 3.1, 3.2, 3.3
+    """
     from app.services.chatgpt_api import ChatGPTAPI, ChatGPTAPIError
     from app.database import SessionLocal
-    from app.models import Team, TeamMember, InviteRecord, InviteStatus, OperationLog, TeamGroup, InviteQueue, InviteQueueStatus
+    from app.models import Team, InviteRecord, InviteStatus, InviteQueue, InviteQueueStatus
     from app.cache import invalidate_seat_cache
-    from sqlalchemy import func
+    from app.services.seat_calculator import get_all_teams_with_seats, get_team_available_seats
+    from app.services.batch_allocator import BatchAllocator, InviteTask
+    from sqlalchemy import text
     
     if not batch:
         return
@@ -87,25 +98,17 @@ async def process_invite_batch(batch: List[Dict]):
             groups[gid].append(item)
         
         for group_id, items in groups.items():
-            # 找到该分组有空位的 Team
-            team_query = db.query(Team).filter(Team.is_active == True)
-            if group_id:
-                team_query = team_query.filter(Team.group_id == group_id)
+            # 1. 使用 SeatCalculator 获取所有 Team 的精确座位信息
+            teams_with_seats = get_all_teams_with_seats(
+                db, 
+                group_id=group_id if group_id else None,
+                only_active=True
+            )
             
-            # 子查询统计成员数
-            member_count_subq = db.query(
-                TeamMember.team_id,
-                func.count(TeamMember.id).label('member_count')
-            ).group_by(TeamMember.team_id).subquery()
+            logger.info(f"Group {group_id}: Found {len(teams_with_seats)} teams, "
+                       f"total available: {sum(t.available_seats for t in teams_with_seats)}")
             
-            available_team = team_query.outerjoin(
-                member_count_subq,
-                Team.id == member_count_subq.c.team_id
-            ).filter(
-                func.coalesce(member_count_subq.c.member_count, 0) < Team.max_seats
-            ).first()
-            
-            if not available_team:
+            if not teams_with_seats or all(t.available_seats <= 0 for t in teams_with_seats):
                 # 没有空位，标记失败
                 for item in items:
                     record = InviteQueue(
@@ -122,66 +125,193 @@ async def process_invite_batch(batch: List[Dict]):
                 logger.warning(f"No available team for group {group_id}")
                 continue
             
-            # 批量邀请
-            emails = [item["email"] for item in items]
+            # 2. 转换为 InviteTask 列表
+            invite_tasks = [
+                InviteTask(
+                    email=item["email"],
+                    redeem_code=item.get("redeem_code"),
+                    group_id=group_id if group_id else None,
+                    is_rebind=item.get("is_rebind", False)
+                )
+                for item in items
+            ]
+            
+            # 3. 使用 BatchAllocator 智能分配
+            allocation_result = BatchAllocator.allocate(invite_tasks, teams_with_seats)
+            
+            logger.info(f"Allocation result: {len(allocation_result.allocated)} teams, "
+                       f"{len(allocation_result.unallocated)} unallocated")
+            
+            # 4. 处理未分配的邀请
+            for task in allocation_result.unallocated:
+                record = InviteQueue(
+                    email=task.email,
+                    redeem_code=task.redeem_code,
+                    group_id=task.group_id,
+                    status=InviteQueueStatus.FAILED,
+                    error_message="所有 Team 已满",
+                    processed_at=datetime.utcnow()
+                )
+                db.add(record)
+            
+            # 5. 处理每个 Team 的分配（带数据库锁）
+            for team_id, allocated_tasks in allocation_result.allocated.items():
+                await _process_team_invites_with_lock(
+                    db, team_id, allocated_tasks, teams_with_seats
+                )
+            
+            db.commit()
+            invalidate_seat_cache()
+                
+    except Exception as e:
+        logger.error(f"Process batch error: {e}")
+        import traceback
+        traceback.print_exc()
+    finally:
+        db.close()
+
+
+async def _process_team_invites_with_lock(
+    db, 
+    team_id: int, 
+    tasks: List, 
+    teams_info: List
+) -> None:
+    """
+    使用数据库锁处理单个 Team 的邀请
+    
+    1. SELECT FOR UPDATE 锁定 Team 行
+    2. 重新验证可用座位
+    3. 发送邀请
+    4. 记录结果
+    
+    Requirements: 3.1, 3.2, 3.3
+    """
+    from app.services.chatgpt_api import ChatGPTAPI, ChatGPTAPIError
+    from app.models import Team, InviteRecord, InviteStatus, InviteQueue, InviteQueueStatus
+    from app.services.seat_calculator import get_team_available_seats
+    from sqlalchemy import text
+    
+    MAX_RETRIES = 3
+    
+    for retry in range(MAX_RETRIES):
+        try:
+            # 1. 使用 SELECT FOR UPDATE 锁定 Team 行
+            team = db.query(Team).filter(Team.id == team_id).with_for_update().first()
+            
+            if not team:
+                logger.error(f"Team {team_id} not found")
+                return
+            
+            # 2. 重新验证可用座位
+            seat_info = get_team_available_seats(db, team_id)
+            
+            if seat_info.available_seats <= 0:
+                logger.warning(f"Team {team_id} has no available seats after lock")
+                # 标记所有任务为失败
+                for task in tasks:
+                    record = InviteQueue(
+                        email=task.email,
+                        redeem_code=task.redeem_code,
+                        group_id=task.group_id,
+                        status=InviteQueueStatus.FAILED,
+                        error_message=f"Team {team.name} 已满（并发冲突）",
+                        processed_at=datetime.utcnow()
+                    )
+                    db.add(record)
+                return
+            
+            # 3. 只处理可用座位数量的邀请
+            tasks_to_process = tasks[:seat_info.available_seats]
+            tasks_overflow = tasks[seat_info.available_seats:]
+            
+            if tasks_overflow:
+                logger.warning(f"Team {team_id}: {len(tasks_overflow)} tasks overflow due to concurrent allocation")
+                for task in tasks_overflow:
+                    record = InviteQueue(
+                        email=task.email,
+                        redeem_code=task.redeem_code,
+                        group_id=task.group_id,
+                        status=InviteQueueStatus.FAILED,
+                        error_message=f"Team {team.name} 座位不足（并发冲突）",
+                        processed_at=datetime.utcnow()
+                    )
+                    db.add(record)
+            
+            # 4. 发送邀请
+            emails = [task.email for task in tasks_to_process]
+            batch_id = f"batch-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+            
             try:
-                api = ChatGPTAPI(available_team.session_token, available_team.device_id or "")
-                await api.invite_members(available_team.account_id, emails)
+                api = ChatGPTAPI(team.session_token, team.device_id or "")
+                await api.invite_members(team.account_id, emails)
                 
                 # 记录成功
-                for item in items:
+                for task in tasks_to_process:
                     invite = InviteRecord(
-                        team_id=available_team.id,
-                        email=item["email"],
-                        linuxdo_user_id=item.get("linuxdo_user_id"),
+                        team_id=team.id,
+                        email=task.email,
                         status=InviteStatus.SUCCESS,
-                        redeem_code=item.get("redeem_code"),
-                        batch_id=f"batch-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
-                        is_rebind=item.get("is_rebind", False)
+                        redeem_code=task.redeem_code,
+                        batch_id=batch_id,
+                        is_rebind=task.is_rebind
                     )
                     db.add(invite)
                 
-                db.commit()
-                invalidate_seat_cache()
-                logger.info(f"Batch invite success: {len(emails)} emails to {available_team.name}")
+                logger.info(f"Batch invite success: {len(emails)} emails to {team.name}")
                 
-                # 发送 Telegram 通知（批量）
-                await send_batch_telegram_notify(db, emails, available_team.name)
+                # 发送 Telegram 通知
+                await send_batch_telegram_notify(db, emails, team.name)
                 
             except ChatGPTAPIError as e:
-                logger.error(f"Batch invite failed: {e.message}")
+                logger.error(f"Batch invite to {team.name} failed: {e.message}")
                 # 批量失败，逐个重试
-                for item in items:
+                for task in tasks_to_process:
                     try:
-                        await api.invite_members(available_team.account_id, [item["email"]])
+                        await api.invite_members(team.account_id, [task.email])
                         invite = InviteRecord(
-                            team_id=available_team.id,
-                            email=item["email"],
-                            linuxdo_user_id=item.get("linuxdo_user_id"),
+                            team_id=team.id,
+                            email=task.email,
                             status=InviteStatus.SUCCESS,
-                            redeem_code=item.get("redeem_code"),
-                            batch_id=f"retry-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}",
-                            is_rebind=item.get("is_rebind", False)
+                            redeem_code=task.redeem_code,
+                            batch_id=f"retry-{batch_id}",
+                            is_rebind=task.is_rebind
                         )
                         db.add(invite)
                     except Exception as e2:
                         invite = InviteRecord(
-                            team_id=available_team.id,
-                            email=item["email"],
-                            linuxdo_user_id=item.get("linuxdo_user_id"),
+                            team_id=team.id,
+                            email=task.email,
                             status=InviteStatus.FAILED,
-                            redeem_code=item.get("redeem_code"),
+                            redeem_code=task.redeem_code,
                             error_message=str(e2)[:200],
-                            is_rebind=item.get("is_rebind", False)
+                            is_rebind=task.is_rebind
                         )
                         db.add(invite)
                     await asyncio.sleep(0.5)
-                db.commit()
-                
-    except Exception as e:
-        logger.error(f"Process batch error: {e}")
-    finally:
-        db.close()
+            
+            # 成功处理，退出重试循环
+            return
+            
+        except Exception as e:
+            if "lock" in str(e).lower() or "deadlock" in str(e).lower():
+                logger.warning(f"Lock conflict on team {team_id}, retry {retry + 1}/{MAX_RETRIES}")
+                await asyncio.sleep(1)
+                continue
+            raise
+    
+    # 重试耗尽
+    logger.error(f"Failed to process team {team_id} after {MAX_RETRIES} retries")
+    for task in tasks:
+        record = InviteQueue(
+            email=task.email,
+            redeem_code=task.redeem_code,
+            group_id=task.group_id,
+            status=InviteQueueStatus.FAILED,
+            error_message="处理超时，请稍后重试",
+            processed_at=datetime.utcnow()
+        )
+        db.add(record)
 
 
 async def send_batch_telegram_notify(db, emails: List[str], team_name: str):
