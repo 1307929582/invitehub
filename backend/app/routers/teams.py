@@ -684,8 +684,11 @@ async def remove_unauthorized_members(
     removed_emails = []
     
     for member in unauthorized:
+        # 如果没有 chatgpt_user_id，直接从数据库删除（无法验证的幽灵数据）
         if not member.chatgpt_user_id:
-            fail_count += 1
+            removed_emails.append(member.email)
+            db.delete(member)
+            success_count += 1
             continue
         
         try:
@@ -693,8 +696,14 @@ async def remove_unauthorized_members(
             removed_emails.append(member.email)
             db.delete(member)
             success_count += 1
-        except ChatGPTAPIError:
-            fail_count += 1
+        except ChatGPTAPIError as e:
+            # 如果是 404（成员不存在），也从数据库删除
+            if e.status_code == 404:
+                removed_emails.append(member.email)
+                db.delete(member)
+                success_count += 1
+            else:
+                fail_count += 1
         
         # 避免 API 限流
         await asyncio.sleep(1)

@@ -5,6 +5,16 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.0.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [2.2.1] - 2025-12-05
+
+### 修复
+
+- 🐛 **未授权成员清理逻辑修复** - 修复幽灵成员无法删除的问题
+  - 没有 chatgpt_user_id 的成员现在可以直接从数据库删除
+  - ChatGPT API 返回 404（成员不存在）时，也会从数据库删除
+
+---
+
 ## [2.2.0] - 2025-12-05
 
 ### 修复
