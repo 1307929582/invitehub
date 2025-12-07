@@ -311,6 +311,26 @@ async def _do_direct_redeem(data: DirectRedeemRequest, db: Session):
     except Exception as e:
         errors_total.labels(error_type="celery_error", endpoint="direct_redeem").inc()
         logger.error(f"Failed to submit Celery task: {e}")
+
+        # 回滚使用次数（补偿事务）
+        try:
+            if redis_client:
+                # 回滚 Redis 令牌桶
+                limiter = RedeemLimiter(redis_client)
+                limiter.refund(code.code)
+                logger.info(f"Refunded Redis token for code {code.code}")
+            else:
+                # 回滚数据库
+                db.execute(
+                    update(RedeemCode)
+                    .where(RedeemCode.id == code.id)
+                    .values(used_count=RedeemCode.used_count - 1)
+                )
+                db.commit()
+                logger.info(f"Rolled back database count for code {code.code}")
+        except Exception as rollback_error:
+            logger.error(f"Failed to rollback code {code.code}: {rollback_error}")
+
         raise HTTPException(status_code=503, detail=str(e))
 
 
@@ -471,6 +491,29 @@ async def _do_redeem(data: RedeemRequest, db: Session) -> RedeemResponse:
     except Exception as e:
         errors_total.labels(error_type="celery_error", endpoint="redeem").inc()
         logger.error(f"Failed to submit Celery task: {e}")
+
+        # 回滚使用次数（补偿事务）
+        try:
+            db.execute(
+                update(RedeemCode)
+                .where(RedeemCode.id == redeem_code.id)
+                .values(used_count=RedeemCode.used_count - 1)
+            )
+            # 如果是首次使用，还需要清除绑定信息
+            if is_first_use:
+                db.execute(
+                    update(RedeemCode)
+                    .where(RedeemCode.id == redeem_code.id)
+                    .values(
+                        activated_at=None,
+                        bound_email=None
+                    )
+                )
+            db.commit()
+            logger.info(f"Rolled back redeem code {redeem_code.code} after Celery failure")
+        except Exception as rollback_error:
+            logger.error(f"Failed to rollback redeem code: {rollback_error}")
+
         raise HTTPException(status_code=503, detail={"error": "QUEUE_ERROR", "message": str(e)})
 
 

@@ -129,6 +129,16 @@ class RedeemLimiter:
         except redis.RedisError as e:
             logger.error(f"Redis error in increment_remaining: {e}")
 
+    def refund(self, code: str, amount: int = 1):
+        """
+        退还令牌（Celery 任务失败时的补偿）
+
+        Args:
+            code: 兑换码
+            amount: 退还数量，默认1
+        """
+        self.increment_remaining(code, amount)
+
     def delete_code(self, code: str):
         """
         删除兑换码缓存（用于兑换码失效等场景）
