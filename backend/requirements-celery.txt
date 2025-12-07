@@ -1,0 +1,10 @@
+# Celery 和相关依赖
+celery>=5.3.0
+redis>=5.0.0
+
+# 监控和可观测性
+prometheus-client>=0.19.0
+flower>=2.0.0  # Celery 监控 UI（可选）
+
+# 性能优化
+hiredis>=2.0.0  # Redis C 扩展，提升性能

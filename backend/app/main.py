@@ -243,7 +243,7 @@ async def lifespan(app: FastAPI):
     """应用生命周期"""
     import os
     from app.tasks import start_task_worker, stop_task_worker
-    
+
     logger.info("Application starting", extra={
         "app": settings.APP_NAME,
         "version": settings.APP_VERSION,
@@ -251,15 +251,36 @@ async def lifespan(app: FastAPI):
     })
     # 启动时初始化数据库
     init_db()
-    
+
+    # 初始化 Redis 令牌桶（用于兑换码限流）
+    try:
+        from app.cache import get_redis
+        from app.services.redeem_limiter import RedeemLimiter
+        from app.models import RedeemCode
+
+        redis_client = get_redis()
+        if redis_client:
+            limiter = RedeemLimiter(redis_client)
+            db = SessionLocal()
+            try:
+                codes = db.query(RedeemCode).filter(RedeemCode.is_active == True).all()
+                limiter.batch_init_codes([
+                    (c.code, c.max_uses, c.used_count) for c in codes
+                ])
+                logger.info(f"Initialized {len(codes)} redeem codes in Redis token bucket")
+            finally:
+                db.close()
+    except Exception as e:
+        logger.warning(f"Failed to initialize Redis token bucket: {e}")
+
     # 启动异步任务 worker
     await start_task_worker()
-    
+
     # 只在主 worker 中启动定时任务（通过文件锁实现）
     sync_task = None
     lock_file = "/tmp/team_sync.lock"
     lock_acquired = False
-    
+
     try:
         # 尝试获取锁（非阻塞）
         import fcntl
@@ -272,9 +293,9 @@ async def lifespan(app: FastAPI):
         sync_task = asyncio.create_task(periodic_sync())
     except (IOError, OSError):
         logger.info("Another worker has sync lock, skipping periodic sync", extra={"pid": os.getpid()})
-    
+
     yield
-    
+
     # 关闭时取消任务
     logger.info("Application shutting down")
     await stop_task_worker()
@@ -350,6 +371,15 @@ app.include_router(notifications.router, prefix=settings.API_PREFIX)
 
 # Telegram Bot Webhook（公开，但有权限验证）
 app.include_router(telegram_bot.router, prefix=settings.API_PREFIX)
+
+# Prometheus 监控端点
+try:
+    from prometheus_client import make_asgi_app
+    metrics_app = make_asgi_app()
+    app.mount("/metrics", metrics_app)
+    logger.info("Prometheus metrics endpoint enabled at /metrics")
+except ImportError:
+    logger.warning("prometheus-client not installed, metrics endpoint disabled")
 
 
 @app.get("/")

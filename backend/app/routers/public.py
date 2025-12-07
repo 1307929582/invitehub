@@ -8,20 +8,40 @@ from typing import Optional
 
 from app.database import get_db
 from app.models import (
-    Team, TeamMember, RedeemCode, RedeemCodeType, InviteRecord, InviteStatus, 
+    Team, TeamMember, RedeemCode, RedeemCodeType, InviteRecord, InviteStatus,
     SystemConfig, OperationLog
 )
 from app.services.chatgpt_api import ChatGPTAPI, ChatGPTAPIError
 from app.services.telegram import notify_new_invite
 from app.limiter import limiter
 from app.logger import get_logger
+from app.cache import get_redis
+from app.services.distributed_limiter import DistributedLimiter
+from app.services.redeem_limiter import RedeemLimiter
 
 router = APIRouter(prefix="/public", tags=["public"])
 logger = get_logger(__name__)
 
-# 全局并发控制：最多同时处理 10 个兑换请求
-import asyncio
-_redeem_semaphore = asyncio.Semaphore(10)
+# 全局并发控制：基于 Redis 的分布式限流器（替代进程内 Semaphore）
+def get_distributed_limiter() -> DistributedLimiter:
+    """获取分布式限流器实例"""
+    redis_client = get_redis()
+    if not redis_client:
+        # Redis 不可用时，回退到无限流（或抛出异常）
+        logger.warning("Redis unavailable, distributed limiter disabled")
+        # 返回一个临时的 mock 对象以避免破坏流程
+        class NoOpLimiter:
+            async def __aenter__(self): return self
+            async def __aexit__(self, *args): pass
+        return NoOpLimiter()
+
+    return DistributedLimiter(
+        redis_client,
+        key="global:redeem:limiter",
+        max_concurrent=10,
+        timeout=60,
+        acquire_timeout=30.0
+    )
 
 
 def get_config(db: Session, key: str) -> Optional[str]:
@@ -208,59 +228,89 @@ async def get_direct_code_info(code: str, db: Session = Depends(get_db)):
 @limiter.limit("5/minute")  # 每分钟最多5次
 async def direct_redeem(request: Request, data: DirectRedeemRequest, db: Session = Depends(get_db)):
     """直接兑换（无需登录，只需邮箱和兑换码）"""
-    # 并发控制
-    async with _redeem_semaphore:
+    # 分布式并发控制
+    limiter_instance = get_distributed_limiter()
+    async with limiter_instance:
         return await _do_direct_redeem(data, db)
 
 
 async def _do_direct_redeem(data: DirectRedeemRequest, db: Session):
-    """实际执行直接兑换逻辑 - 排队模式"""
-    from app.tasks import enqueue_invite
-    
+    """实际执行直接兑换逻辑 - Celery 异步模式"""
+    from app.tasks_celery import process_invite_task
+    from app.metrics import redeem_requests_total, errors_total
+
     # 验证兑换码
     code = db.query(RedeemCode).filter(
         RedeemCode.code == data.code.strip().upper(),
         RedeemCode.code_type == RedeemCodeType.DIRECT,
         RedeemCode.is_active == True
     ).first()
-    
+
     if not code:
+        errors_total.labels(error_type="invalid_code", endpoint="direct_redeem").inc()
         raise HTTPException(status_code=400, detail="兑换码无效")
-    
+
     if code.expires_at and code.expires_at < datetime.utcnow():
+        errors_total.labels(error_type="code_expired", endpoint="direct_redeem").inc()
         raise HTTPException(status_code=400, detail="兑换码已过期")
-    
-    if code.used_count >= code.max_uses:
-        raise HTTPException(status_code=400, detail="兑换码已用完")
-    
-    # 原子性增加使用次数
-    from sqlalchemy import update
-    result = db.execute(
-        update(RedeemCode)
-        .where(RedeemCode.id == code.id)
-        .where(RedeemCode.used_count < RedeemCode.max_uses)
-        .values(used_count=RedeemCode.used_count + 1)
-    )
-    
-    if result.rowcount == 0:
-        raise HTTPException(status_code=400, detail="兑换码已用完")
-    
-    db.commit()
-    
-    # 加入队列
+
+    # 使用 Redis 令牌桶扣减（避免数据库热点）
+    redis_client = get_redis()
+    if redis_client:
+        limiter = RedeemLimiter(redis_client)
+
+        # 尝试从 Redis 扣减
+        if not limiter.try_redeem(code.code):
+            # Redis 中余额不足，检查是否需要从数据库重新加载
+            remaining = limiter.get_remaining(code.code)
+            if remaining is None:
+                # Redis 中不存在，从数据库初始化
+                limiter.init_code(code.code, code.max_uses, code.used_count)
+                if not limiter.try_redeem(code.code):
+                    errors_total.labels(error_type="code_exhausted", endpoint="direct_redeem").inc()
+                    raise HTTPException(status_code=400, detail="兑换码已用完")
+            else:
+                errors_total.labels(error_type="code_exhausted", endpoint="direct_redeem").inc()
+                raise HTTPException(status_code=400, detail="兑换码已用完")
+
+        # 异步回写数据库（Celery 会定时批量同步）
+        from app.tasks_celery import sync_redeem_count_task
+        sync_redeem_count_task.apply_async(args=[code.code], countdown=5)
+    else:
+        # Redis 不可用时回退到数据库（性能较低）
+        from sqlalchemy import update
+        result = db.execute(
+            update(RedeemCode)
+            .where(RedeemCode.id == code.id)
+            .where(RedeemCode.used_count < RedeemCode.max_uses)
+            .values(used_count=RedeemCode.used_count + 1)
+        )
+
+        if result.rowcount == 0:
+            errors_total.labels(error_type="code_exhausted", endpoint="direct_redeem").inc()
+            raise HTTPException(status_code=400, detail="兑换码已用完")
+
+        db.commit()
+
+    # 提交 Celery 任务
     try:
-        await enqueue_invite(
+        process_invite_task.delay(
             email=data.email.lower().strip(),
             redeem_code=code.code,
-            group_id=code.group_id
+            group_id=code.group_id,
+            is_rebind=False
         )
-        
+
+        redeem_requests_total.labels(status="success", code_type="direct").inc()
+
         return DirectRedeemResponse(
             success=True,
             message="已加入队列，邀请将在几秒内发送，请稍后查收邮箱",
             team_name=None
         )
     except Exception as e:
+        errors_total.labels(error_type="celery_error", endpoint="direct_redeem").inc()
+        logger.error(f"Failed to submit Celery task: {e}")
         raise HTTPException(status_code=503, detail=str(e))
 
 
@@ -283,23 +333,25 @@ class RedeemError:
 async def redeem(request: Request, data: RedeemRequest, db: Session = Depends(get_db)):
     """
     商业版兑换 API
-    
+
     - 验证兑换码有效性
     - 首次使用时绑定邮箱、记录激活时间
     - 检查邮箱绑定一致性
     - 检查有效期
     - 发送邀请
-    
+
     Requirements: 1.2, 2.1, 4.1, 4.2
     """
-    async with _redeem_semaphore:
+    limiter_instance = get_distributed_limiter()
+    async with limiter_instance:
         return await _do_redeem(data, db)
 
 
 async def _do_redeem(data: RedeemRequest, db: Session) -> RedeemResponse:
     """执行商业版兑换逻辑"""
-    from app.tasks import enqueue_invite
+    from app.tasks_celery import process_invite_task
     from sqlalchemy import update
+    from app.metrics import redeem_requests_total, errors_total
     
     email = data.email.lower().strip()
     code_str = data.code.strip().upper()
@@ -400,12 +452,15 @@ async def _do_redeem(data: RedeemRequest, db: Session) -> RedeemResponse:
     
     # 7. 发送邀请
     try:
-        await enqueue_invite(
+        process_invite_task.delay(
             email=email,
             redeem_code=redeem_code.code,
-            group_id=redeem_code.group_id
+            group_id=redeem_code.group_id,
+            is_rebind=False
         )
-        
+
+        redeem_requests_total.labels(status="success", code_type="linuxdo").inc()
+
         return RedeemResponse(
             success=True,
             message="已加入队列，邀请将在几秒内发送，请查收邮箱",
@@ -414,7 +469,8 @@ async def _do_redeem(data: RedeemRequest, db: Session) -> RedeemResponse:
             remaining_days=redeem_code.remaining_days
         )
     except Exception as e:
-        logger.error(f"Enqueue invite failed: {e}")
+        errors_total.labels(error_type="celery_error", endpoint="redeem").inc()
+        logger.error(f"Failed to submit Celery task: {e}")
         raise HTTPException(status_code=503, detail={"error": "QUEUE_ERROR", "message": str(e)})
 
 
@@ -512,24 +568,26 @@ class RebindError:
 async def rebind(request: Request, data: RebindRequest, db: Session = Depends(get_db)):
     """
     换车 API
-    
+
     当用户所在 Team 被封或不可用时，使用同一兑换码重新分配到其他 Team。
-    
+
     - 验证兑换码和邮箱
     - 检查当前 Team 是否不可用
     - 随机分配新 Team
     - 记录换车操作
     - 发送新邀请
-    
+
     Requirements: 3.1, 3.2, 3.3, 3.4, 3.5
     """
-    async with _redeem_semaphore:
+    limiter_instance = get_distributed_limiter()
+    async with limiter_instance:
         return await _do_rebind(data, db)
 
 
 async def _do_rebind(data: RebindRequest, db: Session) -> RebindResponse:
     """执行换车逻辑"""
-    from app.tasks import enqueue_invite
+    from app.tasks_celery import process_invite_task
+    from app.metrics import rebind_requests_total, errors_total
     
     email = data.email.lower().strip()
     code_str = data.code.strip().upper()
@@ -609,27 +667,30 @@ async def _do_rebind(data: RebindRequest, db: Session) -> RebindResponse:
     
     # 7. 发送新邀请并记录换车操作 (Requirements 3.3, 3.4)
     try:
-        await enqueue_invite(
+        process_invite_task.delay(
             email=email,
             redeem_code=redeem_code.code,
             group_id=redeem_code.group_id,
             is_rebind=True  # 标记为换车操作
         )
-        
+
+        rebind_requests_total.labels(status="success").inc()
+
         logger.info(f"Rebind request queued", extra={
             "email": email,
             "code": redeem_code.code,
             "old_team": current_team.name if current_team else "unknown",
             "new_team_group": redeem_code.group_id
         })
-        
+
         return RebindResponse(
             success=True,
             message="换车请求已提交，新邀请将在几秒内发送，请查收邮箱",
             new_team_name=None  # 队列模式下不知道具体分配到哪个 Team
         )
     except Exception as e:
-        logger.error(f"Rebind enqueue failed: {e}")
+        errors_total.labels(error_type="celery_error", endpoint="rebind").inc()
+        logger.error(f"Failed to submit rebind Celery task: {e}")
         raise HTTPException(
             status_code=503,
             detail={"error": "QUEUE_ERROR", "message": str(e)}

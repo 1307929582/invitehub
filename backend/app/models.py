@@ -64,39 +64,39 @@ class Team(Base):
 class TeamMember(Base):
     """Team 成员缓存"""
     __tablename__ = "team_members"
-    
+
     id = Column(Integer, primary_key=True, index=True)
-    team_id = Column(Integer, ForeignKey("teams.id"), nullable=False)
-    email = Column(String(100), nullable=False)
+    team_id = Column(Integer, ForeignKey("teams.id"), nullable=False, index=True)  # 添加索引
+    email = Column(String(100), nullable=False, index=True)  # 添加索引
     name = Column(String(100), nullable=True)
     role = Column(String(50), default="member")
     chatgpt_user_id = Column(String(100), nullable=True)
     joined_at = Column(DateTime, nullable=True)
     synced_at = Column(DateTime, default=datetime.utcnow)
     is_unauthorized = Column(Boolean, default=False)  # 是否为未授权成员（非系统邀请）
-    
+
     team = relationship("Team", back_populates="members")
 
 
 class InviteRecord(Base):
     """邀请记录"""
     __tablename__ = "invite_records"
-    
+
     id = Column(Integer, primary_key=True, index=True)
-    team_id = Column(Integer, ForeignKey("teams.id"), nullable=False)
-    email = Column(String(100), nullable=False)
+    team_id = Column(Integer, ForeignKey("teams.id"), nullable=False, index=True)  # 添加索引
+    email = Column(String(100), nullable=False, index=True)  # 添加索引
     linuxdo_user_id = Column(Integer, nullable=True)  # 保留字段但移除外键约束
-    status = Column(Enum(InviteStatus), default=InviteStatus.PENDING)
+    status = Column(Enum(InviteStatus), default=InviteStatus.PENDING, index=True)  # 添加索引
     error_message = Column(Text, nullable=True)
     invited_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     redeem_code = Column(String(50), nullable=True)
     batch_id = Column(String(50), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)  # 添加索引
     accepted_at = Column(DateTime, nullable=True)  # 接受邀请时间
-    
+
     # 新增字段 - 商业版功能
     is_rebind = Column(Boolean, default=False)  # 是否为换车操作
-    
+
     team = relationship("Team", back_populates="invites")
 
 
@@ -156,8 +156,8 @@ class RedeemCode(Base):
     # 新增字段 - 商业版功能
     validity_days = Column(Integer, default=30)  # 有效天数
     activated_at = Column(DateTime, nullable=True)  # 首次激活时间
-    bound_email = Column(String(100), nullable=True)  # 绑定邮箱
-    
+    bound_email = Column(String(100), nullable=True, index=True)  # 绑定邮箱，添加索引
+
     group = relationship("TeamGroup", back_populates="redeem_codes")
     
     @property
@@ -219,18 +219,18 @@ class InviteQueueStatus(str, enum.Enum):
 class InviteQueue(Base):
     """邀请队列（超过每日限制的邀请进入队列）"""
     __tablename__ = "invite_queue"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String(100), nullable=False)
     redeem_code = Column(String(50), nullable=True)
     linuxdo_user_id = Column(Integer, ForeignKey("linuxdo_users.id"), nullable=True)
     group_id = Column(Integer, ForeignKey("team_groups.id"), nullable=True)  # 指定分组
-    status = Column(Enum(InviteQueueStatus), default=InviteQueueStatus.PENDING)
+    status = Column(Enum(InviteQueueStatus), default=InviteQueueStatus.PENDING, index=True)  # 添加索引
     error_message = Column(Text, nullable=True)
     retry_count = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
     processed_at = Column(DateTime, nullable=True)
-    
+
     linuxdo_user = relationship("LinuxDOUser")
     group = relationship("TeamGroup")
 
