@@ -14,14 +14,23 @@ from app.config import settings
 import os
 
 # Redis 配置（从环境变量获取）
-REDIS_HOST = os.getenv('REDIS_HOST', 'localhost')
-REDIS_PORT = os.getenv('REDIS_PORT', '6379')
-REDIS_BROKER_DB = os.getenv('REDIS_BROKER_DB', '1')
-REDIS_BACKEND_DB = os.getenv('REDIS_BACKEND_DB', '2')
+# 优先使用 REDIS_URL（Docker 环境），否则使用单独的配置
+REDIS_URL = os.getenv('REDIS_URL')
 
-# 构建 Redis URL
-BROKER_URL = f'redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_BROKER_DB}'
-BACKEND_URL = f'redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_BACKEND_DB}'
+if REDIS_URL:
+    # Docker 环境：使用 REDIS_URL（格式：redis://redis:6379/0）
+    # 为 broker 和 backend 使用不同的数据库
+    BROKER_URL = REDIS_URL.rsplit('/', 1)[0] + '/1'  # 数据库 1 用于 broker
+    BACKEND_URL = REDIS_URL.rsplit('/', 1)[0] + '/2'  # 数据库 2 用于 backend
+else:
+    # 本地开发环境：使用单独配置
+    REDIS_HOST = os.getenv('REDIS_HOST', 'localhost')
+    REDIS_PORT = os.getenv('REDIS_PORT', '6379')
+    REDIS_BROKER_DB = os.getenv('REDIS_BROKER_DB', '1')
+    REDIS_BACKEND_DB = os.getenv('REDIS_BACKEND_DB', '2')
+
+    BROKER_URL = f'redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_BROKER_DB}'
+    BACKEND_URL = f'redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_BACKEND_DB}'
 
 # 创建 Celery 应用
 celery_app = Celery(
