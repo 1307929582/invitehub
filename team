@@ -24,17 +24,20 @@ show_logo() {
 show_menu() {
     echo -e "${GREEN}请选择操作:${NC}"
     echo ""
-    echo -e "  ${YELLOW}1)${NC} 查看状态      - 查看服务运行状态"
-    echo -e "  ${YELLOW}2)${NC} 启动服务      - 启动所有服务"
-    echo -e "  ${YELLOW}3)${NC} 停止服务      - 停止所有服务"
-    echo -e "  ${YELLOW}4)${NC} 重启服务      - 重启所有服务"
-    echo -e "  ${YELLOW}5)${NC} 更新系统      - 拉取最新代码并重新构建"
-    echo -e "  ${YELLOW}6)${NC} 查看日志      - 查看后端日志"
-    echo -e "  ${YELLOW}7)${NC} 查看前端日志  - 查看前端日志"
-    echo -e "  ${YELLOW}8)${NC} 进入后端容器  - 进入后端 Shell"
-    echo -e "  ${YELLOW}9)${NC} 数据库备份    - 备份 PostgreSQL 数据库"
-    echo -e "  ${YELLOW}10)${NC} 清理缓存     - 清理 Redis 缓存"
-    echo -e "  ${YELLOW}0)${NC} 退出"
+    echo -e "  ${YELLOW}1)${NC}  查看状态       - 查看服务运行状态"
+    echo -e "  ${YELLOW}2)${NC}  启动服务       - 启动所有服务"
+    echo -e "  ${YELLOW}3)${NC}  停止服务       - 停止所有服务"
+    echo -e "  ${YELLOW}4)${NC}  重启服务       - 重启所有服务"
+    echo -e "  ${YELLOW}5)${NC}  更新系统       - 拉取最新代码并重新构建"
+    echo -e "  ${YELLOW}6)${NC}  查看后端日志   - 查看后端日志"
+    echo -e "  ${YELLOW}7)${NC}  查看前端日志   - 查看前端日志"
+    echo -e "  ${YELLOW}8)${NC}  查看 Worker 日志 - 查看 Celery Worker 日志"
+    echo -e "  ${YELLOW}9)${NC}  查看 Beat 日志   - 查看 Celery Beat 日志"
+    echo -e "  ${YELLOW}10)${NC} 进入后端容器   - 进入后端 Shell"
+    echo -e "  ${YELLOW}11)${NC} 数据库备份     - 备份 PostgreSQL 数据库"
+    echo -e "  ${YELLOW}12)${NC} 清理缓存       - 清理 Redis 缓存"
+    echo -e "  ${YELLOW}13)${NC} Celery 状态    - 查看 Celery 任务状态"
+    echo -e "  ${YELLOW}0)${NC}  退出"
     echo ""
 }
 
@@ -51,34 +54,51 @@ check_docker() {
 
 status() {
     cd "$PROJECT_DIR"
-    
+    echo -e "${CYAN}═══════════════ 服务状态 ═══════════════${NC}"
+
     # 前端
     if docker compose -f $COMPOSE_FILE ps frontend 2>/dev/null | grep -q "Up"; then
-        echo -e "前端：${GREEN}运行${NC}"
+        echo -e "前端服务     : ${GREEN}● 运行中${NC}"
     else
-        echo -e "前端：${RED}未运行${NC}"
+        echo -e "前端服务     : ${RED}● 未运行${NC}"
     fi
-    
+
     # 后端
     if docker compose -f $COMPOSE_FILE ps backend 2>/dev/null | grep -q "Up"; then
-        echo -e "后端：${GREEN}运行${NC}"
+        echo -e "后端服务     : ${GREEN}● 运行中${NC}"
     else
-        echo -e "后端：${RED}未运行${NC}"
+        echo -e "后端服务     : ${RED}● 未运行${NC}"
     fi
-    
+
     # 数据库
     if docker compose -f $COMPOSE_FILE ps db 2>/dev/null | grep -q "Up"; then
-        echo -e "数据库：${GREEN}运行${NC}"
+        echo -e "数据库       : ${GREEN}● 运行中${NC}"
     else
-        echo -e "数据库：${RED}未运行${NC}"
+        echo -e "数据库       : ${RED}● 未运行${NC}"
     fi
-    
+
     # Redis
     if docker compose -f $COMPOSE_FILE ps redis 2>/dev/null | grep -q "Up"; then
-        echo -e "缓存：${GREEN}运行${NC}"
+        echo -e "Redis 缓存   : ${GREEN}● 运行中${NC}"
     else
-        echo -e "缓存：${RED}未运行${NC}"
+        echo -e "Redis 缓存   : ${RED}● 未运行${NC}"
     fi
+
+    # Celery Worker
+    if docker compose -f $COMPOSE_FILE ps celery_worker 2>/dev/null | grep -q "Up"; then
+        echo -e "Celery Worker: ${GREEN}● 运行中${NC}"
+    else
+        echo -e "Celery Worker: ${RED}● 未运行${NC}"
+    fi
+
+    # Celery Beat
+    if docker compose -f $COMPOSE_FILE ps celery_beat 2>/dev/null | grep -q "Up"; then
+        echo -e "Celery Beat  : ${GREEN}● 运行中${NC}"
+    else
+        echo -e "Celery Beat  : ${RED}● 未运行${NC}"
+    fi
+
+    echo -e "${CYAN}═══════════════════════════════════════${NC}"
 }
 
 start() {
@@ -127,6 +147,18 @@ logs_frontend() {
     docker compose -f $COMPOSE_FILE logs -f frontend
 }
 
+logs_worker() {
+    echo -e "${BLUE}Celery Worker 日志 (Ctrl+C 退出):${NC}"
+    cd "$PROJECT_DIR"
+    docker compose -f $COMPOSE_FILE logs -f celery_worker
+}
+
+logs_beat() {
+    echo -e "${BLUE}Celery Beat 日志 (Ctrl+C 退出):${NC}"
+    cd "$PROJECT_DIR"
+    docker compose -f $COMPOSE_FILE logs -f celery_beat
+}
+
 shell_backend() {
     echo -e "${BLUE}进入后端容器...${NC}"
     cd "$PROJECT_DIR"
@@ -146,6 +178,24 @@ clear_cache() {
     cd "$PROJECT_DIR"
     docker compose -f $COMPOSE_FILE exec redis redis-cli FLUSHALL
     echo -e "${GREEN}缓存已清理${NC}"
+}
+
+celery_status() {
+    echo -e "${CYAN}═══════════════ Celery 状态 ═══════════════${NC}"
+    cd "$PROJECT_DIR"
+
+    echo -e "${BLUE}注册的任务:${NC}"
+    docker compose -f $COMPOSE_FILE exec celery_worker celery -A app.celery_app inspect registered 2>/dev/null || echo -e "${RED}Worker 未运行${NC}"
+
+    echo ""
+    echo -e "${BLUE}活跃的任务:${NC}"
+    docker compose -f $COMPOSE_FILE exec celery_worker celery -A app.celery_app inspect active 2>/dev/null || echo -e "${RED}无活跃任务${NC}"
+
+    echo ""
+    echo -e "${BLUE}Worker 统计:${NC}"
+    docker compose -f $COMPOSE_FILE exec celery_worker celery -A app.celery_app inspect stats 2>/dev/null || echo -e "${RED}无法获取统计信息${NC}"
+
+    echo -e "${CYAN}═══════════════════════════════════════════${NC}"
 }
 
 # 主逻辑
@@ -181,6 +231,14 @@ case "$1" in
         logs_frontend
         exit 0
         ;;
+    logs-worker|lw)
+        logs_worker
+        exit 0
+        ;;
+    logs-beat|lb)
+        logs_beat
+        exit 0
+        ;;
     shell|sh)
         shell_backend
         exit 0
@@ -193,22 +251,29 @@ case "$1" in
         clear_cache
         exit 0
         ;;
+    celery|cel)
+        celery_status
+        exit 0
+        ;;
     help|h|--help|-h)
         show_logo
         echo -e "${GREEN}用法: team [命令]${NC}"
         echo ""
         echo "命令:"
-        echo "  status, s      查看服务状态"
-        echo "  start          启动服务"
-        echo "  stop           停止服务"
-        echo "  restart, r     重启服务"
-        echo "  update, u      更新系统"
-        echo "  logs, l        查看后端日志"
-        echo "  logs-frontend, lf  查看前端日志"
-        echo "  shell, sh      进入后端容器"
-        echo "  backup, b      备份数据库"
-        echo "  cache, c       清理缓存"
-        echo "  help, h        显示帮助"
+        echo "  status, s         查看服务状态"
+        echo "  start             启动服务"
+        echo "  stop              停止服务"
+        echo "  restart, r        重启服务"
+        echo "  update, u         更新系统"
+        echo "  logs, l           查看后端日志"
+        echo "  logs-frontend, lf 查看前端日志"
+        echo "  logs-worker, lw   查看 Celery Worker 日志"
+        echo "  logs-beat, lb     查看 Celery Beat 日志"
+        echo "  shell, sh         进入后端容器"
+        echo "  backup, b         备份数据库"
+        echo "  cache, c          清理缓存"
+        echo "  celery, cel       查看 Celery 状态"
+        echo "  help, h           显示帮助"
         echo ""
         exit 0
         ;;
@@ -219,9 +284,9 @@ show_logo
 
 while true; do
     show_menu
-    read -p "请输入选项 [0-10]: " choice
+    read -p "请输入选项 [0-13]: " choice
     echo ""
-    
+
     case $choice in
         1) status ;;
         2) start ;;
@@ -230,10 +295,13 @@ while true; do
         5) update ;;
         6) logs_backend ;;
         7) logs_frontend ;;
-        8) shell_backend ;;
-        9) backup_db ;;
-        10) clear_cache ;;
-        0) 
+        8) logs_worker ;;
+        9) logs_beat ;;
+        10) shell_backend ;;
+        11) backup_db ;;
+        12) clear_cache ;;
+        13) celery_status ;;
+        0)
             echo -e "${GREEN}再见！${NC}"
             exit 0
             ;;
@@ -241,7 +309,7 @@ while true; do
             echo -e "${RED}无效选项，请重新选择${NC}"
             ;;
     esac
-    
+
     echo ""
     read -p "按回车继续..."
     clear
