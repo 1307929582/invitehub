@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button, Spin } from 'antd'
-import { RocketOutlined, CheckCircleOutlined, SafetyOutlined, ThunderboltOutlined } from '@ant-design/icons'
+import { RocketOutlined, CheckCircleOutlined, SafetyOutlined, ThunderboltOutlined, SwapOutlined } from '@ant-design/icons'
 import { publicApi } from '../api'
 
 interface SiteConfig {
@@ -118,14 +118,14 @@ export default function Home() {
           </div>
         )}
 
-        <div style={{ marginBottom: 60 }}>
-          <Button 
-            type="primary" 
+        <div style={{ marginBottom: 60, display: 'flex', gap: 16, justifyContent: 'center', flexWrap: 'wrap' }}>
+          <Button
+            type="primary"
             size="large"
             icon={<RocketOutlined />}
             onClick={() => navigate('/invite')}
-            style={{ 
-              height: 56, 
+            style={{
+              height: 56,
               padding: '0 48px',
               fontSize: 18,
               fontWeight: 500,
@@ -135,6 +135,23 @@ export default function Home() {
             }}
           >
             立即上车
+          </Button>
+          <Button
+            size="large"
+            icon={<SwapOutlined />}
+            onClick={() => navigate('/rebind')}
+            style={{
+              height: 56,
+              padding: '0 48px',
+              fontSize: 18,
+              fontWeight: 500,
+              borderRadius: 28,
+              background: 'rgba(255, 255, 255, 0.9)',
+              border: '1px solid rgba(0, 122, 255, 0.3)',
+              color: '#007aff',
+            }}
+          >
+            自助换车
           </Button>
         </div>
 
