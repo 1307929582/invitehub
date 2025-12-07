@@ -48,7 +48,7 @@ services:
 
   celery_worker:
     build: ./backend
-    command: celery -A app.celery_app worker --loglevel=info --concurrency=4
+    command: celery -A app.celery_app worker --loglevel=info --concurrency=4 -Q celery,invites,sync
     environment:
       - DEBUG=false
       - SECRET_KEY=${SECRET_KEY:-your-secret-key-change-this}
