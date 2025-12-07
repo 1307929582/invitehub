@@ -40,6 +40,27 @@ rebind_requests_total = Counter(
     ['status']  # status: success/failed
 )
 
+# 过期用户清理计数器
+expired_user_cleanup_total = Counter(
+    'expired_user_cleanup_total',
+    'Total number of expired user cleanup operations',
+    ['status', 'reason']  # status: success/failed, reason: removed/already_gone/api_error
+)
+
+# 换车次数分布（Gauge，定期更新）
+rebind_count_distribution = Gauge(
+    'rebind_count_distribution',
+    'Distribution of rebind counts across users',
+    ['rebind_count']  # 0, 1, 2, 3
+)
+
+# 兑换码状态分布
+redeem_code_status_distribution = Gauge(
+    'redeem_code_status_distribution',
+    'Distribution of redeem code statuses',
+    ['status']  # bound, removing, removed
+)
+
 # ========== 性能指标 ==========
 
 # 兑换请求延迟
@@ -233,3 +254,37 @@ def update_database_pool_stats(active: int, idle: int, overflow: int):
 def record_error(error_type: str, endpoint: str):
     """记录错误"""
     errors_total.labels(error_type=error_type, endpoint=endpoint).inc()
+
+
+def update_rebind_stats(rebind_count_map: dict):
+    """
+    更新换车次数分布统计
+
+    Args:
+        rebind_count_map: {0: count, 1: count, 2: count, 3: count}
+    """
+    for count, num_users in rebind_count_map.items():
+        rebind_count_distribution.labels(rebind_count=str(count)).set(num_users)
+
+
+def update_redeem_code_status_stats(status_map: dict):
+    """
+    更新兑换码状态分布统计
+
+    Args:
+        status_map: {'bound': count, 'removing': count, 'removed': count}
+    """
+    for status, count in status_map.items():
+        redeem_code_status_distribution.labels(status=status).set(count)
+
+
+def record_expired_user_cleanup(success: bool, reason: str):
+    """
+    记录过期用户清理操作
+
+    Args:
+        success: 是否成功
+        reason: 原因（removed/already_gone/api_error）
+    """
+    status = "success" if success else "failed"
+    expired_user_cleanup_total.labels(status=status, reason=reason).inc()

@@ -87,4 +87,9 @@ celery_app.conf.beat_schedule = {
         'task': 'app.tasks_celery.cleanup_old_invite_queue',
         'schedule': 3600.0,  # 1小时
     },
+    # 每小时清理过期用户（自动移出 Team）
+    'cleanup-expired-users': {
+        'task': 'app.tasks_celery.cleanup_expired_users',
+        'schedule': 3600.0,  # 1小时
+    },
 }

@@ -585,32 +585,34 @@ async def rebind(request: Request, data: RebindRequest, db: Session = Depends(ge
 
 
 async def _do_rebind(data: RebindRequest, db: Session) -> RebindResponse:
-    """执行换车逻辑"""
+    """执行换车逻辑（支持自由换车）"""
     from app.tasks_celery import process_invite_task
     from app.metrics import rebind_requests_total, errors_total
-    
+    from app.models import RebindHistory
+    from sqlalchemy import update
+
     email = data.email.lower().strip()
     code_str = data.code.strip().upper()
-    
-    # 1. 查找兑换码
+
+    # 1. 查找兑换码（使用悲观锁防止并发问题）
     redeem_code = db.query(RedeemCode).filter(
         RedeemCode.code == code_str,
         RedeemCode.is_active == True
-    ).first()
-    
+    ).with_for_update().first()
+
     if not redeem_code:
         raise HTTPException(
             status_code=400,
             detail={"error": RebindError.INVALID_CODE, "message": "兑换码无效或不存在"}
         )
-    
-    # 2. 检查邮箱绑定一致性 (Requirements 3.1)
+
+    # 2. 检查邮箱绑定一致性
     if not redeem_code.bound_email:
         raise HTTPException(
             status_code=400,
             detail={"error": RebindError.INVALID_CODE, "message": "此兑换码尚未激活，请先使用兑换功能"}
         )
-    
+
     if redeem_code.bound_email.lower() != email:
         raise HTTPException(
             status_code=400,
@@ -619,8 +621,8 @@ async def _do_rebind(data: RebindRequest, db: Session) -> RebindResponse:
                 "message": f"邮箱与兑换码绑定邮箱不匹配"
             }
         )
-    
-    # 3. 检查用户有效期 (Requirements 3.5)
+
+    # 3. 检查用户有效期
     if redeem_code.is_user_expired:
         raise HTTPException(
             status_code=400,
@@ -629,43 +631,70 @@ async def _do_rebind(data: RebindRequest, db: Session) -> RebindResponse:
                 "message": f"兑换码已于 {redeem_code.user_expires_at.strftime('%Y-%m-%d')} 过期，无法换车"
             }
         )
+
+    # 4. 检查换车次数限制（使用安全属性处理 NULL）
+    if not redeem_code.can_rebind:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "REBIND_LIMIT_REACHED",
+                "message": f"已达到换车次数上限（{redeem_code.safe_rebind_count}/{redeem_code.safe_rebind_limit}）"
+            }
+        )
     
-    # 4. 查找最近的邀请记录
+    # 5. 查找最近的邀请记录（获取当前 Team）
     last_invite = db.query(InviteRecord).filter(
         InviteRecord.email == email,
         InviteRecord.redeem_code == redeem_code.code,
         InviteRecord.status == InviteStatus.SUCCESS
     ).order_by(InviteRecord.created_at.desc()).first()
-    
-    if not last_invite:
-        raise HTTPException(
-            status_code=400,
-            detail={"error": RebindError.NO_PREVIOUS_INVITE, "message": "未找到之前的邀请记录"}
-        )
-    
-    # 5. 检查当前 Team 是否不可用 (Requirements 3.1)
-    current_team = db.query(Team).filter(Team.id == last_invite.team_id).first()
-    
-    if current_team and current_team.is_active:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": RebindError.TEAM_STILL_ACTIVE,
-                "message": f"当前 Team「{current_team.name}」仍然可用，无需换车"
-            }
-        )
-    
-    # 6. 随机分配新 Team (Requirements 3.2)
-    # 排除当前 Team，在同一分组内寻找可用 Team
+
+    current_team_id = last_invite.team_id if last_invite else None
+    current_team = db.query(Team).filter(Team.id == current_team_id).first() if current_team_id else None
+
+    # 6. 分配新 Team（在同一分组内寻找可用 Team）
     new_team = get_available_team(db, group_id=redeem_code.group_id)
-    
+
     if not new_team:
         raise HTTPException(
             status_code=400,
             detail={"error": RebindError.NO_AVAILABLE_TEAM, "message": "暂无可用的 Team，请稍后重试"}
         )
-    
-    # 7. 发送新邀请并记录换车操作 (Requirements 3.3, 3.4)
+
+    # 7. 增加换车计数（使用悲观锁已在第1步获取）
+    result = db.execute(
+        update(RedeemCode)
+        .where(RedeemCode.id == redeem_code.id)
+        .where(RedeemCode.rebind_count < RedeemCode.rebind_limit)  # 再次检查
+        .values(rebind_count=RedeemCode.rebind_count + 1)
+    )
+
+    if result.rowcount == 0:
+        # 并发情况下可能已达上限
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "REBIND_LIMIT_REACHED",
+                "message": "换车次数已达上限，请联系管理员"
+            }
+        )
+
+    db.commit()
+    db.refresh(redeem_code)
+
+    # 8. 创建换车历史记录
+    rebind_history = RebindHistory(
+        redeem_code=redeem_code.code,
+        email=email,
+        from_team_id=current_team_id,
+        to_team_id=None,  # 异步分配，暂时不知道
+        reason="user_requested",
+        notes=f"从 {current_team.name if current_team else 'unknown'} 换车"
+    )
+    db.add(rebind_history)
+    db.commit()
+
+    # 9. 发送新邀请
     try:
         process_invite_task.delay(
             email=email,
@@ -680,12 +709,13 @@ async def _do_rebind(data: RebindRequest, db: Session) -> RebindResponse:
             "email": email,
             "code": redeem_code.code,
             "old_team": current_team.name if current_team else "unknown",
-            "new_team_group": redeem_code.group_id
+            "rebind_count": redeem_code.safe_rebind_count,
+            "rebind_limit": redeem_code.safe_rebind_limit
         })
 
         return RebindResponse(
             success=True,
-            message="换车请求已提交，新邀请将在几秒内发送，请查收邮箱",
+            message=f"换车请求已提交（{redeem_code.safe_rebind_count}/{redeem_code.safe_rebind_limit}），新邀请将在几秒内发送，请查收邮箱",
             new_team_name=None  # 队列模式下不知道具体分配到哪个 Team
         )
     except Exception as e:

@@ -223,3 +223,225 @@ def cleanup_old_invite_queue(self):
 
     except Exception as e:
         logger.error(f"Cleanup failed: {e}")
+
+
+@celery_app.task(bind=True, base=DatabaseTask)
+def cleanup_expired_users(self):
+    """
+    清理过期用户（自动移出 Team）
+
+    定时任务：每小时执行一次
+    处理逻辑：
+    1. 查找所有已过期但状态为 'bound' 的兑换码
+    2. 使用状态机：bound -> removing -> removed
+    3. 调用 ChatGPT API 移除用户
+    4. 失败时重试，最终失败时发送 Telegram 告警
+    """
+    from app.models import Team, TeamMember, RebindHistory, RedeemCodeStatus
+    from app.services.chatgpt_api import ChatGPTAPI, ChatGPTAPIError
+    from app.cache import get_redis
+
+    # 使用 Redis 分布式锁防止重复执行
+    redis_client = get_redis()
+    if not redis_client:
+        logger.warning("Redis not available, skipping cleanup task")
+        return
+
+    lock_key = "celery:cleanup_expired_users:lock"
+    lock = redis_client.lock(lock_key, timeout=300, blocking_timeout=1)
+
+    if not lock.acquire(blocking=False):
+        logger.info("Another cleanup task is running, skipping")
+        return
+
+    try:
+        logger.info("Starting expired users cleanup")
+
+        # 查找所有过期且状态为 'bound' 的兑换码
+        expired_codes = self.db.query(RedeemCode).filter(
+            RedeemCode.activated_at != None,
+            RedeemCode.status.in_([None, RedeemCodeStatus.BOUND.value]),
+            RedeemCode.is_active == True
+        ).all()
+
+        # 过滤出真正过期的（使用 @property is_user_expired）
+        truly_expired = [code for code in expired_codes if code.is_user_expired]
+
+        if not truly_expired:
+            logger.info("No expired users found")
+            return
+
+        logger.info(f"Found {len(truly_expired)} expired users to clean up")
+
+        removed_count = 0
+        failed_count = 0
+
+        for code in truly_expired:
+            try:
+                email = code.bound_email
+                if not email:
+                    continue
+
+                # 查找用户所在的 Team
+                invite_record = self.db.query(InviteRecord).filter(
+                    InviteRecord.email == email,
+                    InviteRecord.redeem_code == code.code,
+                    InviteRecord.status == InviteStatus.SUCCESS
+                ).order_by(InviteRecord.created_at.desc()).first()
+
+                if not invite_record:
+                    # 没有邀请记录，直接标记为 removed
+                    code.status = RedeemCodeStatus.REMOVED.value
+                    code.removed_at = datetime.utcnow()
+                    removed_count += 1
+                    logger.info(f"Marked {code.code} as removed (no invite record)")
+
+                    # 记录监控指标
+                    from app.metrics import record_expired_user_cleanup
+                    record_expired_user_cleanup(success=True, reason="already_gone")
+                    continue
+
+                team = self.db.query(Team).filter(Team.id == invite_record.team_id).first()
+                if not team:
+                    # Team 不存在，直接标记为 removed
+                    code.status = RedeemCodeStatus.REMOVED.value
+                    code.removed_at = datetime.utcnow()
+                    removed_count += 1
+                    logger.info(f"Marked {code.code} as removed (team not found)")
+
+                    # 记录监控指标
+                    from app.metrics import record_expired_user_cleanup
+                    record_expired_user_cleanup(success=True, reason="already_gone")
+                    continue
+
+                # 检查用户是否还在 Team 中
+                member = self.db.query(TeamMember).filter(
+                    TeamMember.team_id == team.id,
+                    TeamMember.email == email
+                ).first()
+
+                if not member:
+                    # 用户已经不在 Team 中了，直接标记为 removed
+                    code.status = RedeemCodeStatus.REMOVED.value
+                    code.removed_at = datetime.utcnow()
+                    removed_count += 1
+                    logger.info(f"Marked {code.code} as removed (user not in team)")
+
+                    # 记录监控指标
+                    from app.metrics import record_expired_user_cleanup
+                    record_expired_user_cleanup(success=True, reason="already_gone")
+                    continue
+
+                # 尝试移除用户
+                logger.info(f"Attempting to remove {email} from team {team.name}")
+
+                # 更新状态为 removing
+                code.status = RedeemCodeStatus.REMOVING.value
+                self.db.commit()
+
+                # 调用 ChatGPT API 移除用户
+                api = ChatGPTAPI(team.session_token, team.device_id or "", team.cookie or "")
+                result = asyncio.get_event_loop().run_until_complete(
+                    api.remove_member(team.account_id, member.chatgpt_user_id)
+                )
+
+                # 移除成功，更新状态
+                code.status = RedeemCodeStatus.REMOVED.value
+                code.removed_at = datetime.utcnow()
+
+                # 删除本地成员记录
+                self.db.delete(member)
+
+                # 创建历史记录
+                history = RebindHistory(
+                    redeem_code=code.code,
+                    email=email,
+                    from_team_id=team.id,
+                    to_team_id=None,
+                    reason="expired_cleanup",
+                    notes=f"用户过期自动清理，过期时间: {code.user_expires_at.strftime('%Y-%m-%d')}"
+                )
+                self.db.add(history)
+
+                self.db.commit()
+                removed_count += 1
+
+                logger.info(f"Successfully removed {email} from team {team.name}")
+
+                # 记录监控指标
+                from app.metrics import record_expired_user_cleanup
+                record_expired_user_cleanup(success=True, reason="removed")
+
+            except ChatGPTAPIError as e:
+                failed_count += 1
+                # API 错误，回滚状态
+                code.status = RedeemCodeStatus.BOUND.value
+                self.db.commit()
+
+                logger.error(f"Failed to remove {email}: ChatGPT API error: {e.message}")
+
+                # 记录监控指标
+                from app.metrics import record_expired_user_cleanup
+                record_expired_user_cleanup(success=False, reason="api_error")
+
+                # 发送 Telegram 告警
+                try:
+                    asyncio.get_event_loop().run_until_complete(
+                        _send_cleanup_failure_alert(email, code.code, team.name if team else "unknown", str(e))
+                    )
+                except Exception as tg_error:
+                    logger.error(f"Failed to send Telegram alert: {tg_error}")
+
+            except Exception as e:
+                failed_count += 1
+                # 其他错误，回滚状态
+                code.status = RedeemCodeStatus.BOUND.value
+                self.db.commit()
+
+                logger.exception(f"Failed to remove {email}: {str(e)}")
+
+        # 清除座位缓存
+        invalidate_seat_cache()
+
+        logger.info(f"Cleanup completed: removed={removed_count}, failed={failed_count}")
+
+    except Exception as e:
+        logger.exception(f"Cleanup task failed: {e}")
+    finally:
+        lock.release()
+
+
+async def _send_cleanup_failure_alert(email: str, code: str, team_name: str, error_msg: str):
+    """发送清理失败告警到 Telegram"""
+    from app.models import SystemConfig
+    from app.services.telegram import send_telegram_message
+
+    db = SessionLocal()
+    try:
+        tg_enabled = db.query(SystemConfig).filter(SystemConfig.key == "telegram_enabled").first()
+        if not tg_enabled or tg_enabled.value != "true":
+            return
+
+        bot_token_config = db.query(SystemConfig).filter(SystemConfig.key == "telegram_bot_token").first()
+        chat_id_config = db.query(SystemConfig).filter(SystemConfig.key == "telegram_chat_id").first()
+
+        if not bot_token_config or not chat_id_config:
+            return
+
+        message = f"""
+⚠️ **过期用户清理失败**
+
+📧 邮箱: `{email}`
+🔑 兑换码: `{code}`
+🏢 Team: `{team_name}`
+❌ 错误: {error_msg}
+
+请手动介入处理。
+        """
+
+        await send_telegram_message(bot_token_config.value, chat_id_config.value, message)
+
+    except Exception as e:
+        logger.error(f"Failed to send cleanup failure alert: {e}")
+    finally:
+        db.close()

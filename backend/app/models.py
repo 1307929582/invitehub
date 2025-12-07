@@ -137,6 +137,13 @@ class RedeemCodeType(str, enum.Enum):
     DIRECT = "direct"    # 直接链接，无需登录
 
 
+class RedeemCodeStatus(str, enum.Enum):
+    """兑换码状态（用于过期用户清理）"""
+    BOUND = "bound"          # 已绑定，用户活跃
+    REMOVING = "removing"    # 正在移除中
+    REMOVED = "removed"      # 已移除
+
+
 class RedeemCode(Base):
     """兑换码"""
     __tablename__ = "redeem_codes"
@@ -157,6 +164,12 @@ class RedeemCode(Base):
     validity_days = Column(Integer, default=30)  # 有效天数
     activated_at = Column(DateTime, nullable=True)  # 首次激活时间
     bound_email = Column(String(100), nullable=True, index=True)  # 绑定邮箱，添加索引
+
+    # 换车相关字段
+    rebind_count = Column(Integer, nullable=True, default=0)  # 已换车次数
+    rebind_limit = Column(Integer, nullable=True, default=3)  # 最大换车次数
+    status = Column(String(20), nullable=True, default=RedeemCodeStatus.BOUND.value)  # 状态
+    removed_at = Column(DateTime, nullable=True)  # 移除时间
 
     group = relationship("TeamGroup", back_populates="redeem_codes")
     
@@ -181,6 +194,26 @@ class RedeemCode(Base):
             delta = self.user_expires_at - datetime.utcnow()
             return max(0, delta.days)
         return None
+
+    @property
+    def safe_rebind_count(self) -> int:
+        """安全获取换车次数（处理 NULL）"""
+        return self.rebind_count if self.rebind_count is not None else 0
+
+    @property
+    def safe_rebind_limit(self) -> int:
+        """安全获取换车限制（处理 NULL）"""
+        return self.rebind_limit if self.rebind_limit is not None else 3
+
+    @property
+    def safe_status(self) -> str:
+        """安全获取状态（处理 NULL）"""
+        return self.status if self.status else RedeemCodeStatus.BOUND.value
+
+    @property
+    def can_rebind(self) -> bool:
+        """是否可以换车"""
+        return self.safe_rebind_count < self.safe_rebind_limit and not self.is_user_expired
 
 
 class LinuxDOUser(Base):
@@ -234,5 +267,21 @@ class InviteQueue(Base):
     linuxdo_user = relationship("LinuxDOUser")
     group = relationship("TeamGroup")
 
+
+class RebindHistory(Base):
+    """换车历史记录"""
+    __tablename__ = "rebind_history"
+
+    id = Column(Integer, primary_key=True, index=True)
+    redeem_code = Column(String(50), nullable=False, index=True)
+    email = Column(String(100), nullable=False, index=True)
+    from_team_id = Column(Integer, ForeignKey("teams.id", ondelete="SET NULL"), nullable=True)
+    to_team_id = Column(Integer, ForeignKey("teams.id", ondelete="SET NULL"), nullable=True)
+    reason = Column(String(50), nullable=False)  # user_requested, expired_cleanup, admin_action
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    from_team = relationship("Team", foreign_keys=[from_team_id])
+    to_team = relationship("Team", foreign_keys=[to_team_id])
 
 
