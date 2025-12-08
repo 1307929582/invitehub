@@ -39,7 +39,10 @@ class User(Base):
     hashed_password = Column(String(255), nullable=False)
     role = Column(Enum(UserRole), default=UserRole.VIEWER)
     is_active = Column(Boolean, default=True)
-    approval_status = Column(Enum(UserApprovalStatus), default=UserApprovalStatus.APPROVED)
+    approval_status = Column(
+        Enum(UserApprovalStatus, values_callable=lambda x: [e.value for e in x]),
+        default=UserApprovalStatus.APPROVED
+    )
     rejection_reason = Column(String(255), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
@@ -309,7 +312,10 @@ class VerificationCode(Base):
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String(100), nullable=False, index=True)
     code_hash = Column(String(128), nullable=False)  # SHA-256 哈希
-    purpose = Column(Enum(VerificationPurpose), nullable=False, index=True)
+    purpose = Column(
+        Enum(VerificationPurpose, values_callable=lambda x: [e.value for e in x]),
+        nullable=False, index=True
+    )
     expires_at = Column(DateTime, nullable=False, index=True)
     verified = Column(Boolean, default=False)
     attempt_count = Column(Integer, default=0)
