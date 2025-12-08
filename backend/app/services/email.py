@@ -379,10 +379,10 @@ def test_email_connection(db: Session) -> Dict[str, Any]:
     smtp_port = get_config(db, "smtp_port")
     smtp_user = get_config(db, "smtp_user")
     smtp_password = get_config(db, "smtp_password")
-    
+
     if not all([smtp_host, smtp_port, smtp_user, smtp_password]):
         return {"success": False, "message": "SMTP 配置不完整"}
-    
+
     try:
         port = int(smtp_port)
         if port == 465:
@@ -390,10 +390,31 @@ def test_email_connection(db: Session) -> Dict[str, Any]:
         else:
             server = smtplib.SMTP(smtp_host, port, timeout=10)
             server.starttls()
-        
+
         server.login(smtp_user, smtp_password)
         server.quit()
-        
+
         return {"success": True, "message": "SMTP 连接成功"}
     except Exception as e:
         return {"success": False, "message": f"连接失败: {str(e)}"}
+
+
+def send_verification_code_email(db: Session, to_email: str, code: str) -> bool:
+    """发送分销商注册验证码"""
+    subject = "分销商注册验证码"
+    content = f"""
+    <div style="padding: 30px; background: #f0f9ff; border-radius: 8px; border-left: 4px solid #0ea5e9;">
+        <h3 style="margin: 0 0 20px 0; color: #0284c7;">欢迎注册分销商账号</h3>
+        <p style="margin: 0 0 15px 0; color: #333;">您正在注册分销商账号，请使用以下验证码完成注册：</p>
+        <div style="text-align: center; padding: 20px; background: white; border-radius: 8px; margin: 20px 0;">
+            <span style="font-size: 32px; font-weight: bold; color: #0284c7; letter-spacing: 8px;">{code}</span>
+        </div>
+        <p style="margin: 0; color: #666; font-size: 14px;">
+            ⏰ 验证码有效期为 <strong>10 分钟</strong>，请勿泄露给他人。
+        </p>
+        <p style="margin: 10px 0 0 0; color: #999; font-size: 12px;">
+            如果这不是您的操作，请忽略此邮件。
+        </p>
+    </div>
+    """
+    return send_email(db, subject, content, to_email=to_email)

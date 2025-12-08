@@ -86,3 +86,48 @@ async def get_current_admin(current_user: User = Depends(get_current_user)) -> U
             detail="需要管理员权限"
         )
     return current_user
+
+
+def require_roles(*allowed_roles):
+    """
+    返回 FastAPI 依赖以限制角色访问
+
+    Usage:
+        @router.get("/admin/users", dependencies=[Depends(require_roles(UserRole.ADMIN))])
+        async def list_users(...):
+            ...
+
+        @router.post("/redeem-codes", dependencies=[Depends(require_roles(UserRole.ADMIN, UserRole.DISTRIBUTOR))])
+        async def create_code(...):
+            ...
+    """
+    async def _role_checker(current_user: User = Depends(get_current_user)) -> User:
+        from app.models import UserRole, UserApprovalStatus
+
+        # 检查角色是否在允许列表中
+        if current_user.role not in allowed_roles:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="权限不足，无法访问此资源"
+            )
+
+        # 分销商需要额外检查审核状态
+        if current_user.role == UserRole.DISTRIBUTOR:
+            if current_user.approval_status != UserApprovalStatus.APPROVED:
+                if current_user.approval_status == UserApprovalStatus.PENDING:
+                    detail = "您的账号正在审核中，请耐心等待管理员审核"
+                elif current_user.approval_status == UserApprovalStatus.REJECTED:
+                    detail = "您的申请已被拒绝"
+                    if current_user.rejection_reason:
+                        detail += f"：{current_user.rejection_reason}"
+                else:
+                    detail = "账号审核状态异常，请联系管理员"
+
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail=detail
+                )
+
+        return current_user
+
+    return _role_checker

@@ -81,9 +81,9 @@ export const dashboardApi = {
 
 // Redeem Code API
 export const redeemApi = {
-  list: (teamId?: number, isActive?: boolean, codeType?: string) => 
+  list: (teamId?: number, isActive?: boolean, codeType?: string) =>
     api.get('/redeem-codes', { params: { team_id: teamId, is_active: isActive, code_type: codeType } }),
-  batchCreate: (data: { max_uses: number; expires_days?: number; count: number; prefix?: string; code_type?: string; note?: string; group_id?: number }) =>
+  batchCreate: (data: { max_uses: number; expires_days?: number; count: number; prefix?: string; code_type?: string; note?: string; group_id?: number; validity_days?: number }) =>
     api.post('/redeem-codes/batch', data),
   delete: (id: number) => api.delete(`/redeem-codes/${id}`),
   toggle: (id: number) => api.put(`/redeem-codes/${id}/toggle`),
@@ -136,6 +136,40 @@ export const setupApi = {
   getStatus: () => axios.get('/api/v1/setup/status').then(r => r.data),
   initialize: (data: { username: string; email: string; password: string; confirm_password: string }) =>
     axios.post('/api/v1/setup/initialize', data).then(r => r.data),
+}
+
+// Admin Management API
+export const adminApi = {
+  listAdmins: () => api.get('/admins'),
+  createAdmin: (data: { username: string; email: string; password: string; role: string }) =>
+    api.post('/admins', data),
+  updateAdmin: (id: number, data: { email?: string; password?: string; role?: string; is_active?: boolean }) =>
+    api.put(`/admins/${id}`, data),
+  deleteAdmin: (id: number) => api.delete(`/admins/${id}`),
+  // 分销商审核
+  listPendingDistributors: () => api.get('/admins/pending-distributors'),
+  approveDistributor: (id: number) => api.post(`/admins/distributors/${id}/approve`),
+  rejectDistributor: (id: number, reason?: string) =>
+    api.post(`/admins/distributors/${id}/reject`, { reason }),
+}
+
+// Distributor API
+export const distributorApi = {
+  // 管理员端点
+  list: (status?: string) => api.get('/distributors', { params: { status } }),
+  getSales: (distributorId: number, limit?: number) =>
+    api.get(`/distributors/${distributorId}/sales`, { params: { limit } }),
+  // 分销商端点
+  getMySummary: () => api.get('/distributors/me/summary'),
+  getMySales: (limit?: number) => api.get('/distributors/me/sales', { params: { limit } }),
+}
+
+// Auth API - 分销商注册相关
+export const distributorAuthApi = {
+  sendVerificationCode: (email: string) =>
+    axios.post('/api/v1/auth/send-verification-code', { email }).then(r => r.data),
+  register: (data: { email: string; username: string; password: string; code: string }) =>
+    axios.post('/api/v1/auth/register-distributor', data).then(r => r.data),
 }
 
 // Public API (无需认证)

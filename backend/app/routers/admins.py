@@ -5,7 +5,7 @@ from pydantic import BaseModel, EmailStr
 from typing import List, Optional
 
 from app.database import get_db
-from app.models import User, UserRole
+from app.models import User, UserRole, UserApprovalStatus
 from app.services.auth import get_current_user, get_password_hash
 
 router = APIRouter(prefix="/admins", tags=["管理员管理"])
@@ -174,5 +174,109 @@ async def delete_admin(
     
     db.delete(user)
     db.commit()
-    
+
     return {"message": "删除成功"}
+
+
+# ===== 分销商审核相关 API =====
+
+class DistributorPendingResponse(BaseModel):
+    """待审核分销商响应"""
+    id: int
+    username: str
+    email: str
+    created_at: str
+    approval_status: str
+    rejection_reason: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
+class DistributorRejectRequest(BaseModel):
+    """拒绝分销商请求"""
+    reason: Optional[str] = None
+
+
+@router.get("/pending-distributors", response_model=List[DistributorPendingResponse])
+async def list_pending_distributors(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """查看待审核的分销商"""
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="只有管理员可以查看")
+
+    distributors = db.query(User).filter(
+        User.role == UserRole.DISTRIBUTOR,
+        User.approval_status != UserApprovalStatus.APPROVED
+    ).order_by(User.created_at.asc()).all()
+
+    return [
+        DistributorPendingResponse(
+            id=u.id,
+            username=u.username,
+            email=u.email,
+            created_at=u.created_at.isoformat() if u.created_at else "",
+            approval_status=u.approval_status.value,
+            rejection_reason=u.rejection_reason,
+        )
+        for u in distributors
+    ]
+
+
+@router.post("/distributors/{distributor_id}/approve")
+async def approve_distributor(
+    distributor_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """批准分销商申请"""
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="只有管理员可以审批")
+
+    distributor = db.query(User).filter(
+        User.id == distributor_id,
+        User.role == UserRole.DISTRIBUTOR
+    ).first()
+    if not distributor:
+        raise HTTPException(status_code=404, detail="分销商不存在")
+
+    distributor.approval_status = UserApprovalStatus.APPROVED
+    distributor.rejection_reason = None
+    db.commit()
+
+    from app.logger import get_logger
+    logger = get_logger(__name__)
+    logger.info(f"Distributor approved: {distributor.username} by {current_user.username}")
+
+    return {"message": "已通过审核", "distributor": distributor.username}
+
+
+@router.post("/distributors/{distributor_id}/reject")
+async def reject_distributor(
+    distributor_id: int,
+    payload: DistributorRejectRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """拒绝分销商申请"""
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="只有管理员可以审批")
+
+    distributor = db.query(User).filter(
+        User.id == distributor_id,
+        User.role == UserRole.DISTRIBUTOR
+    ).first()
+    if not distributor:
+        raise HTTPException(status_code=404, detail="分销商不存在")
+
+    distributor.approval_status = UserApprovalStatus.REJECTED
+    distributor.rejection_reason = payload.reason
+    db.commit()
+
+    from app.logger import get_logger
+    logger = get_logger(__name__)
+    logger.info(f"Distributor rejected: {distributor.username} by {current_user.username}, reason: {payload.reason}")
+
+    return {"message": "已拒绝申请", "distributor": distributor.username}

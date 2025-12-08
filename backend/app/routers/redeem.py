@@ -70,23 +70,29 @@ async def list_redeem_codes(
     current_user: User = Depends(get_current_user)
 ):
     """获取兑换码列表"""
+    from app.models import UserRole
+
     query = db.query(RedeemCode)
-    
+
+    # 分销商只能查看自己创建的兑换码
+    if current_user.role == UserRole.DISTRIBUTOR:
+        query = query.filter(RedeemCode.created_by == current_user.id)
+
     if is_active is not None:
         query = query.filter(RedeemCode.is_active == is_active)
-    
+
     if code_type:
         query = query.filter(RedeemCode.code_type == code_type)
-    
+
     codes = query.order_by(RedeemCode.created_at.desc()).all()
-    
+
     # 获取分组名称映射
     group_ids = [c.group_id for c in codes if c.group_id]
     groups = {}
     if group_ids:
         group_list = db.query(TeamGroup).filter(TeamGroup.id.in_(group_ids)).all()
         groups = {g.id: g.name for g in group_list}
-    
+
     return RedeemCodeListResponse(
         codes=[RedeemCodeResponse(
             id=c.id,
@@ -115,16 +121,31 @@ async def batch_create_codes(
     current_user: User = Depends(get_current_user)
 ):
     """批量创建兑换码"""
+    from app.models import UserRole, SystemConfig
+
     if data.count < 1 or data.count > 100:
         raise HTTPException(status_code=400, detail="数量必须在 1-100 之间")
-    
+
     expires_at = None
     if data.expires_days:
         expires_at = datetime.utcnow() + timedelta(days=data.expires_days)
-    
+
     # 确定兑换码类型
     code_type = RedeemCodeType.DIRECT if data.code_type == "direct" else RedeemCodeType.LINUXDO
-    
+
+    # 分销商自动分配默认分组
+    group_id = data.group_id
+    if current_user.role == UserRole.DISTRIBUTOR and not group_id:
+        # 从系统配置获取分销商默认分组
+        config = db.query(SystemConfig).filter(
+            SystemConfig.key == "distributor_default_group_id"
+        ).first()
+        if config and config.value:
+            try:
+                group_id = int(config.value)
+            except ValueError:
+                pass  # 如果配置值无效，保持 None
+
     codes = []
     for _ in range(data.count):
         while True:
@@ -132,7 +153,7 @@ async def batch_create_codes(
             existing = db.query(RedeemCode).filter(RedeemCode.code == code_str).first()
             if not existing:
                 break
-        
+
         code = RedeemCode(
             code=code_str,
             code_type=code_type,
@@ -140,18 +161,18 @@ async def batch_create_codes(
             expires_at=expires_at,
             validity_days=data.validity_days,
             note=data.note,
-            group_id=data.group_id,
+            group_id=group_id,  # 使用确定后的 group_id
             created_by=current_user.id
         )
         db.add(code)
         codes.append(code_str)
-    
+
     db.commit()
-    
+
     # 发送 Telegram 通知
     from app.services.telegram import send_admin_notification
     await send_admin_notification(db, "redeem_codes_created", count=len(codes), code_type=data.code_type, max_uses=data.max_uses, operator=current_user.username)
-    
+
     return BatchCreateResponse(codes=codes, count=len(codes))
 
 
@@ -162,13 +183,30 @@ async def delete_code(
     current_user: User = Depends(get_current_user)
 ):
     """删除兑换码"""
+    from app.models import UserRole
+
     code = db.query(RedeemCode).filter(RedeemCode.id == code_id).first()
     if not code:
         raise HTTPException(status_code=404, detail="兑换码不存在")
-    
+
+    # 分销商权限检查：只能删除自己创建的兑换码
+    if current_user.role == UserRole.DISTRIBUTOR:
+        if code.created_by != current_user.id:
+            raise HTTPException(
+                status_code=403,
+                detail="您只能删除自己创建的兑换码"
+            )
+
+    # 使用验证：已有使用记录的兑换码不能删除
+    if code.used_count and code.used_count > 0:
+        raise HTTPException(
+            status_code=400,
+            detail=f"该兑换码已被使用 {code.used_count} 次，不能删除。如需停用，请使用禁用功能。"
+        )
+
     db.delete(code)
     db.commit()
-    
+
     return {"message": "删除成功"}
 
 

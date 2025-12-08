@@ -13,6 +13,14 @@ class UserRole(str, enum.Enum):
     ADMIN = "admin"
     OPERATOR = "operator"
     VIEWER = "viewer"
+    DISTRIBUTOR = "distributor"
+
+
+class UserApprovalStatus(str, enum.Enum):
+    """用户审核状态"""
+    PENDING = "pending"      # 待审核
+    APPROVED = "approved"    # 已批准
+    REJECTED = "rejected"    # 已拒绝
 
 
 class InviteStatus(str, enum.Enum):
@@ -24,17 +32,20 @@ class InviteStatus(str, enum.Enum):
 class User(Base):
     """系统用户（管理平台的用户）"""
     __tablename__ = "users"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     username = Column(String(50), unique=True, index=True, nullable=False)
     email = Column(String(100), unique=True, index=True, nullable=False)
     hashed_password = Column(String(255), nullable=False)
     role = Column(Enum(UserRole), default=UserRole.VIEWER)
     is_active = Column(Boolean, default=True)
+    approval_status = Column(Enum(UserApprovalStatus), default=UserApprovalStatus.APPROVED)
+    rejection_reason = Column(String(255), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
+
     operation_logs = relationship("OperationLog", back_populates="user")
+    redeem_codes = relationship("RedeemCode", back_populates="creator")
 
 
 class Team(Base):
@@ -172,6 +183,7 @@ class RedeemCode(Base):
     removed_at = Column(DateTime, nullable=True)  # 移除时间
 
     group = relationship("TeamGroup", back_populates="redeem_codes")
+    creator = relationship("User", back_populates="redeem_codes")
     
     @property
     def user_expires_at(self) -> Optional[datetime]:
@@ -283,5 +295,24 @@ class RebindHistory(Base):
 
     from_team = relationship("Team", foreign_keys=[from_team_id])
     to_team = relationship("Team", foreign_keys=[to_team_id])
+
+
+class VerificationPurpose(str, enum.Enum):
+    """验证码用途"""
+    DISTRIBUTOR_SIGNUP = "distributor_signup"
+
+
+class VerificationCode(Base):
+    """邮箱验证码"""
+    __tablename__ = "verification_codes"
+
+    id = Column(Integer, primary_key=True, index=True)
+    email = Column(String(100), nullable=False, index=True)
+    code_hash = Column(String(128), nullable=False)  # SHA-256 哈希
+    purpose = Column(Enum(VerificationPurpose), nullable=False, index=True)
+    expires_at = Column(DateTime, nullable=False, index=True)
+    verified = Column(Boolean, default=False)
+    attempt_count = Column(Integer, default=0)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 

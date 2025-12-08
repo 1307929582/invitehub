@@ -1,25 +1,50 @@
 import { useState } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { Form, Input, Button, message } from 'antd'
+import { useNavigate, Link } from 'react-router-dom'
+import { Form, Input, Button, message, Alert } from 'antd'
 import { UserOutlined, LockOutlined } from '@ant-design/icons'
 import { authApi } from '../api'
 import { useStore } from '../store'
+import axios from 'axios'
 
 export default function Login() {
   const [loading, setLoading] = useState(false)
+  const [errorInfo, setErrorInfo] = useState<{ type: string; message: string } | null>(null)
   const navigate = useNavigate()
   const { setUser } = useStore()
 
   const onFinish = async (values: { username: string; password: string }) => {
     setLoading(true)
+    setErrorInfo(null)
     try {
       const res: any = await authApi.login(values.username, values.password)
       localStorage.setItem('token', res.access_token)
       const user: any = await authApi.getMe()
       setUser(user)
       message.success('登录成功')
-      navigate('/admin/dashboard')
-    } catch {
+      // 根据角色重定向
+      if (user.role === 'distributor') {
+        navigate('/distributor')
+      } else {
+        navigate('/admin/dashboard')
+      }
+    } catch (error: any) {
+      // 处理分销商审核状态
+      if (axios.isAxiosError(error) && error.response) {
+        const { status, data } = error.response
+        if (status === 403) {
+          const detail = data?.detail || ''
+          if (detail.includes('pending') || detail.includes('待审核')) {
+            setErrorInfo({ type: 'warning', message: '您的分销商账号正在审核中，请耐心等待管理员审批。' })
+          } else if (detail.includes('rejected') || detail.includes('已拒绝')) {
+            const reason = data?.reason || '未提供原因'
+            setErrorInfo({ type: 'error', message: `您的分销商申请已被拒绝。原因：${reason}` })
+          } else {
+            setErrorInfo({ type: 'error', message: detail || '账号状态异常，请联系管理员。' })
+          }
+        } else if (status === 401) {
+          setErrorInfo({ type: 'error', message: '用户名或密码错误' })
+        }
+      }
     } finally {
       setLoading(false)
     }
@@ -89,34 +114,45 @@ export default function Login() {
           </p>
         </div>
         
+        {errorInfo && (
+          <Alert
+            type={errorInfo.type as 'error' | 'warning'}
+            message={errorInfo.message}
+            showIcon
+            style={{ marginBottom: 24, borderRadius: 12 }}
+            closable
+            onClose={() => setErrorInfo(null)}
+          />
+        )}
+
         <Form name="login" onFinish={onFinish}>
           <Form.Item name="username" rules={[{ required: true, message: '请输入用户名' }]}>
-            <Input 
-              prefix={<UserOutlined style={{ color: '#94a3b8' }} />} 
-              placeholder="用户名" 
-              size="large" 
+            <Input
+              prefix={<UserOutlined style={{ color: '#94a3b8' }} />}
+              placeholder="用户名"
+              size="large"
               style={{ height: 52, borderRadius: 14 }}
             />
           </Form.Item>
           <Form.Item name="password" rules={[{ required: true, message: '请输入密码' }]}>
-            <Input.Password 
-              prefix={<LockOutlined style={{ color: '#94a3b8' }} />} 
-              placeholder="密码" 
+            <Input.Password
+              prefix={<LockOutlined style={{ color: '#94a3b8' }} />}
+              placeholder="密码"
               size="large"
               style={{ height: 52, borderRadius: 14 }}
             />
           </Form.Item>
           <Form.Item style={{ marginBottom: 0, marginTop: 36 }}>
-            <Button 
-              type="primary" 
-              htmlType="submit" 
-              loading={loading} 
-              block 
+            <Button
+              type="primary"
+              htmlType="submit"
+              loading={loading}
+              block
               size="large"
-              style={{ 
-                height: 52, 
-                borderRadius: 14, 
-                fontSize: 15, 
+              style={{
+                height: 52,
+                borderRadius: 14,
+                fontSize: 15,
                 fontWeight: 600,
               }}
             >
@@ -124,6 +160,15 @@ export default function Login() {
             </Button>
           </Form.Item>
         </Form>
+
+        <div style={{ textAlign: 'center', marginTop: 24 }}>
+          <span style={{ color: '#64748b', fontSize: 14 }}>
+            想成为分销商？
+            <Link to="/register" style={{ marginLeft: 8, fontWeight: 500 }}>
+              申请注册
+            </Link>
+          </span>
+        </div>
       </div>
     </div>
   )

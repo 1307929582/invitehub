@@ -25,22 +25,32 @@ import TelegramSettings from './pages/settings/TelegramSettings'
 import PriceSettings from './pages/settings/PriceSettings'
 import WhitelistSettings from './pages/settings/WhitelistSettings'
 import UnauthorizedMembers from './pages/UnauthorizedMembers'
+// 分销商相关页面
+import DistributorRegister from './pages/DistributorRegister'
+import DistributorLayout from './pages/distributor/DistributorLayout'
+import DistributorDashboard from './pages/distributor/DistributorDashboard'
+import DistributorRedeemCodes from './pages/distributor/DistributorRedeemCodes'
+import DistributorSales from './pages/distributor/DistributorSales'
+// 管理员分销商管理页面
+import AdminPendingDistributors from './pages/admin/AdminPendingDistributors'
+import AdminDistributors from './pages/admin/AdminDistributors'
+
 import { useStore } from './store'
 import { authApi, setupApi } from './api'
 
 function PrivateRoute({ children, initialized }: { children: React.ReactNode; initialized: boolean | null }) {
   const { user } = useStore()
   const token = localStorage.getItem('token')
-  
+
   // 未初始化时跳转到设置页
   if (initialized === false) {
     return <Navigate to="/setup" replace />
   }
-  
+
   if (!token) {
     return <Navigate to="/admin/login" replace />
   }
-  
+
   if (!user) {
     return (
       <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
@@ -48,7 +58,36 @@ function PrivateRoute({ children, initialized }: { children: React.ReactNode; in
       </div>
     )
   }
-  
+
+  return <>{children}</>
+}
+
+// 分销商专属路由保护
+function DistributorRoute({ children, initialized }: { children: React.ReactNode; initialized: boolean | null }) {
+  const { user } = useStore()
+  const token = localStorage.getItem('token')
+
+  if (initialized === false) {
+    return <Navigate to="/setup" replace />
+  }
+
+  if (!token) {
+    return <Navigate to="/admin/login" replace />
+  }
+
+  if (!user) {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100vh' }}>
+        <Spin size="large" />
+      </div>
+    )
+  }
+
+  // 检查是否为分销商角色
+  if (user.role !== 'distributor') {
+    return <Navigate to="/admin/dashboard" replace />
+  }
+
   return <>{children}</>
 }
 
@@ -97,7 +136,7 @@ function App() {
         <Route path="/setup" element={
           initialized === true ? <Navigate to="/" replace /> : <Setup />
         } />
-        
+
         {/* 用户页面 */}
         <Route path="/" element={
           initialized === false ? <Navigate to="/setup" replace /> : <Home />
@@ -105,12 +144,28 @@ function App() {
         <Route path="/invite" element={<DirectInvite />} />
         <Route path="/invite/:code" element={<DirectInvite />} />
         <Route path="/rebind" element={<Rebind />} />
-        
+
+        {/* 分销商注册页面（公开） */}
+        <Route path="/register" element={
+          initialized === false ? <Navigate to="/setup" replace /> : <DistributorRegister />
+        } />
+
         {/* 管理员登录 */}
         <Route path="/admin/login" element={
           initialized === false ? <Navigate to="/setup" replace /> : <Login />
         } />
-        
+
+        {/* 分销商后台 */}
+        <Route path="/distributor" element={
+          <DistributorRoute initialized={initialized}>
+            <DistributorLayout />
+          </DistributorRoute>
+        }>
+          <Route index element={<DistributorDashboard />} />
+          <Route path="redeem-codes" element={<DistributorRedeemCodes />} />
+          <Route path="sales" element={<DistributorSales />} />
+        </Route>
+
         {/* 管理后台 */}
         <Route path="/admin" element={
           <PrivateRoute initialized={initialized}>
@@ -136,6 +191,9 @@ function App() {
           <Route path="settings/whitelist" element={<WhitelistSettings />} />
           <Route path="unauthorized" element={<UnauthorizedMembers />} />
           <Route path="admins" element={<Admins />} />
+          {/* 分销商管理（管理员） */}
+          <Route path="pending-distributors" element={<AdminPendingDistributors />} />
+          <Route path="distributors" element={<AdminDistributors />} />
         </Route>
       </Routes>
     </BrowserRouter>
