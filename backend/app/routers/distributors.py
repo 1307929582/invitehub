@@ -137,10 +137,11 @@ async def get_my_summary(
 
         from app.models import InviteStatus
         pending_invites = invite_query.filter(
-            InviteStatus.PENDING == InviteRecord.status
+            InviteRecord.status == InviteStatus.PENDING
         ).count()
+        # InviteStatus 没有 ACCEPTED，使用 accepted_at 字段判断
         accepted_invites = invite_query.filter(
-            InviteStatus.ACCEPTED == InviteRecord.status
+            InviteRecord.accepted_at.isnot(None)
         ).count()
     else:
         pending_invites = 0

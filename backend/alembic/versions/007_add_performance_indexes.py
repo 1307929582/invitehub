@@ -29,6 +29,9 @@ depends_on = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+
     # TeamMember indexes
     op.create_index('ix_team_members_team_id', 'team_members', ['team_id'])
     op.create_index('ix_team_members_email', 'team_members', ['email'])
@@ -39,19 +42,24 @@ def upgrade() -> None:
     op.create_index('ix_invite_records_status', 'invite_records', ['status'])
     op.create_index('ix_invite_records_created_at', 'invite_records', ['created_at'])
 
-    # InviteQueue indexes
-    op.create_index('ix_invite_queue_status', 'invite_queue', ['status'])
+    # InviteQueue indexes - 仅当表存在时创建
+    if inspector.has_table('invite_queue'):
+        op.create_index('ix_invite_queue_status', 'invite_queue', ['status'])
 
     # RedeemCode indexes
     op.create_index('ix_redeem_codes_bound_email', 'redeem_codes', ['bound_email'])
 
 
 def downgrade() -> None:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+
     # Drop RedeemCode indexes
     op.drop_index('ix_redeem_codes_bound_email', 'redeem_codes')
 
-    # Drop InviteQueue indexes
-    op.drop_index('ix_invite_queue_status', 'invite_queue')
+    # Drop InviteQueue indexes - 仅当表存在时删除
+    if inspector.has_table('invite_queue'):
+        op.drop_index('ix_invite_queue_status', 'invite_queue')
 
     # Drop InviteRecord indexes
     op.drop_index('ix_invite_records_created_at', 'invite_records')

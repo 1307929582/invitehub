@@ -32,6 +32,9 @@ depends_on = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+
     # Composite index for SeatCalculator pending invite queries
     # Covers: WHERE team_id = ? AND status = ? AND created_at >= ?
     op.create_index(
@@ -48,16 +51,22 @@ def upgrade() -> None:
         ['team_id', 'email']
     )
 
-    # Composite index for worker queue polling
+    # Composite index for worker queue polling - 仅当表存在时创建
     # Covers: WHERE status = 'pending' AND (group_id = ? OR group_id IS NULL)
-    op.create_index(
-        'ix_invite_queue_status_group_created',
-        'invite_queue',
-        ['status', 'group_id', 'created_at']
-    )
+    if inspector.has_table('invite_queue'):
+        op.create_index(
+            'ix_invite_queue_status_group_created',
+            'invite_queue',
+            ['status', 'group_id', 'created_at']
+        )
 
 
 def downgrade() -> None:
-    op.drop_index('ix_invite_queue_status_group_created', 'invite_queue')
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+
+    # 仅当表存在时删除索引
+    if inspector.has_table('invite_queue'):
+        op.drop_index('ix_invite_queue_status_group_created', 'invite_queue')
     op.drop_index('ix_team_members_team_email', 'team_members')
     op.drop_index('ix_invite_records_team_status_created', 'invite_records')
