@@ -31,55 +31,79 @@ depends_on = None
 def upgrade() -> None:
     bind = op.get_bind()
 
-    # Step 1: Create UserApprovalStatus enum
+    # Step 1: Create UserApprovalStatus enum (use raw SQL for IF NOT EXISTS)
     if bind.dialect.name == 'postgresql':
-        user_status_enum = sa.Enum('pending', 'approved', 'rejected', name='userapprovalstatus')
-        user_status_enum.create(bind, checkfirst=True)
+        bind.execute(sa.text(
+            "DO $$ BEGIN "
+            "CREATE TYPE userapprovalstatus AS ENUM ('pending', 'approved', 'rejected'); "
+            "EXCEPTION WHEN duplicate_object THEN NULL; END $$;"
+        ))
 
     # Step 2: Add approval columns to users table
-    # Use server_default to set existing users to 'approved'
-    op.add_column(
-        'users',
-        sa.Column(
-            'approval_status',
-            sa.Enum('pending', 'approved', 'rejected', name='userapprovalstatus')
-                if bind.dialect.name == 'postgresql' else sa.String(20),
-            nullable=False,
-            server_default='approved',  # All existing users are auto-approved
-        ),
-    )
-    op.add_column('users', sa.Column('rejection_reason', sa.String(length=255), nullable=True))
+    # Check if column already exists (for partial migration recovery)
+    result = bind.execute(sa.text(
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_name = 'users' AND column_name = 'approval_status'"
+    )).fetchone()
 
-    # Remove server_default after applying to existing rows
-    # New users will use application-level default
-    op.alter_column('users', 'approval_status', server_default=None)
+    if not result:
+        op.add_column(
+            'users',
+            sa.Column(
+                'approval_status',
+                sa.Enum('pending', 'approved', 'rejected', name='userapprovalstatus', create_type=False)
+                    if bind.dialect.name == 'postgresql' else sa.String(20),
+                nullable=False,
+                server_default='approved',  # All existing users are auto-approved
+            ),
+        )
+        # Remove server_default after applying to existing rows
+        op.alter_column('users', 'approval_status', server_default=None)
 
-    # Step 3: Create VerificationPurpose enum
+    # Check if rejection_reason column exists
+    result = bind.execute(sa.text(
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_name = 'users' AND column_name = 'rejection_reason'"
+    )).fetchone()
+
+    if not result:
+        op.add_column('users', sa.Column('rejection_reason', sa.String(length=255), nullable=True))
+
+    # Step 3: Create VerificationPurpose enum (use raw SQL for IF NOT EXISTS)
     if bind.dialect.name == 'postgresql':
-        verification_purpose_enum = sa.Enum('distributor_signup', name='verificationpurpose')
-        verification_purpose_enum.create(bind, checkfirst=True)
+        bind.execute(sa.text(
+            "DO $$ BEGIN "
+            "CREATE TYPE verificationpurpose AS ENUM ('distributor_signup'); "
+            "EXCEPTION WHEN duplicate_object THEN NULL; END $$;"
+        ))
 
-    # Step 4: Create verification_codes table
-    op.create_table(
-        'verification_codes',
-        sa.Column('id', sa.Integer(), primary_key=True),
-        sa.Column('email', sa.String(length=100), nullable=False),
-        sa.Column('code_hash', sa.String(length=128), nullable=False),
-        sa.Column('purpose',
-                  sa.Enum('distributor_signup', name='verificationpurpose')
-                      if bind.dialect.name == 'postgresql' else sa.String(20),
-                  nullable=False),
-        sa.Column('expires_at', sa.DateTime(), nullable=False),
-        sa.Column('verified', sa.Boolean(), nullable=False, server_default=sa.text('false')),
-        sa.Column('attempt_count', sa.Integer(), nullable=False, server_default='0'),
-        sa.Column('created_at', sa.DateTime(), nullable=False,
-                  server_default=sa.text('CURRENT_TIMESTAMP')),
-    )
+    # Step 4: Create verification_codes table (check if exists first)
+    table_exists = bind.execute(sa.text(
+        "SELECT table_name FROM information_schema.tables "
+        "WHERE table_name = 'verification_codes'"
+    )).fetchone()
 
-    # Create indexes for efficient queries
-    op.create_index('ix_verification_codes_email', 'verification_codes', ['email'])
-    op.create_index('ix_verification_codes_purpose', 'verification_codes', ['purpose'])
-    op.create_index('ix_verification_codes_expires_at', 'verification_codes', ['expires_at'])
+    if not table_exists:
+        op.create_table(
+            'verification_codes',
+            sa.Column('id', sa.Integer(), primary_key=True),
+            sa.Column('email', sa.String(length=100), nullable=False),
+            sa.Column('code_hash', sa.String(length=128), nullable=False),
+            sa.Column('purpose',
+                      sa.Enum('distributor_signup', name='verificationpurpose', create_type=False)
+                          if bind.dialect.name == 'postgresql' else sa.String(20),
+                      nullable=False),
+            sa.Column('expires_at', sa.DateTime(), nullable=False),
+            sa.Column('verified', sa.Boolean(), nullable=False, server_default=sa.text('false')),
+            sa.Column('attempt_count', sa.Integer(), nullable=False, server_default='0'),
+            sa.Column('created_at', sa.DateTime(), nullable=False,
+                      server_default=sa.text('CURRENT_TIMESTAMP')),
+        )
+
+        # Create indexes for efficient queries
+        op.create_index('ix_verification_codes_email', 'verification_codes', ['email'])
+        op.create_index('ix_verification_codes_purpose', 'verification_codes', ['purpose'])
+        op.create_index('ix_verification_codes_expires_at', 'verification_codes', ['expires_at'])
 
     # Step 5: Create default distributor group (idempotent)
     conn = op.get_bind()
