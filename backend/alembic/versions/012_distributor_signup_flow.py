@@ -47,18 +47,12 @@ def upgrade() -> None:
     )).fetchone()
 
     if not result:
-        op.add_column(
-            'users',
-            sa.Column(
-                'approval_status',
-                sa.Enum('pending', 'approved', 'rejected', name='userapprovalstatus', create_type=False)
-                    if bind.dialect.name == 'postgresql' else sa.String(20),
-                nullable=False,
-                server_default='approved',  # All existing users are auto-approved
-            ),
-        )
-        # Remove server_default after applying to existing rows
-        op.alter_column('users', 'approval_status', server_default=None)
+        bind.execute(sa.text(
+            "ALTER TABLE users ADD COLUMN approval_status userapprovalstatus NOT NULL DEFAULT 'approved'"
+        ))
+        bind.execute(sa.text(
+            "ALTER TABLE users ALTER COLUMN approval_status DROP DEFAULT"
+        ))
 
     # Check if rejection_reason column exists
     result = bind.execute(sa.text(
@@ -67,7 +61,9 @@ def upgrade() -> None:
     )).fetchone()
 
     if not result:
-        op.add_column('users', sa.Column('rejection_reason', sa.String(length=255), nullable=True))
+        bind.execute(sa.text(
+            "ALTER TABLE users ADD COLUMN rejection_reason VARCHAR(255)"
+        ))
 
     # Step 3: Create VerificationPurpose enum (use raw SQL for IF NOT EXISTS)
     if bind.dialect.name == 'postgresql':
@@ -77,33 +73,30 @@ def upgrade() -> None:
             "EXCEPTION WHEN duplicate_object THEN NULL; END $$;"
         ))
 
-    # Step 4: Create verification_codes table (check if exists first)
+    # Step 4: Create verification_codes table using raw SQL
     table_exists = bind.execute(sa.text(
         "SELECT table_name FROM information_schema.tables "
         "WHERE table_name = 'verification_codes'"
     )).fetchone()
 
     if not table_exists:
-        op.create_table(
-            'verification_codes',
-            sa.Column('id', sa.Integer(), primary_key=True),
-            sa.Column('email', sa.String(length=100), nullable=False),
-            sa.Column('code_hash', sa.String(length=128), nullable=False),
-            sa.Column('purpose',
-                      sa.Enum('distributor_signup', name='verificationpurpose', create_type=False)
-                          if bind.dialect.name == 'postgresql' else sa.String(20),
-                      nullable=False),
-            sa.Column('expires_at', sa.DateTime(), nullable=False),
-            sa.Column('verified', sa.Boolean(), nullable=False, server_default=sa.text('false')),
-            sa.Column('attempt_count', sa.Integer(), nullable=False, server_default='0'),
-            sa.Column('created_at', sa.DateTime(), nullable=False,
-                      server_default=sa.text('CURRENT_TIMESTAMP')),
-        )
+        bind.execute(sa.text("""
+            CREATE TABLE verification_codes (
+                id SERIAL PRIMARY KEY,
+                email VARCHAR(100) NOT NULL,
+                code_hash VARCHAR(128) NOT NULL,
+                purpose verificationpurpose NOT NULL,
+                expires_at TIMESTAMP NOT NULL,
+                verified BOOLEAN NOT NULL DEFAULT FALSE,
+                attempt_count INTEGER NOT NULL DEFAULT 0,
+                created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
 
         # Create indexes for efficient queries
-        op.create_index('ix_verification_codes_email', 'verification_codes', ['email'])
-        op.create_index('ix_verification_codes_purpose', 'verification_codes', ['purpose'])
-        op.create_index('ix_verification_codes_expires_at', 'verification_codes', ['expires_at'])
+        bind.execute(sa.text("CREATE INDEX ix_verification_codes_email ON verification_codes (email)"))
+        bind.execute(sa.text("CREATE INDEX ix_verification_codes_purpose ON verification_codes (purpose)"))
+        bind.execute(sa.text("CREATE INDEX ix_verification_codes_expires_at ON verification_codes (expires_at)"))
 
     # Step 5: Create default distributor group (idempotent)
     conn = op.get_bind()
