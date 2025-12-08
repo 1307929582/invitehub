@@ -1,8 +1,8 @@
 // 管理员 - 分销商管理
 import { useState, useEffect, useCallback } from 'react'
-import { Table, Button, message, Badge, Typography, Card, Modal, Input, Select } from 'antd'
-import { EyeOutlined, SearchOutlined } from '@ant-design/icons'
-import { distributorApi } from '../../api'
+import { Table, Button, message, Badge, Typography, Card, Modal, Input, Select, Form } from 'antd'
+import { EyeOutlined, SearchOutlined, PlusOutlined } from '@ant-design/icons'
+import { distributorApi, adminApi } from '../../api'
 
 const { Title } = Typography
 
@@ -38,6 +38,11 @@ export default function AdminDistributors() {
   const [selectedDistributor, setSelectedDistributor] = useState<Distributor | null>(null)
   const [salesRecords, setSalesRecords] = useState<SaleRecord[]>([])
 
+  // 创建分销商弹窗
+  const [createModalVisible, setCreateModalVisible] = useState(false)
+  const [createLoading, setCreateLoading] = useState(false)
+  const [createForm] = Form.useForm()
+
   const fetchDistributors = useCallback(async () => {
     setLoading(true)
     try {
@@ -72,6 +77,21 @@ export default function AdminDistributors() {
     d.username.toLowerCase().includes(searchText.toLowerCase()) ||
     d.email.toLowerCase().includes(searchText.toLowerCase())
   )
+
+  const handleCreateDistributor = async (values: { username: string; email: string; password: string }) => {
+    setCreateLoading(true)
+    try {
+      await adminApi.createDistributor(values)
+      message.success('分销商创建成功')
+      setCreateModalVisible(false)
+      createForm.resetFields()
+      fetchDistributors()
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || '创建失败')
+    } finally {
+      setCreateLoading(false)
+    }
+  }
 
   const statusMap: Record<string, { status: 'success' | 'processing' | 'error' | 'default'; text: string }> = {
     approved: { status: 'success', text: '已批准' },
@@ -171,7 +191,16 @@ export default function AdminDistributors() {
 
   return (
     <div>
-      <Title level={4} style={{ marginBottom: 24 }}>分销商管理</Title>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
+        <Title level={4} style={{ margin: 0 }}>分销商管理</Title>
+        <Button
+          type="primary"
+          icon={<PlusOutlined />}
+          onClick={() => setCreateModalVisible(true)}
+        >
+          添加分销商
+        </Button>
+      </div>
 
       <Card>
         <div style={{ marginBottom: 16, display: 'flex', gap: 16, flexWrap: 'wrap' }}>
@@ -225,6 +254,67 @@ export default function AdminDistributors() {
           pagination={{ pageSize: 10 }}
           size="small"
         />
+      </Modal>
+
+      <Modal
+        title="添加分销商"
+        open={createModalVisible}
+        onCancel={() => {
+          setCreateModalVisible(false)
+          createForm.resetFields()
+        }}
+        footer={null}
+        width={480}
+      >
+        <Form
+          form={createForm}
+          layout="vertical"
+          onFinish={handleCreateDistributor}
+        >
+          <Form.Item
+            name="username"
+            label="用户名"
+            rules={[
+              { required: true, message: '请输入用户名' },
+              { min: 3, message: '用户名至少3个字符' },
+              { max: 20, message: '用户名最多20个字符' },
+              { pattern: /^[a-zA-Z0-9_]+$/, message: '只能包含字母、数字、下划线' }
+            ]}
+          >
+            <Input placeholder="输入用户名" />
+          </Form.Item>
+
+          <Form.Item
+            name="email"
+            label="邮箱"
+            rules={[
+              { required: true, message: '请输入邮箱' },
+              { type: 'email', message: '请输入有效的邮箱地址' }
+            ]}
+          >
+            <Input placeholder="输入邮箱地址" />
+          </Form.Item>
+
+          <Form.Item
+            name="password"
+            label="密码"
+            rules={[
+              { required: true, message: '请输入密码' },
+              { min: 6, message: '密码至少6个字符' }
+            ]}
+          >
+            <Input.Password placeholder="输入登录密码" />
+          </Form.Item>
+
+          <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
+            <Button onClick={() => setCreateModalVisible(false)} style={{ marginRight: 8 }}>
+              取消
+            </Button>
+            <Button type="primary" htmlType="submit" loading={createLoading}>
+              创建
+            </Button>
+          </Form.Item>
+        </Form>
       </Modal>
     </div>
   )

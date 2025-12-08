@@ -151,6 +151,9 @@ export const adminApi = {
   approveDistributor: (id: number) => api.post(`/admins/distributors/${id}/approve`),
   rejectDistributor: (id: number, reason?: string) =>
     api.post(`/admins/distributors/${id}/reject`, { reason }),
+  // 手动创建分销商
+  createDistributor: (data: { username: string; email: string; password: string }) =>
+    api.post('/admins/distributors/create', data),
 }
 
 // Distributor API

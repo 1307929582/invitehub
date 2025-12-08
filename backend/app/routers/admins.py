@@ -198,6 +198,13 @@ class DistributorRejectRequest(BaseModel):
     reason: Optional[str] = None
 
 
+class DistributorCreateRequest(BaseModel):
+    """手动创建分销商请求"""
+    username: str
+    email: EmailStr
+    password: str
+
+
 @router.get("/pending-distributors", response_model=List[DistributorPendingResponse])
 async def list_pending_distributors(
     db: Session = Depends(get_db),
@@ -280,3 +287,52 @@ async def reject_distributor(
     logger.info(f"Distributor rejected: {distributor.username} by {current_user.username}, reason: {payload.reason}")
 
     return {"message": "已拒绝申请", "distributor": distributor.username}
+
+
+@router.post("/distributors/create")
+async def create_distributor(
+    payload: DistributorCreateRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    手动创建分销商账号（管理员）
+
+    创建的分销商自动批准，无需审核流程
+    """
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="只有管理员可以创建分销商")
+
+    # 检查用户名
+    if db.query(User).filter(User.username == payload.username).first():
+        raise HTTPException(status_code=400, detail="用户名已存在")
+
+    # 检查邮箱
+    if db.query(User).filter(User.email == payload.email.lower()).first():
+        raise HTTPException(status_code=400, detail="邮箱已存在")
+
+    # 创建分销商（自动批准）
+    distributor = User(
+        username=payload.username.strip(),
+        email=payload.email.lower().strip(),
+        hashed_password=get_password_hash(payload.password),
+        role=UserRole.DISTRIBUTOR,
+        approval_status=UserApprovalStatus.APPROVED,
+        is_active=True
+    )
+    db.add(distributor)
+    db.commit()
+    db.refresh(distributor)
+
+    from app.logger import get_logger
+    logger = get_logger(__name__)
+    logger.info(f"Distributor created manually: {distributor.username} by {current_user.username}")
+
+    return {
+        "message": "分销商创建成功",
+        "distributor": {
+            "id": distributor.id,
+            "username": distributor.username,
+            "email": distributor.email
+        }
+    }
