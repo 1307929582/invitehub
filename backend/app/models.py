@@ -37,7 +37,10 @@ class User(Base):
     username = Column(String(50), unique=True, index=True, nullable=False)
     email = Column(String(100), unique=True, index=True, nullable=False)
     hashed_password = Column(String(255), nullable=False)
-    role = Column(Enum(UserRole), default=UserRole.VIEWER)
+    role = Column(
+        Enum(UserRole, values_callable=lambda x: [e.value for e in x]),
+        default=UserRole.VIEWER
+    )
     is_active = Column(Boolean, default=True)
     approval_status = Column(
         Enum(UserApprovalStatus, values_callable=lambda x: [e.value for e in x]),
@@ -100,7 +103,10 @@ class InviteRecord(Base):
     team_id = Column(Integer, ForeignKey("teams.id"), nullable=False, index=True)  # 添加索引
     email = Column(String(100), nullable=False, index=True)  # 添加索引
     linuxdo_user_id = Column(Integer, nullable=True)  # 保留字段但移除外键约束
-    status = Column(Enum(InviteStatus), default=InviteStatus.PENDING, index=True)  # 添加索引
+    status = Column(
+        Enum(InviteStatus, values_callable=lambda x: [e.value for e in x]),
+        default=InviteStatus.PENDING, index=True
+    )
     error_message = Column(Text, nullable=True)
     invited_by = Column(Integer, ForeignKey("users.id"), nullable=True)
     redeem_code = Column(String(50), nullable=True)
@@ -164,7 +170,10 @@ class RedeemCode(Base):
     
     id = Column(Integer, primary_key=True, index=True)
     code = Column(String(50), unique=True, nullable=False, index=True)
-    code_type = Column(Enum(RedeemCodeType), default=RedeemCodeType.LINUXDO)
+    code_type = Column(
+        Enum(RedeemCodeType, values_callable=lambda x: [e.value for e in x]),
+        default=RedeemCodeType.LINUXDO
+    )
     max_uses = Column(Integer, default=1)
     used_count = Column(Integer, default=0)
     expires_at = Column(DateTime, nullable=True)
@@ -273,7 +282,10 @@ class InviteQueue(Base):
     redeem_code = Column(String(50), nullable=True)
     linuxdo_user_id = Column(Integer, ForeignKey("linuxdo_users.id"), nullable=True)
     group_id = Column(Integer, ForeignKey("team_groups.id"), nullable=True)  # 指定分组
-    status = Column(Enum(InviteQueueStatus), default=InviteQueueStatus.PENDING, index=True)  # 添加索引
+    status = Column(
+        Enum(InviteQueueStatus, values_callable=lambda x: [e.value for e in x]),
+        default=InviteQueueStatus.PENDING, index=True
+    )
     error_message = Column(Text, nullable=True)
     retry_count = Column(Integer, default=0)
     created_at = Column(DateTime, default=datetime.utcnow)
