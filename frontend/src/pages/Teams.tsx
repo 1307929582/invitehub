@@ -73,7 +73,7 @@ export default function Teams() {
 
   // 筛选状态
   const [filterGroupId, setFilterGroupId] = useState<number | undefined>(undefined)
-  const [filterStatus, setFilterStatus] = useState<string>('all')
+  const [filterStatus, setFilterStatus] = useState<string>('active')  // 默认显示正常状态
   const [searchKeyword, setSearchKeyword] = useState('')
 
   // 批量选择状态

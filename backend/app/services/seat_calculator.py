@@ -200,8 +200,8 @@ def get_all_teams_with_seats(
             group_id=team.group_id
         ))
     
-    # 按可用座位数降序排列
-    results.sort(key=lambda x: x.available_seats, reverse=True)
+    # 按 Team ID 升序排列（优先使用 ID 小的 Team）
+    results.sort(key=lambda x: (x.available_seats <= 0, x.team_id))
     
     # 记录座位统计日志
     total_available = sum(t.available_seats for t in results)

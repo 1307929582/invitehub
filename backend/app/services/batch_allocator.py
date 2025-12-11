@@ -77,49 +77,31 @@ class BatchAllocator:
             result.unallocated = list(invites)
             return result
         
-        # 按可用座位数降序排列
-        available_teams.sort(key=lambda t: t.available_seats, reverse=True)
+        # 按 Team ID 升序排列（优先使用 ID 小的 Team）
+        available_teams.sort(key=lambda t: t.team_id)
         
         # 2. 初始化分配结果和容量跟踪
         remaining_capacity = {t.team_id: t.available_seats for t in available_teams}
         result.total_available_seats = sum(remaining_capacity.values())
-        
+
         for team in available_teams:
             result.allocated[team.team_id] = []
-        
-        # 3. Round-robin 分配
-        team_index = 0
+
+        # 3. 顺序分配：先填满 ID 小的 Team，再到下一个
         pending_invites = list(invites)
-        
-        while pending_invites:
-            invite = pending_invites.pop(0)
-            allocated = False
-            
-            # 尝试找到有容量的 Team
-            attempts = 0
-            while attempts < len(available_teams):
-                team = available_teams[team_index]
-                
-                if remaining_capacity[team.team_id] > 0:
-                    # 分配到这个 Team
-                    result.allocated[team.team_id].append(invite)
-                    remaining_capacity[team.team_id] -= 1
-                    allocated = True
-                    
-                    # 移动到下一个 Team（round-robin）
-                    team_index = (team_index + 1) % len(available_teams)
-                    break
-                
-                # 这个 Team 满了，尝试下一个
-                team_index = (team_index + 1) % len(available_teams)
-                attempts += 1
-            
-            if not allocated:
-                # 所有 Team 都满了
-                result.unallocated.append(invite)
-                # 把剩余的邀请也标记为未分配
-                result.unallocated.extend(pending_invites)
+
+        for team in available_teams:
+            if not pending_invites:
                 break
+
+            # 分配尽可能多的邀请到这个 Team
+            while pending_invites and remaining_capacity[team.team_id] > 0:
+                invite = pending_invites.pop(0)
+                result.allocated[team.team_id].append(invite)
+                remaining_capacity[team.team_id] -= 1
+
+        # 剩余未分配的邀请
+        result.unallocated = pending_invites
         
         # 4. 清理空的分配
         result.allocated = {k: v for k, v in result.allocated.items() if v}
@@ -164,11 +146,10 @@ class BatchAllocator:
             result.unallocated = list(invites)
             return result
         
-        # 按可用座位数降序排列
+        # 按 Team ID 升序排列（优先使用 ID 小的 Team）
         available_teams = sorted(
             [t for t in teams if t.available_seats > 0],
-            key=lambda t: t.available_seats,
-            reverse=True
+            key=lambda t: t.team_id
         )
         
         if not available_teams:
