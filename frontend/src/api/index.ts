@@ -43,9 +43,13 @@ export const authApi = {
   initAdmin: () => api.post('/auth/init-admin'),
 }
 
+// Team Status 类型
+export type TeamStatus = 'active' | 'banned' | 'token_invalid' | 'paused'
+
 // Team API
 export const teamApi = {
-  list: () => api.get('/teams'),
+  list: (params?: { include_inactive?: boolean; status_filter?: TeamStatus }) =>
+    api.get('/teams', { params }),
   get: (id: number) => api.get(`/teams/${id}`),
   create: (data: any) => api.post('/teams', data),
   update: (id: number, data: any) => api.put(`/teams/${id}`, data),
@@ -61,6 +65,22 @@ export const teamApi = {
   cancelInvite: (teamId: number, email: string) => api.delete(`/teams/${teamId}/invites`, { params: { email } }),
   getUnauthorizedMembers: () => api.get('/teams/unauthorized/all'),
   removeUnauthorizedMembers: (teamId: number) => api.delete(`/teams/${teamId}/unauthorized-members`),
+  updateStatus: (id: number, status: TeamStatus, message?: string) =>
+    api.patch(`/teams/${id}/status`, null, { params: { status, message } }),
+
+  // 导出 API
+  exportMembers: (teamId: number, format: 'csv' | 'json' = 'csv') =>
+    api.get(`/teams/${teamId}/members/export`, { params: { format }, responseType: format === 'csv' ? 'blob' : 'json' }),
+  exportBulkMembers: (data: { team_ids?: number[]; status?: TeamStatus }, format: 'csv' | 'json' = 'csv') =>
+    api.post('/teams/members/export/bulk', data, { params: { format }, responseType: format === 'csv' ? 'blob' : 'json' }),
+  exportEmailsOnly: (params: { team_ids?: string; status?: TeamStatus }) =>
+    api.get('/teams/members/export/emails-only', { params, responseType: 'blob' }),
+
+  // 迁移 API
+  previewMigration: (data: { source_team_ids: number[]; destination_team_id: number }) =>
+    api.post('/teams/migrate/preview', data),
+  executeMigration: (data: { source_team_ids: number[]; destination_team_id: number; emails?: string[] }) =>
+    api.post('/teams/migrate/execute', data),
 }
 
 // Invite API

@@ -7,12 +7,16 @@ interface User {
   role: string
 }
 
+type TeamStatus = 'active' | 'banned' | 'token_invalid' | 'paused'
+
 interface Team {
   id: number
   name: string
   description?: string
   account_id: string
   is_active: boolean
+  status: TeamStatus
+  status_message?: string
   member_count: number
   max_seats: number
   token_expires_at?: string

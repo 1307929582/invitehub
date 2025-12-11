@@ -1,7 +1,7 @@
 # ChatGPT API 封装 - 基于真实接口
 import httpx
 import asyncio
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 import logging
 
 logger = logging.getLogger(__name__)
@@ -10,10 +10,29 @@ API_BASE = "https://chatgpt.com/backend-api"
 
 
 class ChatGPTAPIError(Exception):
-    def __init__(self, status_code: int, message: str):
+    def __init__(self, status_code: int, message: str, error_type: str = "unknown"):
         self.status_code = status_code
         self.message = message
+        self.error_type = error_type  # unknown, token_invalid, banned, rate_limit, network
         super().__init__(f"[{status_code}] {message}")
+
+
+class TokenInvalidError(ChatGPTAPIError):
+    """Token 无效或过期"""
+    def __init__(self, message: str = "Token 已过期，请更新"):
+        super().__init__(401, message, "token_invalid")
+
+
+class TeamBannedError(ChatGPTAPIError):
+    """Team 被封禁"""
+    def __init__(self, message: str = "Team 已被封禁"):
+        super().__init__(403, message, "banned")
+
+
+class RateLimitError(ChatGPTAPIError):
+    """请求频率限制"""
+    def __init__(self, message: str = "请求过于频繁，请稍后再试"):
+        super().__init__(429, message, "rate_limit")
 
 
 class ChatGPTAPI:
@@ -77,13 +96,29 @@ class ChatGPTAPI:
                 )
                 
                 logger.info(f"Request: {method} {url} -> {response.status_code}")
-                
+
+                # 检测封号和 Token 失效的特征
                 if response.status_code == 401:
-                    raise ChatGPTAPIError(401, "Token 已过期，请更新")
+                    raise TokenInvalidError("Token 已过期，请更新")
                 elif response.status_code == 403:
-                    raise ChatGPTAPIError(403, f"无权限访问: {response.text[:200]}")
+                    # 403 可能是封号，也可能是权限问题
+                    error_text = response.text[:500].lower()
+                    # 常见的封号关键词
+                    banned_keywords = [
+                        "banned", "suspended", "disabled", "terminated",
+                        "account has been", "access denied", "not authorized"
+                    ]
+                    if any(kw in error_text for kw in banned_keywords):
+                        raise TeamBannedError(f"Team 可能已被封禁: {response.text[:200]}")
+                    raise ChatGPTAPIError(403, f"无权限访问: {response.text[:200]}", "permission")
                 elif response.status_code == 429:
-                    raise ChatGPTAPIError(429, "请求过于频繁，请稍后再试")
+                    raise RateLimitError("请求过于频繁，请稍后再试")
+                elif response.status_code == 404:
+                    # 404 也可能表示账户被删除/封禁
+                    error_text = response.text[:500].lower()
+                    if "account" in error_text or "workspace" in error_text:
+                        raise TeamBannedError(f"Team 账户不存在或已被封禁: {response.text[:200]}")
+                    raise ChatGPTAPIError(404, f"资源不存在: {response.text[:200]}", "not_found")
                 elif response.status_code >= 400:
                     raise ChatGPTAPIError(response.status_code, response.text[:200])
                 

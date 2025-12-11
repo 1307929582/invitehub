@@ -2,7 +2,7 @@
 from datetime import datetime
 from typing import Optional, List
 from pydantic import BaseModel, EmailStr
-from app.models import UserRole, InviteStatus
+from app.models import UserRole, InviteStatus, TeamStatus
 
 
 # ========== Auth ==========
@@ -57,6 +57,7 @@ class TeamUpdate(BaseModel):
     device_id: Optional[str] = None
     cookie: Optional[str] = None
     is_active: Optional[bool] = None
+    status: Optional[TeamStatus] = None
     group_id: Optional[int] = None
     max_seats: Optional[int] = None
 
@@ -67,13 +68,16 @@ class TeamResponse(BaseModel):
     description: Optional[str]
     account_id: str
     is_active: bool
+    status: TeamStatus = TeamStatus.ACTIVE
+    status_message: Optional[str] = None
+    status_changed_at: Optional[datetime] = None
     max_seats: int = 5
     token_expires_at: Optional[datetime]
     created_at: datetime
     member_count: Optional[int] = 0
     group_id: Optional[int] = None
     group_name: Optional[str] = None
-    
+
     class Config:
         from_attributes = True
 
@@ -217,3 +221,70 @@ class RebindResponse(BaseModel):
     success: bool
     message: str
     new_team_name: Optional[str] = None
+
+
+# ========== Export API ==========
+class MemberExportItem(BaseModel):
+    """成员导出项"""
+    email: str
+    name: Optional[str] = None
+    team_id: int
+    team_name: str
+    role: str = "member"
+    joined_at: Optional[datetime] = None
+
+
+class MemberExportResponse(BaseModel):
+    """成员导出响应"""
+    emails: List[str]
+    total: int
+    teams: List[str]
+
+
+class BulkExportRequest(BaseModel):
+    """批量导出请求"""
+    team_ids: Optional[List[int]] = None  # 指定 Team ID 列表
+    status: Optional[TeamStatus] = None   # 按状态筛选
+
+
+# ========== Migration API ==========
+class MigrationPreviewRequest(BaseModel):
+    """迁移预览请求"""
+    source_team_ids: List[int]
+    destination_team_id: int
+
+
+class MigrationPreviewResponse(BaseModel):
+    """迁移预览响应"""
+    emails: List[str]
+    total: int
+    source_teams: List[str]
+    destination_team: str
+    destination_available_seats: int
+    can_migrate: bool
+    message: str
+
+
+class MigrationExecuteRequest(BaseModel):
+    """迁移执行请求"""
+    source_team_ids: List[int]
+    destination_team_id: int
+    emails: Optional[List[str]] = None  # 可选：指定要迁移的邮箱，为空则迁移全部
+
+
+class MigrationExecuteResponse(BaseModel):
+    """迁移执行响应"""
+    task_id: str
+    message: str
+    total_emails: int
+
+
+class MigrationStatusResponse(BaseModel):
+    """迁移状态响应"""
+    task_id: str
+    status: str  # pending, processing, completed, failed
+    total: int
+    success_count: int
+    fail_count: int
+    failed_emails: List[str] = []
+    message: str

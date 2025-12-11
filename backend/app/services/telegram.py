@@ -116,8 +116,96 @@ async def notify_token_expiry(
         message = f"🟡 <b>Token 过期提醒</b>\n\n"
         message += f"👥 Team: {team_name}\n"
         message += f"⏰ 剩余时间: {days_left} 天"
-    
+
     await send_telegram_message(bot_token, chat_id, message)
+
+
+async def notify_team_banned(
+    bot_token: str,
+    chat_id: str,
+    team_name: str,
+    team_id: int,
+    member_count: int = 0,
+    error_message: str = ""
+):
+    """Team 被封禁通知"""
+    message = f"🚨 <b>Team 封禁警报</b> 🚨\n\n"
+    message += f"👥 Team: {team_name}\n"
+    message += f"🆔 ID: {team_id}\n"
+    if member_count > 0:
+        message += f"👤 成员数: {member_count}\n"
+    message += f"\n⚠️ <b>该 Team 已被检测到封禁！</b>\n"
+    if error_message:
+        message += f"📝 错误信息: {error_message[:100]}\n"
+    message += f"\n💡 请立即处理并考虑迁移成员到其他 Team"
+
+    await send_telegram_message(bot_token, chat_id, message)
+
+
+async def notify_token_invalid(
+    bot_token: str,
+    chat_id: str,
+    team_name: str,
+    team_id: int,
+    error_message: str = ""
+):
+    """Token 失效通知"""
+    message = f"⚠️ <b>Token 失效警报</b>\n\n"
+    message += f"👥 Team: {team_name}\n"
+    message += f"🆔 ID: {team_id}\n"
+    message += f"\n🔑 <b>该 Team 的 Token 已失效！</b>\n"
+    if error_message:
+        message += f"📝 错误信息: {error_message[:100]}\n"
+    message += f"\n💡 请尽快更新 Token 以恢复正常服务"
+
+    await send_telegram_message(bot_token, chat_id, message)
+
+
+async def notify_migration_started(
+    bot_token: str,
+    chat_id: str,
+    source_teams: list,
+    target_team: str,
+    email_count: int,
+    operator: str
+):
+    """成员迁移开始通知"""
+    message = f"🚀 <b>成员迁移开始</b>\n\n"
+    message += f"📤 源 Team: {', '.join(source_teams)}\n"
+    message += f"📥 目标 Team: {target_team}\n"
+    message += f"👤 待迁移: {email_count} 人\n"
+    message += f"👤 操作人: {operator}"
+
+    try:
+        await send_telegram_message(bot_token, chat_id, message)
+    except:
+        pass
+
+
+async def notify_migration_completed(
+    bot_token: str,
+    chat_id: str,
+    source_teams: list,
+    target_team: str,
+    success_count: int,
+    fail_count: int,
+    operator: str
+):
+    """成员迁移完成通知"""
+    total = success_count + fail_count
+    message = f"✅ <b>成员迁移完成</b>\n\n"
+    message += f"📤 源 Team: {', '.join(source_teams)}\n"
+    message += f"📥 目标 Team: {target_team}\n"
+    message += f"📊 总数: {total}\n"
+    message += f"✅ 成功: {success_count}\n"
+    if fail_count > 0:
+        message += f"❌ 失败: {fail_count}\n"
+    message += f"👤 操作人: {operator}"
+
+    try:
+        await send_telegram_message(bot_token, chat_id, message)
+    except:
+        pass
 
 
 async def notify_daily_stats(
@@ -243,25 +331,25 @@ async def notify_batch_invite(bot_token: str, chat_id: str, team_name: str, tota
 
 async def send_admin_notification(db, action: str, **kwargs):
     """统一的管理操作通知入口
-    
+
     自动从数据库获取 Telegram 配置并发送通知
     """
     from app.models import SystemConfig
-    
+
     def get_config(key: str) -> str:
         config = db.query(SystemConfig).filter(SystemConfig.key == key).first()
         return config.value if config and config.value else ""
-    
+
     # 检查是否启用
     if get_config("telegram_enabled") != "true":
         return
-    
+
     bot_token = get_config("telegram_bot_token")
     chat_id = get_config("telegram_chat_id")
-    
+
     if not bot_token or not chat_id:
         return
-    
+
     try:
         if action == "team_created":
             await notify_team_created(bot_token, chat_id, kwargs.get("team_name", ""), kwargs.get("max_seats", 0), kwargs.get("operator", ""))
@@ -281,6 +369,14 @@ async def send_admin_notification(db, action: str, **kwargs):
             await notify_unauthorized_members(bot_token, chat_id, kwargs.get("team_name", ""), kwargs.get("members", []))
         elif action == "unauthorized_removed":
             await notify_unauthorized_removed(bot_token, chat_id, kwargs.get("team_name", ""), kwargs.get("count", 0), kwargs.get("emails", []), kwargs.get("operator", ""))
+        elif action == "team_banned":
+            await notify_team_banned(bot_token, chat_id, kwargs.get("team_name", ""), kwargs.get("team_id", 0), kwargs.get("member_count", 0), kwargs.get("error_message", ""))
+        elif action == "token_invalid":
+            await notify_token_invalid(bot_token, chat_id, kwargs.get("team_name", ""), kwargs.get("team_id", 0), kwargs.get("error_message", ""))
+        elif action == "migration_started":
+            await notify_migration_started(bot_token, chat_id, kwargs.get("source_teams", []), kwargs.get("target_team", ""), kwargs.get("email_count", 0), kwargs.get("operator", ""))
+        elif action == "migration_completed":
+            await notify_migration_completed(bot_token, chat_id, kwargs.get("source_teams", []), kwargs.get("target_team", ""), kwargs.get("success_count", 0), kwargs.get("fail_count", 0), kwargs.get("operator", ""))
     except Exception as e:
         logger.warning(f"Admin notification failed: {e}")
 

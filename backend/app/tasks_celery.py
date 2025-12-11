@@ -445,3 +445,196 @@ async def _send_cleanup_failure_alert(email: str, code: str, team_name: str, err
         logger.error(f"Failed to send cleanup failure alert: {e}")
     finally:
         db.close()
+
+
+@celery_app.task(
+    bind=True,
+    base=DatabaseTask,
+    max_retries=3,
+    default_retry_delay=60,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=300
+)
+def execute_migration_task(
+    self,
+    task_id: str,
+    source_team_ids: List[int],
+    destination_team_id: int,
+    emails: List[str],
+    operator: str
+):
+    """
+    执行成员批量迁移任务
+
+    Args:
+        task_id: 任务 ID（用于跟踪）
+        source_team_ids: 源 Team ID 列表
+        destination_team_id: 目标 Team ID
+        emails: 待迁移的邮箱列表
+        operator: 操作人
+
+    Returns:
+        dict: 迁移结果
+    """
+    from app.models import Team, TeamMember, RebindHistory
+    from app.services.chatgpt_api import ChatGPTAPI, ChatGPTAPIError
+    from app.cache import get_redis
+    import time
+
+    logger.info(f"Starting migration task {task_id}: {len(emails)} emails")
+
+    # 使用 Redis 分布式锁防止重复执行
+    redis_client = get_redis()
+    lock = None
+    if redis_client:
+        lock_key = f"celery:migration:{task_id}:lock"
+        lock = redis_client.lock(lock_key, timeout=3600)  # 1小时超时
+        if not lock.acquire(blocking=False):
+            logger.warning(f"Migration task {task_id} is already running")
+            return {"success": False, "error": "Task already running"}
+
+    try:
+        # 获取目标 Team
+        dest_team = self.db.query(Team).filter(Team.id == destination_team_id).first()
+        if not dest_team:
+            logger.error(f"Destination team {destination_team_id} not found")
+            return {"success": False, "error": "Destination team not found"}
+
+        source_teams = self.db.query(Team).filter(Team.id.in_(source_team_ids)).all()
+
+        api = ChatGPTAPI(dest_team.session_token, dest_team.device_id or "", dest_team.cookie or "")
+
+        success_count = 0
+        fail_count = 0
+        failed_emails = []
+        results = []
+
+        for email in emails:
+            try:
+                # 在 Celery worker 中运行异步函数
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(
+                        api.invite_members(dest_team.account_id, [email])
+                    )
+                finally:
+                    loop.close()
+
+                # 记录迁移历史
+                source_member = self.db.query(TeamMember).filter(
+                    TeamMember.email == email,
+                    TeamMember.team_id.in_(source_team_ids)
+                ).first()
+
+                if source_member:
+                    history = RebindHistory(
+                        redeem_code="",
+                        email=email,
+                        from_team_id=source_member.team_id,
+                        to_team_id=destination_team_id,
+                        reason="admin_migration",
+                        notes=f"批量迁移任务 {task_id} by {operator}"
+                    )
+                    self.db.add(history)
+
+                success_count += 1
+                results.append({"email": email, "success": True})
+                logger.info(f"Migration task {task_id}: invited {email}")
+
+            except ChatGPTAPIError as e:
+                fail_count += 1
+                failed_emails.append(email)
+                results.append({"email": email, "success": False, "error": e.message})
+                logger.warning(f"Migration task {task_id}: failed to invite {email}: {e.message}")
+
+            except Exception as e:
+                fail_count += 1
+                failed_emails.append(email)
+                results.append({"email": email, "success": False, "error": str(e)})
+                logger.error(f"Migration task {task_id}: error inviting {email}: {e}")
+
+            # 避免 API 限流
+            time.sleep(1)
+
+        self.db.commit()
+
+        # 发送完成通知
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                loop.run_until_complete(_send_migration_complete_notification(
+                    source_teams=[t.name for t in source_teams],
+                    target_team=dest_team.name,
+                    success_count=success_count,
+                    fail_count=fail_count,
+                    operator=operator
+                ))
+            finally:
+                loop.close()
+        except Exception as e:
+            logger.warning(f"Failed to send migration notification: {e}")
+
+        logger.info(f"Migration task {task_id} completed: success={success_count}, failed={fail_count}")
+
+        return {
+            "success": True,
+            "task_id": task_id,
+            "total": len(emails),
+            "success_count": success_count,
+            "fail_count": fail_count,
+            "failed_emails": failed_emails,
+            "results": results
+        }
+
+    except Exception as e:
+        logger.exception(f"Migration task {task_id} failed: {e}")
+        raise self.retry(exc=e)
+
+    finally:
+        if lock:
+            try:
+                lock.release()
+            except:
+                pass
+
+
+async def _send_migration_complete_notification(
+    source_teams: List[str],
+    target_team: str,
+    success_count: int,
+    fail_count: int,
+    operator: str
+):
+    """发送迁移完成通知到 Telegram"""
+    from app.models import SystemConfig
+    from app.services.telegram import notify_migration_completed
+
+    db = SessionLocal()
+    try:
+        tg_enabled = db.query(SystemConfig).filter(SystemConfig.key == "telegram_enabled").first()
+        if not tg_enabled or tg_enabled.value != "true":
+            return
+
+        bot_token = db.query(SystemConfig).filter(SystemConfig.key == "telegram_bot_token").first()
+        chat_id = db.query(SystemConfig).filter(SystemConfig.key == "telegram_chat_id").first()
+
+        if not bot_token or not chat_id:
+            return
+
+        await notify_migration_completed(
+            bot_token.value,
+            chat_id.value,
+            source_teams,
+            target_team,
+            success_count,
+            fail_count,
+            operator
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to send migration notification: {e}")
+    finally:
+        db.close()

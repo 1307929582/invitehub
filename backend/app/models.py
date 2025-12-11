@@ -29,6 +29,14 @@ class InviteStatus(str, enum.Enum):
     FAILED = "failed"
 
 
+class TeamStatus(str, enum.Enum):
+    """Team 状态"""
+    ACTIVE = "active"              # 正常使用
+    BANNED = "banned"              # 被平台封禁
+    TOKEN_INVALID = "token_invalid"  # Token 失效
+    PAUSED = "paused"              # 管理员手动暂停
+
+
 class User(Base):
     """系统用户（管理平台的用户）"""
     __tablename__ = "users"
@@ -54,7 +62,7 @@ class User(Base):
 class Team(Base):
     """ChatGPT Team 配置"""
     __tablename__ = "teams"
-    
+
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)
@@ -66,9 +74,17 @@ class Team(Base):
     max_seats = Column(Integer, default=5)  # 最大座位数
     group_id = Column(Integer, ForeignKey("team_groups.id"), nullable=True)  # 所属分组
     is_active = Column(Boolean, default=True)
+    status = Column(
+        Enum(TeamStatus, values_callable=lambda x: [e.value for e in x]),
+        default=TeamStatus.ACTIVE,
+        nullable=False,
+        index=True
+    )  # Team 状态
+    status_message = Column(String(255), nullable=True)  # 状态变更原因/消息
+    status_changed_at = Column(DateTime, nullable=True)  # 状态变更时间
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
+
     group = relationship("TeamGroup", back_populates="teams")
     members = relationship("TeamMember", back_populates="team")
     invites = relationship("InviteRecord", back_populates="team")
