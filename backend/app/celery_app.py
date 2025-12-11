@@ -101,4 +101,9 @@ celery_app.conf.beat_schedule = {
         'task': 'app.tasks_celery.cleanup_expired_users',
         'schedule': 3600.0,  # 1小时
     },
+    # 每15分钟重试失败的邀请
+    'retry-failed-invites': {
+        'task': 'app.tasks_celery.retry_failed_invites',
+        'schedule': 300.0,  # 5分钟（处理等待队列）
+    },
 }

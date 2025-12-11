@@ -90,7 +90,10 @@ def process_invite_task(
         return {"success": True, "email": email}
 
     except Exception as e:
-        logger.error(f"Invite task failed: {email}, error: {str(e)}")
+        logger.error(f"Invite task failed: {email}, error: {str(e)}, retry: {self.request.retries}/{self.max_retries}")
+
+        is_final_failure = self.request.retries >= self.max_retries
+
         # 记录失败到数据库
         try:
             queue_record = InviteQueue(
@@ -107,8 +110,57 @@ def process_invite_task(
         except Exception as db_err:
             logger.error(f"Failed to record error: {db_err}")
 
-        # 抛出异常触发重试
+        # 最终失败时回滚兑换码使用次数
+        if is_final_failure and redeem_code:
+            try:
+                _rollback_redeem_code_usage(self.db, redeem_code, email, is_rebind)
+                logger.info(f"Rolled back redeem code usage for {redeem_code} after final failure")
+            except Exception as rollback_err:
+                logger.error(f"Failed to rollback redeem code: {rollback_err}")
+
+        # 抛出异常触发重试（如果还有重试次数）
         raise self.retry(exc=e)
+
+
+def _rollback_redeem_code_usage(db: Session, code_str: str, email: str, is_rebind: bool):
+    """
+    回滚兑换码使用次数
+
+    当邀请最终失败时，回滚 Redis 令牌桶和数据库中的使用计数。
+    """
+    from sqlalchemy import update
+    from app.cache import get_redis
+    from app.services.redeem_limiter import RedeemLimiter
+
+    # 1. 回滚 Redis 令牌桶
+    redis_client = get_redis()
+    if redis_client:
+        limiter = RedeemLimiter(redis_client)
+        limiter.refund(code_str)
+        logger.info(f"Refunded Redis token for code {code_str}")
+
+    # 2. 回滚数据库使用计数
+    code = db.query(RedeemCode).filter(RedeemCode.code == code_str).first()
+    if code and code.used_count > 0:
+        db.execute(
+            update(RedeemCode)
+            .where(RedeemCode.code == code_str)
+            .where(RedeemCode.used_count > 0)
+            .values(used_count=RedeemCode.used_count - 1)
+        )
+        db.commit()
+        logger.info(f"Rolled back database used_count for code {code_str}")
+
+    # 3. 如果是换车操作，回滚换车计数
+    if is_rebind and code and code.rebind_count and code.rebind_count > 0:
+        db.execute(
+            update(RedeemCode)
+            .where(RedeemCode.code == code_str)
+            .where(RedeemCode.rebind_count > 0)
+            .values(rebind_count=RedeemCode.rebind_count - 1)
+        )
+        db.commit()
+        logger.info(f"Rolled back rebind_count for code {code_str}")
 
 
 @celery_app.task(bind=True, base=DatabaseTask)
@@ -636,5 +688,191 @@ async def _send_migration_complete_notification(
 
     except Exception as e:
         logger.error(f"Failed to send migration notification: {e}")
+    finally:
+        db.close()
+
+
+@celery_app.task(bind=True, base=DatabaseTask)
+def retry_failed_invites(self):
+    """
+    处理等待队列中的邀请任务
+
+    定时任务：每 5 分钟执行一次
+    处理逻辑：
+    1. 检查是否有可用座位
+    2. 查找状态为 WAITING 的邀请（按创建时间排序，先进先出）
+    3. 按可用座位数量消费等待队列
+    4. 重新提交 Celery 任务处理邀请
+    """
+    from app.cache import get_redis
+    from app.services.seat_calculator import get_all_teams_with_seats
+
+    # 使用 Redis 分布式锁防止重复执行
+    redis_client = get_redis()
+    if not redis_client:
+        logger.warning("Redis not available, skipping waiting queue task")
+        return
+
+    lock_key = "celery:process_waiting_queue:lock"
+    lock = redis_client.lock(lock_key, timeout=300, blocking_timeout=1)
+
+    if not lock.acquire(blocking=False):
+        logger.info("Another waiting queue task is running, skipping")
+        return
+
+    try:
+        logger.info("Starting waiting queue processing task")
+
+        # 1. 检查是否有可用座位
+        teams_with_seats = get_all_teams_with_seats(self.db, only_active=True)
+        total_available = sum(t.available_seats for t in teams_with_seats)
+
+        if total_available == 0:
+            logger.info("No available seats, skipping waiting queue processing")
+            return
+
+        logger.info(f"Found {total_available} available seats, processing waiting queue")
+
+        # 2. 按分组统计可用座位
+        group_seats = {}  # group_id -> available_seats
+        for team in teams_with_seats:
+            gid = team.group_id or 0
+            group_seats[gid] = group_seats.get(gid, 0) + team.available_seats
+
+        # 3. 查找等待中的邀请（按创建时间排序，先进先出）
+        waiting_records = self.db.query(InviteQueue).filter(
+            InviteQueue.status == InviteQueueStatus.WAITING
+        ).order_by(InviteQueue.created_at.asc()).limit(100).all()
+
+        if not waiting_records:
+            logger.info("No waiting invites in queue")
+            return
+
+        logger.info(f"Found {len(waiting_records)} waiting invites")
+
+        processed_count = 0
+        skipped_count = 0
+
+        for record in waiting_records:
+            # 检查该分组是否有空位
+            gid = record.group_id or 0
+            available_for_group = group_seats.get(gid, 0)
+
+            # 如果指定了分组但该分组没有空位，检查无分组的 Team
+            if available_for_group <= 0 and gid != 0:
+                available_for_group = group_seats.get(0, 0)
+
+            if available_for_group <= 0:
+                skipped_count += 1
+                continue
+
+            # 检查兑换码是否仍然有效
+            if record.redeem_code:
+                code = self.db.query(RedeemCode).filter(
+                    RedeemCode.code == record.redeem_code,
+                    RedeemCode.is_active == True
+                ).first()
+
+                if not code:
+                    logger.info(f"Skipping {record.email}: redeem code inactive")
+                    record.status = InviteQueueStatus.FAILED
+                    record.error_message = "兑换码已失效"
+                    record.processed_at = datetime.utcnow()
+                    skipped_count += 1
+                    continue
+
+                # 检查有效期
+                if code.expires_at and code.expires_at < datetime.utcnow():
+                    logger.info(f"Skipping {record.email}: redeem code expired")
+                    record.status = InviteQueueStatus.FAILED
+                    record.error_message = "兑换码已过期"
+                    record.processed_at = datetime.utcnow()
+                    skipped_count += 1
+                    continue
+
+            # 更新状态为 PROCESSING
+            record.status = InviteQueueStatus.PROCESSING
+            record.retry_count += 1
+            record.error_message = f"从等待队列取出处理 (第{record.retry_count}次)"
+            self.db.commit()
+
+            # 减少该分组的可用座位计数（本地跟踪，避免超发）
+            if gid in group_seats:
+                group_seats[gid] -= 1
+            else:
+                group_seats[0] = group_seats.get(0, 1) - 1
+
+            # 重新提交 Celery 任务
+            try:
+                process_invite_task.delay(
+                    email=record.email,
+                    redeem_code=record.redeem_code,
+                    group_id=record.group_id,
+                    is_rebind=False
+                )
+                processed_count += 1
+                logger.info(f"Processed waiting invite for {record.email}")
+
+            except Exception as e:
+                logger.error(f"Failed to submit task for {record.email}: {e}")
+                record.status = InviteQueueStatus.WAITING  # 重新等待
+                record.error_message = f"任务提交失败: {str(e)[:100]}"
+                self.db.commit()
+
+        self.db.commit()
+
+        logger.info(f"Waiting queue processing completed: processed={processed_count}, skipped={skipped_count}")
+
+        # 发送 Telegram 汇报
+        if processed_count > 0:
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(
+                        _send_waiting_queue_notification(processed_count, skipped_count, total_available)
+                    )
+                finally:
+                    loop.close()
+            except Exception as e:
+                logger.warning(f"Failed to send notification: {e}")
+
+    except Exception as e:
+        logger.exception(f"Waiting queue processing task failed: {e}")
+    finally:
+        lock.release()
+
+
+async def _send_waiting_queue_notification(processed: int, skipped: int, available_seats: int):
+    """发送等待队列处理通知到 Telegram"""
+    from app.models import SystemConfig
+    from app.services.telegram import send_telegram_message
+
+    db = SessionLocal()
+    try:
+        tg_enabled = db.query(SystemConfig).filter(SystemConfig.key == "telegram_enabled").first()
+        if not tg_enabled or tg_enabled.value != "true":
+            return
+
+        bot_token = db.query(SystemConfig).filter(SystemConfig.key == "telegram_bot_token").first()
+        chat_id = db.query(SystemConfig).filter(SystemConfig.key == "telegram_chat_id").first()
+
+        if not bot_token or not chat_id:
+            return
+
+        message = f"""
+🔄 **等待队列处理报告**
+
+✅ 已处理: {processed} 个邀请
+⏭️ 跳过: {skipped} 个（无空位或兑换码失效）
+💺 当前可用座位: {available_seats}
+
+系统已自动处理等待中的邀请请求。
+        """
+
+        await send_telegram_message(bot_token.value, chat_id.value, message)
+
+    except Exception as e:
+        logger.error(f"Failed to send waiting queue notification: {e}")
     finally:
         db.close()

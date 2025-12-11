@@ -538,6 +538,19 @@ def _mask_code(code: str) -> str:
     return code[:4] + "*" * (len(code) - 6) + code[-2:]
 
 
+def _get_queue_position(db: Session, record: "InviteQueue") -> int:
+    """计算等待队列中的位置（FIFO）"""
+    from app.models import InviteQueue, InviteQueueStatus
+
+    # 统计在该记录之前创建的 WAITING 状态记录数
+    position = db.query(InviteQueue).filter(
+        InviteQueue.status == InviteQueueStatus.WAITING,
+        InviteQueue.created_at < record.created_at
+    ).count()
+
+    return position + 1  # 位置从 1 开始
+
+
 # ========== 用户状态查询 API ==========
 @router.get("/status", response_model=StatusResponse)
 async def get_user_status(email: str, db: Session = Depends(get_db)):
@@ -625,6 +638,131 @@ async def rebind(request: Request, data: RebindRequest, db: Session = Depends(ge
     limiter_instance = get_distributed_limiter()
     async with limiter_instance:
         return await _do_rebind(data, db)
+
+
+# ========== 邀请状态查询 API ==========
+from app.models import InviteQueue, InviteQueueStatus
+
+
+class InviteStatusResponse(BaseModel):
+    """邀请状态响应"""
+    found: bool
+    email: Optional[str] = None
+    status: Optional[str] = None  # pending, processing, success, failed, waiting
+    status_message: Optional[str] = None
+    team_name: Optional[str] = None
+    created_at: Optional[datetime] = None
+    processed_at: Optional[datetime] = None
+    retry_count: Optional[int] = None
+    can_retry: Optional[bool] = None  # True 表示会自动重试或自动处理（WAITING/FAILED）
+    queue_position: Optional[int] = None  # 队列位置（仅 WAITING 状态）
+
+
+@router.get("/invite-status", response_model=InviteStatusResponse)
+async def get_invite_status(email: str, db: Session = Depends(get_db)):
+    """
+    查询邀请状态 API
+
+    用户可以通过邮箱查询自己的邀请是否成功。
+
+    返回：
+    - 最近的邀请记录状态（成功/失败/处理中）
+    - 如果失败，显示是否可以自动重试
+    - 如果成功，显示所在的 Team
+    """
+    normalized_email = email.lower().strip()
+
+    if not normalized_email:
+        return InviteStatusResponse(found=False)
+
+    # 1. 先查询 InviteRecord（成功的邀请）
+    invite_record = db.query(InviteRecord).filter(
+        func.lower(InviteRecord.email) == normalized_email
+    ).order_by(InviteRecord.created_at.desc()).first()
+
+    if invite_record and invite_record.status == InviteStatus.SUCCESS:
+        # 获取 Team 名称
+        team = db.query(Team).filter(Team.id == invite_record.team_id).first()
+        return InviteStatusResponse(
+            found=True,
+            email=normalized_email,
+            status="success",
+            status_message="邀请已发送成功，请查收邮箱并接受邀请",
+            team_name=team.name if team else None,
+            created_at=invite_record.created_at,
+            processed_at=invite_record.created_at,
+            retry_count=0,
+            can_retry=False
+        )
+
+    # 2. 查询 InviteQueue（队列中的记录，包括失败的）
+    queue_record = db.query(InviteQueue).filter(
+        func.lower(InviteQueue.email) == normalized_email
+    ).order_by(InviteQueue.created_at.desc()).first()
+
+    if queue_record:
+        status_map = {
+            InviteQueueStatus.PENDING: ("pending", "邀请正在排队中，请稍候"),
+            InviteQueueStatus.PROCESSING: ("processing", "邀请正在处理中，请稍候"),
+            InviteQueueStatus.SUCCESS: ("success", "邀请已发送成功，请查收邮箱"),
+            InviteQueueStatus.FAILED: ("failed", f"邀请发送失败: {queue_record.error_message or '未知错误'}"),
+            InviteQueueStatus.WAITING: ("waiting", "正在等待空位，系统将在有空位时自动处理")
+        }
+
+        status, message = status_map.get(
+            queue_record.status,
+            ("unknown", "状态未知")
+        )
+
+        # 判断是否可以重试（仅 FAILED 状态可以重试，WAITING 状态会自动处理）
+        can_retry = (
+            queue_record.status == InviteQueueStatus.FAILED and
+            queue_record.retry_count < 5
+        )
+
+        # 自动处理标志（WAITING 状态会自动处理）
+        will_auto_process = queue_record.status == InviteQueueStatus.WAITING
+
+        # 计算队列位置（仅 WAITING 状态）
+        queue_position = _get_queue_position(db, queue_record) if will_auto_process else None
+
+        # 根据状态生成消息
+        if status == "failed" and can_retry:
+            display_message = f"{message}（系统将自动重试）"
+        elif status == "waiting":
+            display_message = f"{message}（队列位置：第 {queue_position} 位）"
+        else:
+            display_message = message
+
+        return InviteStatusResponse(
+            found=True,
+            email=normalized_email,
+            status=status,
+            status_message=display_message,
+            team_name=None,
+            created_at=queue_record.created_at,
+            processed_at=queue_record.processed_at,
+            retry_count=queue_record.retry_count,
+            can_retry=can_retry or will_auto_process,  # WAITING 状态也标记为会自动处理
+            queue_position=queue_position
+        )
+
+    # 3. 如果 InviteRecord 有失败记录
+    if invite_record and invite_record.status == InviteStatus.FAILED:
+        return InviteStatusResponse(
+            found=True,
+            email=normalized_email,
+            status="failed",
+            status_message=f"邀请发送失败: {invite_record.error_message or '未知错误'}",
+            team_name=None,
+            created_at=invite_record.created_at,
+            processed_at=invite_record.created_at,
+            retry_count=0,
+            can_retry=False
+        )
+
+    # 4. 没有找到任何记录
+    return InviteStatusResponse(found=False)
 
 
 async def _do_rebind(data: RebindRequest, db: Session) -> RebindResponse:

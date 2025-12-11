@@ -100,31 +100,31 @@ async def process_invite_batch(batch: List[Dict]):
         for group_id, items in groups.items():
             # 1. 使用 SeatCalculator 获取所有 Team 的精确座位信息
             teams_with_seats = get_all_teams_with_seats(
-                db, 
+                db,
                 group_id=group_id if group_id else None,
                 only_active=True
             )
-            
+
             logger.info(f"Group {group_id}: Found {len(teams_with_seats)} teams, "
                        f"total available: {sum(t.available_seats for t in teams_with_seats)}")
-            
+
             if not teams_with_seats or all(t.available_seats <= 0 for t in teams_with_seats):
-                # 没有空位，标记失败
+                # 没有空位，进入等待队列（而不是标记失败）
                 for item in items:
                     record = InviteQueue(
                         email=item["email"],
                         redeem_code=item.get("redeem_code"),
                         linuxdo_user_id=item.get("linuxdo_user_id"),
                         group_id=group_id if group_id else None,
-                        status=InviteQueueStatus.FAILED,
-                        error_message="所有 Team 已满",
-                        processed_at=datetime.utcnow()
+                        status=InviteQueueStatus.WAITING,  # 等待空位
+                        error_message="所有 Team 已满，等待空位",
+                        processed_at=None  # 未处理
                     )
                     db.add(record)
                 db.commit()
-                logger.warning(f"No available team for group {group_id}")
+                logger.info(f"No available team for group {group_id}, {len(items)} invites queued for waiting")
                 continue
-            
+
             # 2. 转换为 InviteTask 列表
             invite_tasks = [
                 InviteTask(
@@ -135,31 +135,31 @@ async def process_invite_batch(batch: List[Dict]):
                 )
                 for item in items
             ]
-            
+
             # 3. 使用 BatchAllocator 智能分配
             allocation_result = BatchAllocator.allocate(invite_tasks, teams_with_seats)
-            
+
             logger.info(f"Allocation result: {len(allocation_result.allocated)} teams, "
                        f"{len(allocation_result.unallocated)} unallocated")
-            
-            # 4. 处理未分配的邀请
+
+            # 4. 处理未分配的邀请（进入等待队列）
             for task in allocation_result.unallocated:
                 record = InviteQueue(
                     email=task.email,
                     redeem_code=task.redeem_code,
                     group_id=task.group_id,
-                    status=InviteQueueStatus.FAILED,
-                    error_message="所有 Team 已满",
-                    processed_at=datetime.utcnow()
+                    status=InviteQueueStatus.WAITING,  # 等待空位
+                    error_message="座位不足，等待空位",
+                    processed_at=None  # 未处理
                 )
                 db.add(record)
-            
+
             # 5. 处理每个 Team 的分配（带数据库锁）
             for team_id, allocated_tasks in allocation_result.allocated.items():
                 await _process_team_invites_with_lock(
                     db, team_id, allocated_tasks, teams_with_seats
                 )
-            
+
             db.commit()
             invalidate_seat_cache()
                 
@@ -198,43 +198,44 @@ async def _process_team_invites_with_lock(
         try:
             # 1. 使用 SELECT FOR UPDATE 锁定 Team 行
             team = db.query(Team).filter(Team.id == team_id).with_for_update().first()
-            
+
             if not team:
                 logger.error(f"Team {team_id} not found")
                 return
-            
+
             # 2. 重新验证可用座位
             seat_info = get_team_available_seats(db, team_id)
-            
+
             if seat_info.available_seats <= 0:
                 logger.warning(f"Team {team_id} has no available seats after lock")
-                # 标记所有任务为失败
+                # 进入等待队列（而不是标记失败）
                 for task in tasks:
                     record = InviteQueue(
                         email=task.email,
                         redeem_code=task.redeem_code,
                         group_id=task.group_id,
-                        status=InviteQueueStatus.FAILED,
-                        error_message=f"Team {team.name} 已满（并发冲突）",
-                        processed_at=datetime.utcnow()
+                        status=InviteQueueStatus.WAITING,  # 等待空位
+                        error_message=f"Team {team.name} 已满，等待空位",
+                        processed_at=None
                     )
                     db.add(record)
                 return
-            
+
             # 3. 只处理可用座位数量的邀请
             tasks_to_process = tasks[:seat_info.available_seats]
             tasks_overflow = tasks[seat_info.available_seats:]
-            
+
             if tasks_overflow:
                 logger.warning(f"Team {team_id}: {len(tasks_overflow)} tasks overflow due to concurrent allocation")
+                # 溢出的任务进入等待队列
                 for task in tasks_overflow:
                     record = InviteQueue(
                         email=task.email,
                         redeem_code=task.redeem_code,
                         group_id=task.group_id,
-                        status=InviteQueueStatus.FAILED,
-                        error_message=f"Team {team.name} 座位不足（并发冲突）",
-                        processed_at=datetime.utcnow()
+                        status=InviteQueueStatus.WAITING,  # 等待空位
+                        error_message=f"Team {team.name} 座位不足，等待空位",
+                        processed_at=None
                     )
                     db.add(record)
             
@@ -300,16 +301,16 @@ async def _process_team_invites_with_lock(
                 continue
             raise
     
-    # 重试耗尽
-    logger.error(f"Failed to process team {team_id} after {MAX_RETRIES} retries")
+    # 重试耗尽 - 进入等待队列
+    logger.error(f"Failed to process team {team_id} after {MAX_RETRIES} retries, queuing for later")
     for task in tasks:
         record = InviteQueue(
             email=task.email,
             redeem_code=task.redeem_code,
             group_id=task.group_id,
-            status=InviteQueueStatus.FAILED,
-            error_message="处理超时，请稍后重试",
-            processed_at=datetime.utcnow()
+            status=InviteQueueStatus.WAITING,  # 等待重试
+            error_message="处理超时，等待自动重试",
+            processed_at=None
         )
         db.add(record)
 

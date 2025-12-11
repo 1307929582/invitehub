@@ -215,6 +215,8 @@ export const publicApi = {
     publicApiClient.post('/rebind', data),
   getSeats: () => publicApiClient.get('/seats'),
   getSiteConfig: () => publicApiClient.get('/site-config'),
+  // 邀请状态查询
+  getInviteStatus: (email: string) => publicApiClient.get('/invite-status', { params: { email } }),
 }
 
 export default api

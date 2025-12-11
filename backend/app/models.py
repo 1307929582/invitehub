@@ -274,10 +274,11 @@ class SystemConfig(Base):
 
 
 class InviteQueueStatus(str, enum.Enum):
-    PENDING = "pending"      # 等待发送
+    PENDING = "pending"        # 等待发送
     PROCESSING = "processing"  # 正在处理
-    SUCCESS = "success"      # 发送成功
-    FAILED = "failed"        # 发送失败
+    SUCCESS = "success"        # 发送成功
+    FAILED = "failed"          # 发送失败（最终失败，不再重试）
+    WAITING = "waiting"        # 等待空位（座位满时进入等待队列）
 
 
 class InviteQueue(Base):
