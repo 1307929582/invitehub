@@ -180,7 +180,7 @@ async def get_seat_stats(db: Session = Depends(get_db)):
     return result
 
 
-# ========== 直接链接兑换（无需登录）==========
+# ========== 直接链接兑换（商业版，支持邮箱绑定和有效期）==========
 class DirectRedeemRequest(BaseModel):
     email: EmailStr
     code: str
@@ -190,6 +190,10 @@ class DirectRedeemResponse(BaseModel):
     success: bool
     message: str
     team_name: Optional[str] = None
+    # 商业版新增字段
+    expires_at: Optional[datetime] = None  # 用户到期时间
+    remaining_days: Optional[int] = None  # 剩余天数
+    is_first_use: Optional[bool] = None  # 是否首次使用
 
 
 @router.get("/queue-status")
@@ -235,13 +239,25 @@ async def direct_redeem(request: Request, data: DirectRedeemRequest, db: Session
 
 
 async def _do_direct_redeem(data: DirectRedeemRequest, db: Session):
-    """实际执行直接兑换逻辑 - Celery 异步模式"""
+    """
+    直接兑换逻辑 - 商业版（支持邮箱绑定和有效期）
+
+    核心规则：
+    1. 一个兑换码只能绑定一个邮箱
+    2. 首次使用时绑定邮箱并开始计算有效期
+    3. 非首次使用时校验邮箱一致性
+    4. 检查用户有效期（30天）
+    """
     from app.tasks_celery import process_invite_task
     from app.metrics import redeem_requests_total, errors_total
+    from sqlalchemy import update
 
-    # 验证兑换码
+    email = data.email.lower().strip()
+    code_str = data.code.strip().upper()
+
+    # 1. 验证兑换码
     code = db.query(RedeemCode).filter(
-        RedeemCode.code == data.code.strip().upper(),
+        RedeemCode.code == code_str,
         RedeemCode.code_type == RedeemCodeType.DIRECT,
         RedeemCode.is_active == True
     ).first()
@@ -250,11 +266,33 @@ async def _do_direct_redeem(data: DirectRedeemRequest, db: Session):
         errors_total.labels(error_type="invalid_code", endpoint="direct_redeem").inc()
         raise HTTPException(status_code=400, detail="兑换码无效")
 
+    # 2. 检查管理员设置的过期时间
     if code.expires_at and code.expires_at < datetime.utcnow():
         errors_total.labels(error_type="code_expired", endpoint="direct_redeem").inc()
         raise HTTPException(status_code=400, detail="兑换码已过期")
 
-    # 使用 Redis 令牌桶扣减（避免数据库热点）
+    # 3. 检查邮箱绑定一致性（核心规则：一个码只能绑定一个邮箱）
+    if code.bound_email:
+        # 已绑定邮箱，检查是否匹配
+        if code.bound_email.lower() != email:
+            errors_total.labels(error_type="email_mismatch", endpoint="direct_redeem").inc()
+            raise HTTPException(
+                status_code=400,
+                detail=f"此兑换码已绑定邮箱 {_mask_email(code.bound_email)}，请使用绑定的邮箱"
+            )
+
+        # 4. 检查用户有效期（30天）
+        if code.is_user_expired:
+            errors_total.labels(error_type="user_expired", endpoint="direct_redeem").inc()
+            raise HTTPException(
+                status_code=400,
+                detail=f"兑换码已于 {code.user_expires_at.strftime('%Y-%m-%d')} 过期，请联系管理员续期"
+            )
+
+    # 5. 判断是否首次使用
+    is_first_use = code.activated_at is None
+
+    # 6. 使用 Redis 令牌桶扣减（避免数据库热点）
     redis_client = get_redis()
     if redis_client:
         limiter = RedeemLimiter(redis_client)
@@ -273,29 +311,57 @@ async def _do_direct_redeem(data: DirectRedeemRequest, db: Session):
                 errors_total.labels(error_type="code_exhausted", endpoint="direct_redeem").inc()
                 raise HTTPException(status_code=400, detail="兑换码已用完")
 
-        # 异步回写数据库（Celery 会定时批量同步）
+        # 异步回写数据库
         from app.tasks_celery import sync_redeem_count_task
         sync_redeem_count_task.apply_async(args=[code.code], countdown=5)
     else:
-        # Redis 不可用时回退到数据库（性能较低）
-        from sqlalchemy import update
-        result = db.execute(
-            update(RedeemCode)
-            .where(RedeemCode.id == code.id)
-            .where(RedeemCode.used_count < RedeemCode.max_uses)
-            .values(used_count=RedeemCode.used_count + 1)
-        )
-
-        if result.rowcount == 0:
+        # Redis 不可用时回退到数据库
+        if code.used_count >= code.max_uses:
             errors_total.labels(error_type="code_exhausted", endpoint="direct_redeem").inc()
             raise HTTPException(status_code=400, detail="兑换码已用完")
 
-        db.commit()
+    # 7. 首次使用：绑定邮箱和记录激活时间
+    if is_first_use:
+        result = db.execute(
+            update(RedeemCode)
+            .where(RedeemCode.id == code.id)
+            .where(RedeemCode.activated_at == None)  # 确保是首次激活
+            .values(
+                used_count=RedeemCode.used_count + 1,
+                activated_at=datetime.utcnow(),
+                bound_email=email
+            )
+        )
 
-    # 提交 Celery 任务
+        if result.rowcount == 0:
+            # 并发情况下可能已被其他请求激活
+            db.refresh(code)
+            if code.bound_email and code.bound_email.lower() != email:
+                # 回滚 Redis
+                if redis_client:
+                    limiter.refund(code.code)
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"此兑换码已绑定邮箱 {_mask_email(code.bound_email)}"
+                )
+        db.commit()
+        db.refresh(code)
+    else:
+        # 非首次使用：只增加使用次数
+        if not redis_client:
+            db.execute(
+                update(RedeemCode)
+                .where(RedeemCode.id == code.id)
+                .where(RedeemCode.used_count < RedeemCode.max_uses)
+                .values(used_count=RedeemCode.used_count + 1)
+            )
+            db.commit()
+            db.refresh(code)
+
+    # 8. 提交 Celery 邀请任务
     try:
         process_invite_task.delay(
-            email=data.email.lower().strip(),
+            email=email,
             redeem_code=code.code,
             group_id=code.group_id,
             is_rebind=False
@@ -305,29 +371,36 @@ async def _do_direct_redeem(data: DirectRedeemRequest, db: Session):
 
         return DirectRedeemResponse(
             success=True,
-            message="已加入队列，邀请将在几秒内发送，请稍后查收邮箱",
-            team_name=None
+            message="已加入队列，邀请将在几秒内发送，请查收邮箱",
+            team_name=None,
+            expires_at=code.user_expires_at,
+            remaining_days=code.remaining_days,
+            is_first_use=is_first_use
         )
     except Exception as e:
         errors_total.labels(error_type="celery_error", endpoint="direct_redeem").inc()
         logger.error(f"Failed to submit Celery task: {e}")
 
-        # 回滚使用次数（补偿事务）
+        # 回滚（补偿事务）
         try:
             if redis_client:
-                # 回滚 Redis 令牌桶
                 limiter = RedeemLimiter(redis_client)
                 limiter.refund(code.code)
                 logger.info(f"Refunded Redis token for code {code.code}")
-            else:
-                # 回滚数据库
+
+            # 如果是首次使用，还需要清除绑定信息
+            if is_first_use:
                 db.execute(
                     update(RedeemCode)
                     .where(RedeemCode.id == code.id)
-                    .values(used_count=RedeemCode.used_count - 1)
+                    .values(
+                        used_count=RedeemCode.used_count - 1,
+                        activated_at=None,
+                        bound_email=None
+                    )
                 )
                 db.commit()
-                logger.info(f"Rolled back database count for code {code.code}")
+                logger.info(f"Rolled back first use for code {code.code}")
         except Exception as rollback_error:
             logger.error(f"Failed to rollback code {code.code}: {rollback_error}")
 

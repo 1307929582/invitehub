@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { Card, Input, Button, message, Spin, Result } from 'antd'
-import { MailOutlined, KeyOutlined, CheckCircleOutlined } from '@ant-design/icons'
+import { Card, Input, Button, message, Spin, Result, Tag } from 'antd'
+import { MailOutlined, KeyOutlined, CheckCircleOutlined, ClockCircleOutlined, SearchOutlined } from '@ant-design/icons'
 import axios from 'axios'
 import { publicApi } from '../api'
 
@@ -12,6 +12,15 @@ interface SiteConfig {
   footer_text: string
 }
 
+interface RedeemResult {
+  success: boolean
+  message: string
+  team_name?: string
+  expires_at?: string
+  remaining_days?: number
+  is_first_use?: boolean
+}
+
 export default function DirectInvite() {
   const { code: urlCode } = useParams<{ code: string }>()
   const [loading, setLoading] = useState(true)
@@ -19,12 +28,15 @@ export default function DirectInvite() {
   const [code, setCode] = useState(urlCode?.toUpperCase() || '')
   const [submitting, setSubmitting] = useState(false)
   const [success, setSuccess] = useState(false)
-  const [teamName, setTeamName] = useState('')
-  const [remainingDays, setRemainingDays] = useState<number | null>(null)
+  const [redeemResult, setRedeemResult] = useState<RedeemResult | null>(null)
   const [siteConfig, setSiteConfig] = useState<SiteConfig | null>(null)
 
+  // 状态查询相关
+  const [queryEmail, setQueryEmail] = useState('')
+  const [querying, setQuerying] = useState(false)
+  const [statusResult, setStatusResult] = useState<any>(null)
+
   useEffect(() => {
-    // 获取站点配置
     publicApi.getSiteConfig()
       .then((res: any) => {
         setSiteConfig(res)
@@ -36,7 +48,6 @@ export default function DirectInvite() {
       .finally(() => setLoading(false))
   }, [])
 
-  // URL 中的兑换码变化时更新
   useEffect(() => {
     if (urlCode) {
       setCode(urlCode.toUpperCase())
@@ -55,23 +66,47 @@ export default function DirectInvite() {
 
     setSubmitting(true)
     try {
-      const res = await axios.post('/api/v1/public/redeem', {
+      // 调用 direct-redeem 接口（商业版）
+      const res = await axios.post('/api/v1/public/direct-redeem', {
         email: email.trim().toLowerCase(),
         code: code.trim().toUpperCase()
       })
       setSuccess(true)
-      setTeamName(res.data.team_name)
-      setRemainingDays(res.data.remaining_days)
+      setRedeemResult(res.data)
     } catch (e: any) {
       const detail = e.response?.data?.detail
-      if (typeof detail === 'object') {
-        message.error(detail.message || '兑换失败')
-      } else {
-        message.error(detail || '兑换失败')
-      }
+      message.error(typeof detail === 'object' ? detail.message : detail || '兑换失败')
     } finally {
       setSubmitting(false)
     }
+  }
+
+  // 查询状态
+  const handleQueryStatus = async () => {
+    if (!queryEmail || !queryEmail.includes('@')) {
+      message.error('请输入有效的邮箱地址')
+      return
+    }
+
+    setQuerying(true)
+    try {
+      const res = await axios.get('/api/v1/public/invite-status', {
+        params: { email: queryEmail.trim().toLowerCase() }
+      })
+      setStatusResult(res.data)
+    } catch (e: any) {
+      message.error('查询失败')
+    } finally {
+      setQuerying(false)
+    }
+  }
+
+  // 计算剩余天数颜色
+  const getDaysColor = (days: number | null | undefined) => {
+    if (days === null || days === undefined) return '#86868b'
+    if (days > 15) return '#34c759'  // 绿色
+    if (days > 5) return '#ff9500'   // 橙色
+    return '#ff3b30'                  // 红色
   }
 
   if (loading) {
@@ -96,7 +131,7 @@ export default function DirectInvite() {
       <div style={{ position: 'fixed', bottom: '-15%', left: '-5%', width: 500, height: 500, background: 'radial-gradient(circle, rgba(88, 86, 214, 0.06) 0%, transparent 70%)', borderRadius: '50%', zIndex: 0 }} />
 
       <Card style={{
-        width: 420,
+        width: 440,
         background: 'rgba(255, 255, 255, 0.8)',
         backdropFilter: 'blur(20px)',
         WebkitBackdropFilter: 'blur(20px)',
@@ -108,18 +143,18 @@ export default function DirectInvite() {
       }}>
         {/* Logo */}
         <div style={{ textAlign: 'center', marginBottom: 28 }}>
-          <img 
-            src="/logo.jpg" 
-            alt="Logo" 
-            style={{ 
-              width: 64, 
-              height: 64, 
+          <img
+            src="/logo.jpg"
+            alt="Logo"
+            style={{
+              width: 64,
+              height: 64,
               borderRadius: 16,
               objectFit: 'cover',
               margin: '0 auto 20px',
               boxShadow: '0 8px 24px rgba(0, 0, 0, 0.12)',
               display: 'block',
-            }} 
+            }}
           />
           <h1 style={{ fontSize: 24, fontWeight: 700, margin: '0 0 8px', color: '#1d1d1f' }}>
             {siteConfig?.site_title || 'ChatGPT Team'}
@@ -130,20 +165,40 @@ export default function DirectInvite() {
         </div>
 
         {/* 成功状态 */}
-        {success ? (
+        {success && redeemResult ? (
           <Result
             status="success"
             icon={<CheckCircleOutlined style={{ color: '#34c759' }} />}
-            title="邀请已发送！"
+            title={redeemResult.is_first_use ? "兑换码已激活！" : "邀请已发送！"}
             subTitle={
               <div>
-                <p style={{ margin: '0 0 8px' }}>已加入 {teamName || 'Team'}</p>
-                {remainingDays !== null && (
-                  <p style={{ color: '#007aff', fontSize: 14, margin: '0 0 8px' }}>
-                    有效期剩余 {remainingDays} 天
-                  </p>
+                <p style={{ margin: '0 0 12px', color: '#1d1d1f' }}>{redeemResult.message}</p>
+
+                {/* 有效期信息 */}
+                {redeemResult.remaining_days !== null && redeemResult.remaining_days !== undefined && (
+                  <div style={{
+                    background: 'rgba(0, 122, 255, 0.08)',
+                    padding: '12px 16px',
+                    borderRadius: 12,
+                    marginBottom: 12
+                  }}>
+                    <ClockCircleOutlined style={{ marginRight: 8, color: getDaysColor(redeemResult.remaining_days) }} />
+                    <span style={{ color: getDaysColor(redeemResult.remaining_days), fontWeight: 600 }}>
+                      有效期剩余 {redeemResult.remaining_days} 天
+                    </span>
+                    {redeemResult.expires_at && (
+                      <div style={{ fontSize: 12, color: '#86868b', marginTop: 4 }}>
+                        到期时间：{new Date(redeemResult.expires_at).toLocaleDateString('zh-CN')}
+                      </div>
+                    )}
+                  </div>
                 )}
-                <p style={{ color: '#ff9500', fontSize: 13, marginTop: 12 }}>
+
+                {redeemResult.is_first_use && (
+                  <Tag color="blue" style={{ marginBottom: 12 }}>首次激活，邮箱已绑定</Tag>
+                )}
+
+                <p style={{ color: '#ff9500', fontSize: 13, marginTop: 8 }}>
                   {siteConfig?.success_message || '请查收邮箱并接受邀请'}
                 </p>
               </div>
@@ -177,20 +232,20 @@ export default function DirectInvite() {
                 style={{ height: 48, borderRadius: 12, border: '1px solid #d2d2d7', fontFamily: 'monospace', letterSpacing: 1 }}
               />
               <div style={{ fontSize: 12, color: '#86868b', marginTop: 6 }}>
-                邀请邮件将发送到您的邮箱
+                首次使用将绑定邮箱，有效期 30 天
               </div>
             </div>
 
-            <Button 
-              type="primary" 
-              block 
-              size="large" 
+            <Button
+              type="primary"
+              block
+              size="large"
               loading={submitting}
               onClick={handleSubmit}
               disabled={!email || !code}
-              style={{ 
-                height: 48, 
-                borderRadius: 12, 
+              style={{
+                height: 48,
+                borderRadius: 12,
                 fontWeight: 600,
                 background: '#007aff',
                 border: 'none',
@@ -199,14 +254,71 @@ export default function DirectInvite() {
               立即上车
             </Button>
 
+            {/* 状态查询区域 */}
+            <div style={{ marginTop: 24, padding: 16, background: 'rgba(0, 0, 0, 0.02)', borderRadius: 12 }}>
+              <div style={{ fontWeight: 600, color: '#1d1d1f', marginBottom: 12, fontSize: 14 }}>
+                <SearchOutlined style={{ marginRight: 8 }} />
+                查询邀请状态
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Input
+                  placeholder="输入邮箱查询"
+                  size="middle"
+                  value={queryEmail}
+                  onChange={e => setQueryEmail(e.target.value)}
+                  onPressEnter={handleQueryStatus}
+                  style={{ flex: 1, borderRadius: 8 }}
+                />
+                <Button
+                  onClick={handleQueryStatus}
+                  loading={querying}
+                  style={{ borderRadius: 8 }}
+                >
+                  查询
+                </Button>
+              </div>
+
+              {/* 查询结果 */}
+              {statusResult && (
+                <div style={{ marginTop: 12, padding: 12, background: '#fff', borderRadius: 8, fontSize: 13 }}>
+                  {statusResult.found ? (
+                    <div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                        <span>状态：</span>
+                        <Tag color={
+                          statusResult.status === 'success' ? 'success' :
+                          statusResult.status === 'waiting' ? 'orange' :
+                          statusResult.status === 'processing' ? 'processing' :
+                          statusResult.status === 'pending' ? 'blue' : 'error'
+                        }>
+                          {statusResult.status === 'success' ? '成功' :
+                           statusResult.status === 'waiting' ? '等待中' :
+                           statusResult.status === 'processing' ? '处理中' :
+                           statusResult.status === 'pending' ? '排队中' : '失败'}
+                        </Tag>
+                      </div>
+                      <div style={{ color: '#86868b' }}>{statusResult.status_message}</div>
+                      {statusResult.queue_position && (
+                        <div style={{ color: '#ff9500', marginTop: 4 }}>
+                          队列位置：第 {statusResult.queue_position} 位
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div style={{ color: '#86868b' }}>未找到该邮箱的邀请记录</div>
+                  )}
+                </div>
+              )}
+            </div>
+
             {/* 使用说明 */}
-            <div style={{ marginTop: 24, padding: 16, background: 'rgba(0, 122, 255, 0.04)', borderRadius: 12, fontSize: 13, color: '#86868b', lineHeight: 1.8 }}>
-              <div style={{ fontWeight: 600, color: '#1d1d1f', marginBottom: 8 }}>📋 使用说明</div>
+            <div style={{ marginTop: 16, padding: 16, background: 'rgba(0, 122, 255, 0.04)', borderRadius: 12, fontSize: 13, color: '#86868b', lineHeight: 1.8 }}>
+              <div style={{ fontWeight: 600, color: '#1d1d1f', marginBottom: 8 }}>使用说明</div>
               <ol style={{ paddingLeft: 20, margin: 0 }}>
-                <li>输入您的邮箱地址和兑换码</li>
-                <li>点击「立即上车」按钮</li>
-                <li>查收邮箱中的 ChatGPT Team 邀请邮件</li>
-                <li>点击邮件中的链接接受邀请</li>
+                <li>首次使用兑换码将自动绑定邮箱</li>
+                <li>绑定后只能使用该邮箱兑换</li>
+                <li>有效期 30 天，从首次使用开始计算</li>
+                <li>过期后需要联系管理员续期</li>
               </ol>
             </div>
           </div>
