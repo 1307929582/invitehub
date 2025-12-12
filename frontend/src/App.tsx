@@ -25,7 +25,8 @@ import PriceSettings from './pages/settings/PriceSettings'
 import WhitelistSettings from './pages/settings/WhitelistSettings'
 import UnauthorizedMembers from './pages/UnauthorizedMembers'
 // 分销商相关页面
-import DistributorRegister from './pages/DistributorRegister'
+import DistributorLogin from './pages/distributor/DistributorLogin'
+import DistributorRegister from './pages/distributor/DistributorRegister'
 import DistributorLayout from './pages/distributor/DistributorLayout'
 import DistributorDashboard from './pages/distributor/DistributorDashboard'
 import DistributorRedeemCodes from './pages/distributor/DistributorRedeemCodes'
@@ -71,7 +72,7 @@ function DistributorRoute({ children, initialized }: { children: React.ReactNode
   }
 
   if (!token) {
-    return <Navigate to="/admin/login" replace />
+    return <Navigate to="/distributor/login" replace />
   }
 
   if (!user) {
@@ -144,8 +145,14 @@ function App() {
         <Route path="/invite/:code" element={<DirectInvite />} />
         <Route path="/rebind" element={<Navigate to="/invite" replace />} />
 
-        {/* 分销商注册页面（公开） */}
-        <Route path="/register" element={
+        {/* 分销商注册页面（公开）- 旧路径重定向 */}
+        <Route path="/register" element={<Navigate to="/distributor/register" replace />} />
+
+        {/* 分销商登录和注册 */}
+        <Route path="/distributor/login" element={
+          initialized === false ? <Navigate to="/setup" replace /> : <DistributorLogin />
+        } />
+        <Route path="/distributor/register" element={
           initialized === false ? <Navigate to="/setup" replace /> : <DistributorRegister />
         } />
 

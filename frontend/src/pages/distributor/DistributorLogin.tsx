@@ -1,12 +1,13 @@
+// 分销商登录页面
 import { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { Form, Input, Button, message, Alert } from 'antd'
-import { UserOutlined, LockOutlined } from '@ant-design/icons'
-import { authApi } from '../api'
-import { useStore } from '../store'
+import { UserOutlined, LockOutlined, ShopOutlined } from '@ant-design/icons'
+import { authApi } from '../../api'
+import { useStore } from '../../store'
 import axios from 'axios'
 
-export default function Login() {
+export default function DistributorLogin() {
   const [loading, setLoading] = useState(false)
   const [errorInfo, setErrorInfo] = useState<{ type: string; message: string } | null>(null)
   const navigate = useNavigate()
@@ -19,16 +20,18 @@ export default function Login() {
       const res: any = await authApi.login(values.username, values.password)
       localStorage.setItem('token', res.access_token)
       const user: any = await authApi.getMe()
+
+      // 检查是否为分销商
+      if (user.role !== 'distributor') {
+        localStorage.removeItem('token')
+        setErrorInfo({ type: 'error', message: '此账号不是分销商账号，请使用管理员入口登录' })
+        return
+      }
+
       setUser(user)
       message.success('登录成功')
-      // 根据角色重定向
-      if (user.role === 'distributor') {
-        navigate('/distributor')
-      } else {
-        navigate('/admin/dashboard')
-      }
+      navigate('/distributor')
     } catch (error: any) {
-      // 处理分销商审核状态
       if (axios.isAxiosError(error) && error.response) {
         const { status, data } = error.response
         if (status === 403) {
@@ -56,64 +59,63 @@ export default function Login() {
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      background: 'linear-gradient(135deg, #f0f4f8 0%, #e8eef5 50%, #f5f7fa 100%)',
+      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
       position: 'relative',
       overflow: 'hidden',
     }}>
       {/* 装饰光晕 */}
       <div style={{
         position: 'absolute',
-        top: '10%',
-        right: '20%',
-        width: 500,
-        height: 500,
-        background: 'radial-gradient(circle, rgba(147, 197, 253, 0.35) 0%, transparent 70%)',
+        top: '5%',
+        right: '15%',
+        width: 400,
+        height: 400,
+        background: 'radial-gradient(circle, rgba(255, 255, 255, 0.15) 0%, transparent 70%)',
         borderRadius: '50%',
       }} />
       <div style={{
         position: 'absolute',
-        bottom: '20%',
-        left: '15%',
-        width: 400,
-        height: 400,
-        background: 'radial-gradient(circle, rgba(196, 181, 253, 0.3) 0%, transparent 70%)',
+        bottom: '10%',
+        left: '10%',
+        width: 300,
+        height: 300,
+        background: 'radial-gradient(circle, rgba(255, 255, 255, 0.1) 0%, transparent 70%)',
         borderRadius: '50%',
       }} />
 
       <div style={{
         width: 420,
         padding: 48,
-        background: 'rgba(255, 255, 255, 0.75)',
-        backdropFilter: 'blur(40px) saturate(180%)',
-        WebkitBackdropFilter: 'blur(40px) saturate(180%)',
-        borderRadius: 28,
-        border: '1px solid rgba(255, 255, 255, 0.9)',
-        boxShadow: '0 24px 80px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.9)',
+        background: 'rgba(255, 255, 255, 0.95)',
+        backdropFilter: 'blur(20px)',
+        WebkitBackdropFilter: 'blur(20px)',
+        borderRadius: 24,
+        boxShadow: '0 24px 80px rgba(0, 0, 0, 0.2)',
         position: 'relative',
         zIndex: 1,
       }}>
-        <div style={{ textAlign: 'center', marginBottom: 44 }}>
-          <img 
-            src="/logo.jpg" 
-            alt="Logo" 
-            style={{ 
-              width: 64, 
-              height: 64, 
-              borderRadius: 18,
-              objectFit: 'cover',
-              margin: '0 auto 24px',
-              boxShadow: '0 8px 24px rgba(0, 0, 0, 0.15)',
-              display: 'block',
-            }} 
-          />
-          <h1 style={{ fontSize: 24, fontWeight: 700, margin: '0 0 10px 0', color: '#1a1a2e', letterSpacing: '-0.5px' }}>
-            管理后台
+        <div style={{ textAlign: 'center', marginBottom: 40 }}>
+          <div style={{
+            width: 72,
+            height: 72,
+            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            borderRadius: 20,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            margin: '0 auto 20px',
+            boxShadow: '0 8px 24px rgba(102, 126, 234, 0.4)',
+          }}>
+            <ShopOutlined style={{ fontSize: 36, color: '#fff' }} />
+          </div>
+          <h1 style={{ fontSize: 24, fontWeight: 700, margin: '0 0 8px', color: '#1a1a2e' }}>
+            分销商登录
           </h1>
           <p style={{ color: '#64748b', fontSize: 14, margin: 0 }}>
-            请输入管理员账号登录
+            登录您的分销商账号
           </p>
         </div>
-        
+
         {errorInfo && (
           <Alert
             type={errorInfo.type as 'error' | 'warning'}
@@ -125,13 +127,13 @@ export default function Login() {
           />
         )}
 
-        <Form name="login" onFinish={onFinish}>
+        <Form name="distributor-login" onFinish={onFinish}>
           <Form.Item name="username" rules={[{ required: true, message: '请输入用户名' }]}>
             <Input
               prefix={<UserOutlined style={{ color: '#94a3b8' }} />}
               placeholder="用户名"
               size="large"
-              style={{ height: 52, borderRadius: 14 }}
+              style={{ height: 52, borderRadius: 12 }}
             />
           </Form.Item>
           <Form.Item name="password" rules={[{ required: true, message: '请输入密码' }]}>
@@ -139,10 +141,10 @@ export default function Login() {
               prefix={<LockOutlined style={{ color: '#94a3b8' }} />}
               placeholder="密码"
               size="large"
-              style={{ height: 52, borderRadius: 14 }}
+              style={{ height: 52, borderRadius: 12 }}
             />
           </Form.Item>
-          <Form.Item style={{ marginBottom: 0, marginTop: 36 }}>
+          <Form.Item style={{ marginBottom: 0, marginTop: 32 }}>
             <Button
               type="primary"
               htmlType="submit"
@@ -151,9 +153,11 @@ export default function Login() {
               size="large"
               style={{
                 height: 52,
-                borderRadius: 14,
+                borderRadius: 12,
                 fontSize: 15,
                 fontWeight: 600,
+                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                border: 'none',
               }}
             >
               登录
@@ -163,11 +167,17 @@ export default function Login() {
 
         <div style={{ textAlign: 'center', marginTop: 24 }}>
           <span style={{ color: '#64748b', fontSize: 14 }}>
-            想成为分销商？
-            <Link to="/distributor/register" style={{ marginLeft: 8, fontWeight: 500 }}>
-              申请注册
+            还没有账号？
+            <Link to="/distributor/register" style={{ marginLeft: 8, fontWeight: 500, color: '#667eea' }}>
+              立即注册
             </Link>
           </span>
+        </div>
+
+        <div style={{ textAlign: 'center', marginTop: 16 }}>
+          <Link to="/admin/login" style={{ color: '#94a3b8', fontSize: 13 }}>
+            管理员登录入口
+          </Link>
         </div>
       </div>
     </div>
