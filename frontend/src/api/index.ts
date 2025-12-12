@@ -24,7 +24,13 @@ api.interceptors.response.use(
   (error) => {
     if (error.response?.status === 401) {
       localStorage.removeItem('token')
-      window.location.href = '/admin/login'
+      // 根据当前路径决定跳转到哪个登录页
+      const currentPath = window.location.pathname
+      if (currentPath.startsWith('/distributor')) {
+        window.location.href = '/distributor/login'
+      } else {
+        window.location.href = '/admin/login'
+      }
     }
     message.error(error.response?.data?.detail || '请求失败')
     return Promise.reject(error)
@@ -174,6 +180,8 @@ export const adminApi = {
   // 手动创建分销商
   createDistributor: (data: { username: string; email: string; password: string }) =>
     api.post('/admins/distributors/create', data),
+  // 删除分销商
+  deleteDistributor: (id: number) => api.delete(`/admins/distributors/${id}`),
 }
 
 // Distributor API

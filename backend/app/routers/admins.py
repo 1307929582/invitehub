@@ -289,6 +289,34 @@ async def reject_distributor(
     return {"message": "已拒绝申请", "distributor": distributor.username}
 
 
+@router.delete("/distributors/{distributor_id}")
+async def delete_distributor(
+    distributor_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """删除分销商"""
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="只有管理员可以删除分销商")
+
+    distributor = db.query(User).filter(
+        User.id == distributor_id,
+        User.role == UserRole.DISTRIBUTOR
+    ).first()
+    if not distributor:
+        raise HTTPException(status_code=404, detail="分销商不存在")
+
+    username = distributor.username
+    db.delete(distributor)
+    db.commit()
+
+    from app.logger import get_logger
+    logger = get_logger(__name__)
+    logger.info(f"Distributor deleted: {username} by {current_user.username}")
+
+    return {"message": "删除成功", "distributor": username}
+
+
 @router.post("/distributors/create")
 async def create_distributor(
     payload: DistributorCreateRequest,

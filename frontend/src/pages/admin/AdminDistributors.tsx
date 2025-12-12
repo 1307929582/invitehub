@@ -1,7 +1,7 @@
 // 管理员 - 分销商管理
 import { useState, useEffect, useCallback } from 'react'
-import { Table, Button, message, Badge, Typography, Card, Modal, Input, Select, Form } from 'antd'
-import { EyeOutlined, SearchOutlined, PlusOutlined } from '@ant-design/icons'
+import { Table, Button, message, Badge, Typography, Card, Modal, Input, Select, Form, Popconfirm, Space } from 'antd'
+import { EyeOutlined, SearchOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons'
 import { distributorApi, adminApi } from '../../api'
 
 const { Title } = Typography
@@ -93,6 +93,16 @@ export default function AdminDistributors() {
     }
   }
 
+  const handleDeleteDistributor = async (distributor: Distributor) => {
+    try {
+      await adminApi.deleteDistributor(distributor.id)
+      message.success(`分销商 ${distributor.username} 已删除`)
+      fetchDistributors()
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || '删除失败')
+    }
+  }
+
   const statusMap: Record<string, { status: 'success' | 'processing' | 'error' | 'default'; text: string }> = {
     approved: { status: 'success', text: '已批准' },
     pending: { status: 'processing', text: '待审核' },
@@ -158,15 +168,30 @@ export default function AdminDistributors() {
     {
       title: '操作',
       key: 'action',
-      width: 120,
+      width: 180,
       render: (_: any, record: Distributor) => (
-        <Button
-          type="link"
-          icon={<EyeOutlined />}
-          onClick={() => handleViewSales(record)}
-        >
-          销售记录
-        </Button>
+        <Space size="small">
+          <Button
+            type="link"
+            size="small"
+            icon={<EyeOutlined />}
+            onClick={() => handleViewSales(record)}
+          >
+            销售记录
+          </Button>
+          <Popconfirm
+            title="确认删除"
+            description={`确定要删除分销商 ${record.username} 吗？此操作不可恢复。`}
+            onConfirm={() => handleDeleteDistributor(record)}
+            okText="删除"
+            cancelText="取消"
+            okButtonProps={{ danger: true }}
+          >
+            <Button type="link" size="small" danger icon={<DeleteOutlined />}>
+              删除
+            </Button>
+          </Popconfirm>
+        </Space>
       ),
     },
   ]
