@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { Card, Input, Button, message, Spin, Result, Tag, Tabs } from 'antd'
+import { Card, Input, Button, message, Spin, Result, Tag, Tabs, Radio } from 'antd'
 import {
   MailOutlined, KeyOutlined, CheckCircleOutlined, ClockCircleOutlined,
   SearchOutlined, RocketOutlined, SwapOutlined, TeamOutlined
@@ -61,7 +61,8 @@ export default function DirectInvite() {
   const [rebindResult, setRebindResult] = useState<RebindResult | null>(null)
 
   // 状态查询相关
-  const [queryEmail, setQueryEmail] = useState('')
+  const [queryType, setQueryType] = useState<'email' | 'code'>('email')
+  const [queryValue, setQueryValue] = useState('')
   const [querying, setQuerying] = useState(false)
   const [statusResult, setStatusResult] = useState<StatusResult | null>(null)
 
@@ -151,18 +152,28 @@ export default function DirectInvite() {
 
   // 查询状态
   const handleQueryStatus = async () => {
-    if (!queryEmail || !queryEmail.includes('@')) {
+    const value = queryValue.trim()
+    if (!value) {
+      message.error(queryType === 'email' ? '请输入邮箱地址' : '请输入兑换码')
+      return
+    }
+
+    if (queryType === 'email' && !value.includes('@')) {
       message.error('请输入有效的邮箱地址')
       return
     }
 
     setQuerying(true)
+    setStatusResult(null)
     try {
-      const res: any = await publicApi.getStatus(queryEmail.trim().toLowerCase())
+      const params = queryType === 'email'
+        ? { email: value.toLowerCase() }
+        : { code: value.toUpperCase() }
+      const res: any = await publicApi.getStatus(params)
       setStatusResult(res)
-      if (res.found) {
+      if (res.found && res.email) {
         // 自动填充换车表单
-        setRebindEmail(queryEmail.trim().toLowerCase())
+        setRebindEmail(res.email)
       }
     } catch (e: any) {
       message.error('查询失败')
@@ -280,13 +291,23 @@ export default function DirectInvite() {
           <SearchOutlined style={{ marginRight: 8 }} />
           查询当前状态
         </div>
+        <Radio.Group
+          value={queryType}
+          onChange={e => { setQueryType(e.target.value); setQueryValue(''); setStatusResult(null) }}
+          size="small"
+          style={{ marginBottom: 12 }}
+        >
+          <Radio.Button value="email">按邮箱</Radio.Button>
+          <Radio.Button value="code">按兑换码</Radio.Button>
+        </Radio.Group>
         <div style={{ display: 'flex', gap: 8 }}>
           <Input
-            placeholder="输入邮箱查询"
-            value={queryEmail}
-            onChange={e => setQueryEmail(e.target.value)}
+            prefix={queryType === 'email' ? <MailOutlined style={{ color: '#86868b' }} /> : <KeyOutlined style={{ color: '#86868b' }} />}
+            placeholder={queryType === 'email' ? '输入邮箱查询' : '输入兑换码查询'}
+            value={queryValue}
+            onChange={e => setQueryValue(queryType === 'code' ? e.target.value.toUpperCase() : e.target.value)}
             onPressEnter={handleQueryStatus}
-            style={{ flex: 1, borderRadius: 8 }}
+            style={{ flex: 1, borderRadius: 8, fontFamily: queryType === 'code' ? 'monospace' : 'inherit' }}
           />
           <Button onClick={handleQueryStatus} loading={querying} style={{ borderRadius: 8 }}>查询</Button>
         </div>

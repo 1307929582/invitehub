@@ -49,7 +49,7 @@ export default function Rebind() {
 
     setQuerying(true)
     try {
-      const res: any = await publicApi.getStatus(queryEmail.trim().toLowerCase())
+      const res: any = await publicApi.getStatus({ email: queryEmail.trim().toLowerCase() })
       setStatusResult(res)
       if (res.found) {
         // 自动填充表单

@@ -626,52 +626,77 @@ def _get_queue_position(db: Session, record: "InviteQueue") -> int:
 
 # ========== 用户状态查询 API ==========
 @router.get("/status", response_model=StatusResponse)
-async def get_user_status(email: str, db: Session = Depends(get_db)):
+async def get_user_status(
+    email: Optional[str] = None,
+    code: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
     """
     用户状态查询 API
-    
-    根据邮箱查询绑定的兑换码，返回 Team 信息、有效期、换车可用性。
-    
+
+    支持两种查询方式（至少提供一个）：
+    - 通过邮箱查询：返回该邮箱绑定的兑换码信息
+    - 通过兑换码查询：返回该兑换码的绑定信息
+
     Requirements: 8.1, 8.2, 8.3
     """
-    normalized_email = email.lower().strip()
-    
-    if not normalized_email:
-        return StatusResponse(found=False)
-    
-    # 查找绑定到该邮箱的兑换码
-    redeem_code = db.query(RedeemCode).filter(
-        RedeemCode.bound_email == normalized_email,
-        RedeemCode.is_active == True
-    ).first()
-    
+    # 至少需要提供一个查询参数
+    if not email and not code:
+        raise HTTPException(status_code=400, detail="请提供邮箱或兑换码")
+
+    redeem_code = None
+    query_email = None
+
+    if code:
+        # 通过兑换码查询
+        normalized_code = code.strip().upper()
+        redeem_code = db.query(RedeemCode).filter(
+            RedeemCode.code == normalized_code,
+            RedeemCode.is_active == True
+        ).first()
+
+        if redeem_code and redeem_code.bound_email:
+            query_email = redeem_code.bound_email
+
+    if email and not redeem_code:
+        # 通过邮箱查询
+        query_email = email.lower().strip()
+        redeem_code = db.query(RedeemCode).filter(
+            RedeemCode.bound_email == query_email,
+            RedeemCode.is_active == True
+        ).first()
+
     if not redeem_code:
-        # 没有找到绑定的兑换码 (Requirements 8.3)
         return StatusResponse(found=False)
-    
+
+    # 确定用于查询邀请记录的邮箱
+    if not query_email and redeem_code.bound_email:
+        query_email = redeem_code.bound_email
+
     # 查找最近的邀请记录以获取 Team 信息
-    invite_record = db.query(InviteRecord).filter(
-        InviteRecord.email == normalized_email,
-        InviteRecord.redeem_code == redeem_code.code,
-        InviteRecord.status == InviteStatus.SUCCESS
-    ).order_by(InviteRecord.created_at.desc()).first()
-    
     team_name = None
     team_active = None
     can_rebind = False
-    
-    if invite_record and invite_record.team_id:
-        team = db.query(Team).filter(Team.id == invite_record.team_id).first()
-        if team:
-            team_name = team.name
-            team_active = team.is_active
-            # 换车可用性：Team 不活跃且兑换码未过期 (Requirements 8.2)
-            can_rebind = not team.is_active and not redeem_code.is_user_expired
-    
+
+    if query_email:
+        invite_record = db.query(InviteRecord).filter(
+            InviteRecord.email == query_email,
+            InviteRecord.redeem_code == redeem_code.code,
+            InviteRecord.status == InviteStatus.SUCCESS
+        ).order_by(InviteRecord.created_at.desc()).first()
+
+        if invite_record and invite_record.team_id:
+            team = db.query(Team).filter(Team.id == invite_record.team_id).first()
+            if team:
+                team_name = team.name
+                team_active = team.is_active
+                # 换车可用性：Team 不活跃且兑换码未过期 (Requirements 8.2)
+                can_rebind = not team.is_active and not redeem_code.is_user_expired
+
     # 返回完整状态信息 (Requirements 8.1, 8.2)
     return StatusResponse(
         found=True,
-        email=normalized_email,
+        email=redeem_code.bound_email,  # 返回绑定的邮箱（可能为空）
         team_name=team_name,
         team_active=team_active,
         code=_mask_code(redeem_code.code),  # 遮蔽兑换码

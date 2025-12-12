@@ -210,7 +210,8 @@ export const publicApi = {
   // 商业版 API
   redeem: (data: { email: string; code: string }) =>
     publicApiClient.post('/redeem', data),
-  getStatus: (email: string) => publicApiClient.get('/status', { params: { email } }),
+  getStatus: (params: { email?: string; code?: string }) =>
+    publicApiClient.get('/status', { params }),
   rebind: (data: { email: string; code: string }) =>
     publicApiClient.post('/rebind', data),
   getSeats: () => publicApiClient.get('/seats'),
