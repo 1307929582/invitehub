@@ -13,7 +13,6 @@ import Settings from './pages/Settings'
 import Home from './pages/Home'
 import Setup from './pages/Setup'
 import DirectInvite from './pages/DirectInvite'
-import Rebind from './pages/Rebind'
 import Groups from './pages/Groups'
 import InviteRecords from './pages/InviteRecords'
 import PendingInvites from './pages/PendingInvites'
@@ -143,7 +142,7 @@ function App() {
         } />
         <Route path="/invite" element={<DirectInvite />} />
         <Route path="/invite/:code" element={<DirectInvite />} />
-        <Route path="/rebind" element={<Rebind />} />
+        <Route path="/rebind" element={<Navigate to="/invite" replace />} />
 
         {/* 分销商注册页面（公开） */}
         <Route path="/register" element={
