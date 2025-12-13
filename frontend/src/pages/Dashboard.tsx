@@ -206,41 +206,75 @@ export default function Dashboard() {
 
       {/* 销售统计卡片 */}
       {revenue && revenue.unit_price > 0 && (
-        <Row gutter={20} style={{ marginBottom: 28 }}>
-          <Col span={8}>
-            <div style={{ 
-              padding: 20,
-              background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(52, 211, 153, 0.05) 100%)',
-              borderRadius: 16,
-              border: '1px solid rgba(16, 185, 129, 0.2)',
-            }}>
-              <div style={{ color: '#64748b', fontSize: 13, marginBottom: 4 }}>今日销售额</div>
-              <div style={{ fontSize: 28, fontWeight: 700, color: '#10b981' }}>¥{revenue.today.toFixed(2)}</div>
-            </div>
-          </Col>
-          <Col span={8}>
-            <div style={{ 
-              padding: 20,
-              background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(96, 165, 250, 0.05) 100%)',
-              borderRadius: 16,
-              border: '1px solid rgba(59, 130, 246, 0.2)',
-            }}>
-              <div style={{ color: '#64748b', fontSize: 13, marginBottom: 4 }}>本周销售额</div>
-              <div style={{ fontSize: 28, fontWeight: 700, color: '#3b82f6' }}>¥{revenue.this_week.toFixed(2)}</div>
-            </div>
-          </Col>
-          <Col span={8}>
-            <div style={{ 
-              padding: 20,
-              background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(167, 139, 250, 0.05) 100%)',
-              borderRadius: 16,
-              border: '1px solid rgba(139, 92, 246, 0.2)',
-            }}>
-              <div style={{ color: '#64748b', fontSize: 13, marginBottom: 4 }}>本月销售额</div>
-              <div style={{ fontSize: 28, fontWeight: 700, color: '#8b5cf6' }}>¥{revenue.this_month.toFixed(2)}</div>
-            </div>
-          </Col>
-        </Row>
+        <>
+          <Row gutter={20} style={{ marginBottom: 28 }}>
+            <Col span={8}>
+              <div style={{
+                padding: 20,
+                background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.1) 0%, rgba(52, 211, 153, 0.05) 100%)',
+                borderRadius: 16,
+                border: '1px solid rgba(16, 185, 129, 0.2)',
+              }}>
+                <div style={{ color: '#64748b', fontSize: 13, marginBottom: 4 }}>今日销售额</div>
+                <div style={{ fontSize: 28, fontWeight: 700, color: '#10b981' }}>¥{revenue.today.toFixed(2)}</div>
+              </div>
+            </Col>
+            <Col span={8}>
+              <div style={{
+                padding: 20,
+                background: 'linear-gradient(135deg, rgba(59, 130, 246, 0.1) 0%, rgba(96, 165, 250, 0.05) 100%)',
+                borderRadius: 16,
+                border: '1px solid rgba(59, 130, 246, 0.2)',
+              }}>
+                <div style={{ color: '#64748b', fontSize: 13, marginBottom: 4 }}>本周销售额</div>
+                <div style={{ fontSize: 28, fontWeight: 700, color: '#3b82f6' }}>¥{revenue.this_week.toFixed(2)}</div>
+              </div>
+            </Col>
+            <Col span={8}>
+              <div style={{
+                padding: 20,
+                background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(167, 139, 250, 0.05) 100%)',
+                borderRadius: 16,
+                border: '1px solid rgba(139, 92, 246, 0.2)',
+              }}>
+                <div style={{ color: '#64748b', fontSize: 13, marginBottom: 4 }}>本月销售额</div>
+                <div style={{ fontSize: 28, fontWeight: 700, color: '#8b5cf6' }}>¥{revenue.this_month.toFixed(2)}</div>
+              </div>
+            </Col>
+          </Row>
+
+          {/* 每日销售明细表格 */}
+          <Card title="近7天销售明细" size="small" style={{ marginBottom: 20 }}>
+            <Table
+              dataSource={[...revenue.daily_trend].reverse()}
+              rowKey="date"
+              pagination={false}
+              size="small"
+              columns={[
+                {
+                  title: '日期',
+                  dataIndex: 'date',
+                  width: 120,
+                  render: (v: string) => formatDateOnly(v)
+                },
+                {
+                  title: '销售数量',
+                  dataIndex: 'count',
+                  width: 100,
+                  align: 'center' as const,
+                  render: (v: number) => <span style={{ fontWeight: 600 }}>{v}</span>
+                },
+                {
+                  title: '销售额',
+                  dataIndex: 'revenue',
+                  width: 120,
+                  align: 'right' as const,
+                  render: (v: number) => <span style={{ color: '#10b981', fontWeight: 600 }}>¥{v.toFixed(2)}</span>
+                },
+              ]}
+            />
+          </Card>
+        </>
       )}
 
       {/* 座位使用率 + 邀请趋势 */}
@@ -274,11 +308,19 @@ export default function Dashboard() {
                   xField="date"
                   yField="count"
                   smooth
-                  point={{ size: 4, shape: 'circle' }}
+                  point={{ size: 5, shape: 'circle' }}
                   color="#8b5cf6"
                   areaStyle={{ fill: 'l(270) 0:rgba(139, 92, 246, 0.1) 1:rgba(139, 92, 246, 0.3)' }}
                   area={{}}
-                  yAxis={{ 
+                  label={{
+                    style: {
+                      fill: '#8b5cf6',
+                      fontSize: 12,
+                      fontWeight: 600,
+                    },
+                    offsetY: -8,
+                  }}
+                  yAxis={{
                     min: 0,
                     tickCount: 4,
                     label: { style: { fill: '#94a3b8', fontSize: 11 } },
@@ -289,7 +331,7 @@ export default function Dashboard() {
                     line: { style: { stroke: '#f0f0f0' } },
                   }}
                   tooltip={{
-                    formatter: (datum: { count: number }) => ({ name: '邀请数', value: datum.count }),
+                    formatter: (datum: { count: number; date: string }) => ({ name: '邀请数', value: datum.count }),
                   }}
                   animation={{ appear: { animation: 'wave-in', duration: 800 } }}
                 />
