@@ -31,9 +31,11 @@ import DistributorLayout from './pages/distributor/DistributorLayout'
 import DistributorDashboard from './pages/distributor/DistributorDashboard'
 import DistributorRedeemCodes from './pages/distributor/DistributorRedeemCodes'
 import DistributorSales from './pages/distributor/DistributorSales'
+import DistributorMembers from './pages/distributor/DistributorMembers'
 // 管理员分销商管理页面
 import AdminPendingDistributors from './pages/admin/AdminPendingDistributors'
 import AdminDistributors from './pages/admin/AdminDistributors'
+import AdminDistributorAnalytics from './pages/admin/AdminDistributorAnalytics'
 
 import { useStore } from './store'
 import { authApi, setupApi } from './api'
@@ -169,6 +171,7 @@ function App() {
         }>
           <Route index element={<DistributorDashboard />} />
           <Route path="redeem-codes" element={<DistributorRedeemCodes />} />
+          <Route path="members" element={<DistributorMembers />} />
           <Route path="sales" element={<DistributorSales />} />
         </Route>
 
@@ -200,6 +203,7 @@ function App() {
           {/* 分销商管理（管理员） */}
           <Route path="pending-distributors" element={<AdminPendingDistributors />} />
           <Route path="distributors" element={<AdminDistributors />} />
+          <Route path="distributor-analytics" element={<AdminDistributorAnalytics />} />
         </Route>
       </Routes>
     </BrowserRouter>

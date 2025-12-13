@@ -21,6 +21,7 @@ import {
   WarningOutlined,
   ExclamationCircleOutlined,
   CloseOutlined,
+  BarChartOutlined,
 } from '@ant-design/icons'
 import { useStore } from '../store'
 import { teamApi } from '../api'
@@ -49,6 +50,7 @@ const menuItems = [
   { type: 'divider' as const },
   { key: '/admin/pending-distributors', icon: <AuditOutlined />, label: '待审核分销商' },
   { key: '/admin/distributors', icon: <ShopOutlined />, label: '分销商管理' },
+  { key: '/admin/distributor-analytics', icon: <BarChartOutlined />, label: '分销商分析' },
   { type: 'divider' as const },
   { key: '/admin/logs', icon: <FileTextOutlined />, label: '操作日志' },
   { key: '/admin/admins', icon: <UserOutlined />, label: '管理员管理' },

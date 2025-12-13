@@ -196,6 +196,20 @@ export const distributorApi = {
   // 分销商端点
   getMySummary: () => api.get('/distributors/me/summary'),
   getMySales: (limit?: number) => api.get('/distributors/me/sales', { params: { limit } }),
+  // 成员管理端点
+  getMyMembers: () => api.get('/distributors/me/members'),
+  removeMember: (data: { email: string; team_id: number; reason?: string }) =>
+    api.post('/distributors/me/members/remove', data),
+  addMember: (data: { email: string; team_id: number }) =>
+    api.post('/distributors/me/members/add', data),
+}
+
+// Admin Distributor Analytics API
+export const distributorAnalyticsApi = {
+  getAnalytics: (params?: { page?: number; page_size?: number; sort_by?: string; status?: string }) =>
+    api.get('/admins/distributors/analytics', { params }),
+  getDetail: (distributorId: number) =>
+    api.get(`/admins/distributors/${distributorId}/detail`),
 }
 
 // Auth API - 分销商注册相关

@@ -2,12 +2,12 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 from typing import List, Optional
 from datetime import datetime
 
 from app.database import get_db
-from app.models import User, UserRole, RedeemCode, InviteRecord, UserApprovalStatus
+from app.models import User, UserRole, RedeemCode, InviteRecord, UserApprovalStatus, Team, TeamMember, InviteStatus
 from app.services.auth import get_current_user, require_roles
 
 router = APIRouter(prefix="/distributors", tags=["分销商管理"])
@@ -283,3 +283,270 @@ async def get_distributor_sales(
         )
         for r in records
     ]
+
+
+# ===== 分销商成员管理 API =====
+
+class MemberResponse(BaseModel):
+    """成员信息响应"""
+    id: int
+    email: str
+    team_id: int
+    team_name: str
+    redeem_code: str
+    joined_at: Optional[str] = None
+    status: str  # active, removed
+
+
+class RemoveMemberRequest(BaseModel):
+    """移除成员请求"""
+    email: EmailStr
+    team_id: int
+    reason: Optional[str] = None
+
+
+class AddMemberRequest(BaseModel):
+    """添加成员请求"""
+    email: EmailStr
+    team_id: int
+
+
+@router.get("/me/members", response_model=List[MemberResponse])
+async def get_my_members(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.DISTRIBUTOR))
+):
+    """
+    获取分销商售出兑换码对应的所有成员
+
+    返回该分销商创建的兑换码所邀请的所有成员
+    """
+    # 获取该分销商的所有兑换码
+    my_codes = db.query(RedeemCode).filter(
+        RedeemCode.created_by == current_user.id
+    ).all()
+    my_codes_list = [c.code for c in my_codes]
+
+    if not my_codes_list:
+        return []
+
+    # 查询使用这些兑换码成功邀请的成员
+    records = db.query(InviteRecord).filter(
+        InviteRecord.redeem_code.in_(my_codes_list),
+        InviteRecord.status == InviteStatus.SUCCESS
+    ).all()
+
+    # 获取 Team 名称映射
+    team_ids = list(set([r.team_id for r in records if r.team_id]))
+    teams = {}
+    if team_ids:
+        team_list = db.query(Team).filter(Team.id.in_(team_ids)).all()
+        teams = {t.id: t.name for t in team_list}
+
+    # 获取 TeamMember 信息判断成员是否仍在 team 中
+    member_emails = [r.email for r in records]
+    active_members = db.query(TeamMember).filter(
+        TeamMember.email.in_(member_emails)
+    ).all()
+    active_member_set = set((m.email, m.team_id) for m in active_members)
+
+    result = []
+    for r in records:
+        is_active = (r.email, r.team_id) in active_member_set
+        result.append(MemberResponse(
+            id=r.id,
+            email=r.email,
+            team_id=r.team_id,
+            team_name=teams.get(r.team_id, "未知"),
+            redeem_code=r.redeem_code,
+            joined_at=r.accepted_at.isoformat() if r.accepted_at else None,
+            status="active" if is_active else "removed"
+        ))
+
+    return result
+
+
+@router.post("/me/members/remove")
+async def remove_member(
+    payload: RemoveMemberRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.DISTRIBUTOR))
+):
+    """
+    分销商移除成员
+
+    - 验证该成员是通过分销商的兑换码邀请的
+    - 调用 ChatGPT API 移除成员
+    - 恢复兑换码使用次数（used_count - 1）
+    """
+    # 验证该成员是通过分销商的兑换码邀请的
+    my_codes = db.query(RedeemCode.code).filter(
+        RedeemCode.created_by == current_user.id
+    ).all()
+    my_codes_list = [c.code for c in my_codes]
+
+    if not my_codes_list:
+        raise HTTPException(status_code=400, detail="您没有创建任何兑换码")
+
+    # 查找对应的邀请记录
+    invite_record = db.query(InviteRecord).filter(
+        InviteRecord.email == payload.email.lower(),
+        InviteRecord.team_id == payload.team_id,
+        InviteRecord.redeem_code.in_(my_codes_list),
+        InviteRecord.status == InviteStatus.SUCCESS
+    ).first()
+
+    if not invite_record:
+        raise HTTPException(status_code=404, detail="未找到该成员的邀请记录，或该成员不是通过您的兑换码邀请的")
+
+    # 检查成员是否仍在 team 中
+    team_member = db.query(TeamMember).filter(
+        TeamMember.email == payload.email.lower(),
+        TeamMember.team_id == payload.team_id
+    ).first()
+
+    if not team_member:
+        raise HTTPException(status_code=400, detail="该成员已不在 Team 中")
+
+    # 获取 Team 信息
+    team = db.query(Team).filter(Team.id == payload.team_id).first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Team 不存在")
+
+    # 调用 ChatGPT API 移除成员
+    from app.services.chatgpt_api import ChatGPTAPI
+
+    api = ChatGPTAPI(team.session_token)
+    try:
+        # 获取成员的 ChatGPT user_id
+        if not team_member.chatgpt_user_id:
+            raise HTTPException(status_code=400, detail="成员缺少 ChatGPT User ID，无法移除")
+
+        result = api.remove_member(team.chatgpt_account_id, team_member.chatgpt_user_id)
+        if not result:
+            raise HTTPException(status_code=500, detail="调用 ChatGPT API 移除成员失败")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"移除成员失败: {str(e)}")
+
+    # 从数据库删除成员记录
+    db.delete(team_member)
+
+    # 恢复兑换码使用次数
+    redeem_code = db.query(RedeemCode).filter(
+        RedeemCode.code == invite_record.redeem_code
+    ).first()
+    if redeem_code and redeem_code.used_count > 0:
+        redeem_code.used_count -= 1
+
+    # 更新邀请记录状态（标记为已移除）
+    invite_record.status = InviteStatus.FAILED
+    invite_record.error_message = f"被分销商移除: {payload.reason or '无原因'}"
+
+    db.commit()
+
+    from app.logger import get_logger
+    logger = get_logger(__name__)
+    logger.info(f"Distributor {current_user.username} removed member {payload.email} from team {team.name}")
+
+    return {
+        "message": "成员移除成功",
+        "email": payload.email,
+        "team_name": team.name,
+        "code_usage_restored": True
+    }
+
+
+@router.post("/me/members/add")
+async def add_member(
+    payload: AddMemberRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.DISTRIBUTOR))
+):
+    """
+    分销商重新邀请成员
+
+    - 验证该成员之前是通过分销商的兑换码邀请的（且已被移除）
+    - 创建新的邀请任务
+    """
+    # 验证该分销商的兑换码
+    my_codes = db.query(RedeemCode).filter(
+        RedeemCode.created_by == current_user.id
+    ).all()
+    my_codes_list = [c.code for c in my_codes]
+
+    if not my_codes_list:
+        raise HTTPException(status_code=400, detail="您没有创建任何兑换码")
+
+    # 查找之前的邀请记录（被移除的）
+    previous_invite = db.query(InviteRecord).filter(
+        InviteRecord.email == payload.email.lower(),
+        InviteRecord.team_id == payload.team_id,
+        InviteRecord.redeem_code.in_(my_codes_list)
+    ).order_by(InviteRecord.created_at.desc()).first()
+
+    if not previous_invite:
+        raise HTTPException(status_code=404, detail="未找到该成员之前的邀请记录")
+
+    # 检查成员是否已在 team 中
+    existing_member = db.query(TeamMember).filter(
+        TeamMember.email == payload.email.lower(),
+        TeamMember.team_id == payload.team_id
+    ).first()
+
+    if existing_member:
+        raise HTTPException(status_code=400, detail="该成员已在 Team 中")
+
+    # 获取 Team 信息
+    team = db.query(Team).filter(Team.id == payload.team_id).first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Team 不存在")
+
+    # 检查兑换码是否还有使用次数
+    redeem_code = db.query(RedeemCode).filter(
+        RedeemCode.code == previous_invite.redeem_code
+    ).first()
+
+    if not redeem_code:
+        raise HTTPException(status_code=404, detail="兑换码不存在")
+
+    if not redeem_code.is_active:
+        raise HTTPException(status_code=400, detail="兑换码已停用")
+
+    if redeem_code.max_uses > 0 and redeem_code.used_count >= redeem_code.max_uses:
+        raise HTTPException(status_code=400, detail="兑换码使用次数已达上限")
+
+    # 创建新的邀请记录
+    new_invite = InviteRecord(
+        email=payload.email.lower(),
+        team_id=payload.team_id,
+        redeem_code=previous_invite.redeem_code,
+        status=InviteStatus.PENDING
+    )
+    db.add(new_invite)
+
+    # 增加兑换码使用次数
+    redeem_code.used_count += 1
+
+    db.commit()
+    db.refresh(new_invite)
+
+    # 触发 Celery 邀请任务
+    try:
+        from app.tasks_celery import process_invite_task
+        process_invite_task.delay(new_invite.id)
+    except Exception as e:
+        # 如果 Celery 不可用，回退到同步处理
+        from app.logger import get_logger
+        logger = get_logger(__name__)
+        logger.warning(f"Celery task dispatch failed, falling back to sync: {e}")
+
+    from app.logger import get_logger
+    logger = get_logger(__name__)
+    logger.info(f"Distributor {current_user.username} re-invited {payload.email} to team {team.name}")
+
+    return {
+        "message": "邀请任务已创建",
+        "email": payload.email,
+        "team_name": team.name,
+        "invite_id": new_invite.id
+    }

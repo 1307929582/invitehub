@@ -10,6 +10,13 @@ from app.database import get_db
 from app.models import Team, TeamMember, InviteRecord, OperationLog, User, InviteStatus, RedeemCode, SystemConfig
 from app.schemas import DashboardStats, OperationLogResponse, OperationLogListResponse
 from app.services.auth import get_current_user
+from app.utils.timezone import (
+    get_today_range_utc8,
+    get_week_range_utc8,
+    get_month_range_utc8,
+    get_recent_days_ranges_utc8,
+    to_beijing_date_str
+)
 
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
@@ -44,15 +51,23 @@ async def get_dashboard_summary(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """Dashboard 汇总数据（优化：一次调用）"""
+    """Dashboard 汇总数据（优化：一次调用，使用 UTC+8 时区）"""
     from app.services.seat_calculator import get_total_seat_stats
     from app.models import TeamStatus, RebindHistory
 
     seat_stats = get_total_seat_stats(db)
     total_teams = db.query(Team).count()
-    today = datetime.utcnow().date()
-    today_invites = db.query(func.count(InviteRecord.id)).filter(func.date(InviteRecord.created_at) == today).scalar() or 0
-    today_rebinds = db.query(func.count(RebindHistory.id)).filter(func.date(RebindHistory.created_at) == today).scalar() or 0
+
+    # 使用 UTC+8 今日范围
+    today_start, today_end = get_today_range_utc8()
+    today_invites = db.query(func.count(InviteRecord.id)).filter(
+        InviteRecord.created_at >= today_start,
+        InviteRecord.created_at < today_end
+    ).scalar() or 0
+    today_rebinds = db.query(func.count(RebindHistory.id)).filter(
+        RebindHistory.created_at >= today_start,
+        RebindHistory.created_at < today_end
+    ).scalar() or 0
 
     kpi = {
         "seat_utilization": {
@@ -67,15 +82,21 @@ async def get_dashboard_summary(
     status_dist = db.query(Team.status, func.count(Team.id)).group_by(Team.status).all()
     team_status_distribution = [{"type": s.value, "value": c} for s, c in status_dist]
 
-    week_ago = datetime.utcnow() - timedelta(days=7)
-    trend_invites = db.query(func.date(InviteRecord.created_at).label('date'), func.count(InviteRecord.id).label('count')).filter(InviteRecord.created_at >= week_ago).group_by(func.date(InviteRecord.created_at)).all()
-    trend_rebinds = db.query(func.date(RebindHistory.created_at).label('date'), func.count(RebindHistory.id).label('count')).filter(RebindHistory.created_at >= week_ago).group_by(func.date(RebindHistory.created_at)).all()
-
+    # 使用 UTC+8 近 7 天范围
+    recent_days = get_recent_days_ranges_utc8(7)
     activity_trend = []
-    for row in trend_invites:
-        activity_trend.append({"date": str(row.date), "value": row.count, "category": "新增邀请"})
-    for row in trend_rebinds:
-        activity_trend.append({"date": str(row.date), "value": row.count, "category": "换车次数"})
+
+    for date_str, start_utc, end_utc in recent_days:
+        invite_count = db.query(func.count(InviteRecord.id)).filter(
+            InviteRecord.created_at >= start_utc,
+            InviteRecord.created_at < end_utc
+        ).scalar() or 0
+        rebind_count = db.query(func.count(RebindHistory.id)).filter(
+            RebindHistory.created_at >= start_utc,
+            RebindHistory.created_at < end_utc
+        ).scalar() or 0
+        activity_trend.append({"date": date_str, "value": invite_count, "category": "新增邀请"})
+        activity_trend.append({"date": date_str, "value": rebind_count, "category": "换车次数"})
 
     attention_teams_query = db.query(Team).filter(Team.status.in_([TeamStatus.BANNED, TeamStatus.TOKEN_INVALID])).limit(10).all()
     member_counts = db.query(TeamMember.team_id, func.count(TeamMember.id)).filter(TeamMember.team_id.in_([t.id for t in attention_teams_query])).group_by(TeamMember.team_id).all()
@@ -95,47 +116,45 @@ async def get_dashboard_stats(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """获取 Dashboard 统计数据"""
+    """获取 Dashboard 统计数据（使用 UTC+8 时区）"""
     # 总 Team 数
     total_teams = db.query(Team).filter(Team.is_active == True).count()
-    
+
     # 活跃 Team 数（有成员的）
     active_teams = db.query(Team).join(TeamMember).filter(Team.is_active == True).distinct().count()
-    
+
     # 总成员数
     total_members = db.query(TeamMember).count()
-    
-    # 今日邀请数
-    today = datetime.utcnow().date()
-    invites_today = db.query(InviteRecord).filter(
-        func.date(InviteRecord.created_at) == today
-    ).count()
-    
-    # 本周邀请数
-    week_ago = datetime.utcnow() - timedelta(days=7)
-    invites_this_week = db.query(InviteRecord).filter(
-        InviteRecord.created_at >= week_ago
-    ).count()
-    
-    # 近7天邀请趋势（优化：一次查询代替 7 次）
-    week_ago_date = (datetime.utcnow() - timedelta(days=7)).date()
-    trend_data = db.query(
-        func.date(InviteRecord.created_at).label('date'),
-        func.count(InviteRecord.id).label('count')
-    ).filter(
-        func.date(InviteRecord.created_at) >= week_ago_date
-    ).group_by(func.date(InviteRecord.created_at)).all()
 
-    # 构建完整的 7 天数据（填充缺失日期为 0）
-    trend_map = {str(row.date): row.count for row in trend_data}
+    # 使用 UTC+8 今日/本周范围
+    today_start, today_end = get_today_range_utc8()
+    week_start, week_end = get_week_range_utc8()
+
+    # 今日邀请数（UTC+8）
+    invites_today = db.query(InviteRecord).filter(
+        InviteRecord.created_at >= today_start,
+        InviteRecord.created_at < today_end
+    ).count()
+
+    # 本周邀请数（UTC+8）
+    invites_this_week = db.query(InviteRecord).filter(
+        InviteRecord.created_at >= week_start,
+        InviteRecord.created_at < week_end
+    ).count()
+
+    # 近7天邀请趋势（UTC+8）
+    recent_days = get_recent_days_ranges_utc8(7)
     invite_trend = []
-    for i in range(6, -1, -1):
-        date = (datetime.utcnow() - timedelta(days=i)).date()
+    for date_str, start_utc, end_utc in recent_days:
+        count = db.query(InviteRecord).filter(
+            InviteRecord.created_at >= start_utc,
+            InviteRecord.created_at < end_utc
+        ).count()
         invite_trend.append({
-            "date": date.isoformat(),
-            "count": trend_map.get(str(date), 0)
+            "date": date_str,
+            "count": count
         })
-    
+
     return {
         "total_teams": total_teams,
         "total_members": total_members,
@@ -215,48 +234,50 @@ async def get_revenue_stats(
     current_user: User = Depends(get_current_user)
 ):
     """
-    获取销售统计数据
-    
-    - 计算今日/本周/本月销售额
+    获取销售统计数据（使用 UTC+8 时区）
+
+    - 计算今日/本周/本月销售额（北京时间零点重置）
     - 生成近 7 天销售趋势数据
-    
-    Requirements: 5.1, 5.2, 5.3
     """
     unit_price = get_unit_price(db)
-    
-    now = datetime.utcnow()
-    today = now.date()
-    week_ago = now - timedelta(days=7)
-    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    
-    # 今日激活的兑换码数量
+
+    # 使用 UTC+8 时间范围
+    today_start, today_end = get_today_range_utc8()
+    week_start, week_end = get_week_range_utc8()
+    month_start, month_end = get_month_range_utc8()
+
+    # 今日激活的兑换码数量（UTC+8）
     today_count = db.query(RedeemCode).filter(
-        func.date(RedeemCode.activated_at) == today
+        RedeemCode.activated_at >= today_start,
+        RedeemCode.activated_at < today_end
     ).count()
-    
-    # 本周激活的兑换码数量
+
+    # 本周激活的兑换码数量（UTC+8）
     week_count = db.query(RedeemCode).filter(
-        RedeemCode.activated_at >= week_ago
+        RedeemCode.activated_at >= week_start,
+        RedeemCode.activated_at < week_end
     ).count()
-    
-    # 本月激活的兑换码数量
+
+    # 本月激活的兑换码数量（UTC+8）
     month_count = db.query(RedeemCode).filter(
-        RedeemCode.activated_at >= month_start
+        RedeemCode.activated_at >= month_start,
+        RedeemCode.activated_at < month_end
     ).count()
-    
-    # 近 7 天销售趋势
+
+    # 近 7 天销售趋势（UTC+8）
+    recent_days = get_recent_days_ranges_utc8(7)
     daily_trend = []
-    for i in range(6, -1, -1):
-        date = (now - timedelta(days=i)).date()
+    for date_str, start_utc, end_utc in recent_days:
         count = db.query(RedeemCode).filter(
-            func.date(RedeemCode.activated_at) == date
+            RedeemCode.activated_at >= start_utc,
+            RedeemCode.activated_at < end_utc
         ).count()
         daily_trend.append(DailyRevenue(
-            date=date.isoformat(),
+            date=date_str,
             count=count,
             revenue=count * unit_price
         ))
-    
+
     return RevenueStats(
         today=today_count * unit_price,
         this_week=week_count * unit_price,

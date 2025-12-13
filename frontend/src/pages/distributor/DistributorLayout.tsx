@@ -6,6 +6,7 @@ import {
   BarChartOutlined,
   LogoutOutlined,
   UserOutlined,
+  TeamOutlined,
 } from '@ant-design/icons'
 import { Outlet, useLocation, useNavigate } from 'react-router-dom'
 import { useStore } from '../../store'
@@ -16,6 +17,7 @@ const { Header, Content, Sider } = Layout
 const menuItems = [
   { key: '/distributor', icon: <DashboardOutlined />, label: '仪表盘' },
   { key: '/distributor/redeem-codes', icon: <GiftOutlined />, label: '兑换码管理' },
+  { key: '/distributor/members', icon: <TeamOutlined />, label: '成员管理' },
   { key: '/distributor/sales', icon: <BarChartOutlined />, label: '销售统计' },
 ]
 
