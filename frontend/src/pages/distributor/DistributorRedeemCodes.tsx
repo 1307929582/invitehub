@@ -4,10 +4,11 @@ import {
   Table, Button, Modal, Form, InputNumber, Input, message,
   Popconfirm, Badge, Space, Tooltip, Typography, Card
 } from 'antd'
-import { PlusOutlined, DeleteOutlined, CopyOutlined } from '@ant-design/icons'
+import { PlusOutlined, DeleteOutlined, CopyOutlined, LinkOutlined } from '@ant-design/icons'
+import type { TableRowSelection } from 'antd/es/table/interface'
 import { redeemApi } from '../../api'
 
-const { Title } = Typography
+const { Title, Text } = Typography
 
 interface RedeemCode {
   id: number
@@ -29,6 +30,9 @@ export default function DistributorRedeemCodes() {
   const [modalVisible, setModalVisible] = useState(false)
   const [createLoading, setCreateLoading] = useState(false)
   const [form] = Form.useForm()
+
+  // 批量选择
+  const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([])
 
   const fetchCodes = useCallback(async () => {
     setLoading(true)
@@ -88,9 +92,62 @@ export default function DistributorRedeemCodes() {
     }
   }
 
+  // 获取邀请链接
+  const getInviteUrl = (code: string) => {
+    const baseUrl = window.location.origin
+    return `${baseUrl}/invite/${code}`
+  }
+
+  // 复制单个兑换码
   const copyCode = (code: string) => {
     navigator.clipboard.writeText(code)
-    message.success('已复制到剪贴板')
+    message.success('已复制兑换码')
+  }
+
+  // 复制单个链接
+  const copyLink = (code: string) => {
+    const url = getInviteUrl(code)
+    navigator.clipboard.writeText(url)
+    message.success('已复制邀请链接')
+  }
+
+  // 批量复制链接
+  const handleBatchCopyLinks = () => {
+    if (selectedRowKeys.length === 0) {
+      message.warning('请先选择要复制的兑换码')
+      return
+    }
+
+    const selectedCodes = codes.filter(c => selectedRowKeys.includes(c.id))
+    const links = selectedCodes.map(c => getInviteUrl(c.code)).join('\n')
+
+    navigator.clipboard.writeText(links)
+    message.success(`已复制 ${selectedCodes.length} 个邀请链接`)
+  }
+
+  // 批量复制兑换码
+  const handleBatchCopyCodes = () => {
+    if (selectedRowKeys.length === 0) {
+      message.warning('请先选择要复制的兑换码')
+      return
+    }
+
+    const selectedCodes = codes.filter(c => selectedRowKeys.includes(c.id))
+    const codeTexts = selectedCodes.map(c => c.code).join('\n')
+
+    navigator.clipboard.writeText(codeTexts)
+    message.success(`已复制 ${selectedCodes.length} 个兑换码`)
+  }
+
+  // 表格多选配置
+  const rowSelection: TableRowSelection<RedeemCode> = {
+    selectedRowKeys,
+    onChange: (keys) => setSelectedRowKeys(keys),
+    selections: [
+      Table.SELECTION_ALL,
+      Table.SELECTION_INVERT,
+      Table.SELECTION_NONE,
+    ],
   }
 
   const columns = [
@@ -103,8 +160,11 @@ export default function DistributorRedeemCodes() {
           <code style={{ background: '#f5f5f5', padding: '2px 8px', borderRadius: 4, fontFamily: 'monospace' }}>
             {text}
           </code>
-          <Tooltip title="复制">
+          <Tooltip title="复制兑换码">
             <CopyOutlined style={{ cursor: 'pointer', color: '#1890ff' }} onClick={() => copyCode(text)} />
+          </Tooltip>
+          <Tooltip title="复制邀请链接">
+            <LinkOutlined style={{ cursor: 'pointer', color: '#52c41a' }} onClick={() => copyLink(text)} />
           </Tooltip>
         </Space>
       ),
@@ -196,8 +256,47 @@ export default function DistributorRedeemCodes() {
       </div>
 
       <Card>
+        {/* 批量操作栏 */}
+        {selectedRowKeys.length > 0 && (
+          <div style={{
+            marginBottom: 16,
+            padding: '12px 16px',
+            background: '#f0f5ff',
+            borderRadius: 8,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between'
+          }}>
+            <Text>
+              已选择 <Text strong style={{ color: '#1890ff' }}>{selectedRowKeys.length}</Text> 项
+            </Text>
+            <Space>
+              <Button
+                icon={<CopyOutlined />}
+                onClick={handleBatchCopyCodes}
+              >
+                批量复制兑换码
+              </Button>
+              <Button
+                type="primary"
+                icon={<LinkOutlined />}
+                onClick={handleBatchCopyLinks}
+              >
+                批量复制邀请链接
+              </Button>
+              <Button
+                type="link"
+                onClick={() => setSelectedRowKeys([])}
+              >
+                取消选择
+              </Button>
+            </Space>
+          </div>
+        )}
+
         <Table
           rowKey="id"
+          rowSelection={rowSelection}
           columns={columns}
           dataSource={codes}
           loading={loading}
