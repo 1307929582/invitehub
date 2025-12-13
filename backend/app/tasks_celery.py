@@ -978,6 +978,9 @@ async def _send_orphan_alert(orphan_users: list):
             team_names = [db.query(Team).filter(Team.id == m.team_id).first().name for m in members]
             details.append(f"• {email}: {', '.join(team_names)}")
 
+        # 先构建详情字符串，避免 f-string 中使用反斜杠
+        details_text = '\n'.join(details)
+
         message_text = f"""
 🚨 **P0 告警：检测到孤儿用户！**
 
@@ -985,7 +988,7 @@ async def _send_orphan_alert(orphan_users: list):
 这是严重的数据一致性问题，需要立即处理！
 
 详情（前 10 个）：
-{'\\n'.join(details)}
+{details_text}
 
 可能原因：
 - 换车逻辑未正确踢出原 Team
