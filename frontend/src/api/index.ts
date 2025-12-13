@@ -115,6 +115,7 @@ export const redeemApi = {
   batchCreate: (data: { max_uses: number; expires_days?: number; count: number; prefix?: string; code_type?: string; note?: string; group_id?: number; validity_days?: number }) =>
     api.post('/redeem-codes/batch', data),
   delete: (id: number) => api.delete(`/redeem-codes/${id}`),
+  batchDelete: (ids: number[]) => api.delete('/redeem-codes/batch', { data: { ids } }),
   toggle: (id: number) => api.put(`/redeem-codes/${id}/toggle`),
   getRecords: (id: number) => api.get(`/redeem-codes/${id}/records`),
 }

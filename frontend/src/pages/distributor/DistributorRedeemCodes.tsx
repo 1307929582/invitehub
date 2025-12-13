@@ -29,6 +29,7 @@ export default function DistributorRedeemCodes() {
   const [loading, setLoading] = useState(true)
   const [modalVisible, setModalVisible] = useState(false)
   const [createLoading, setCreateLoading] = useState(false)
+  const [batchDeleteLoading, setBatchDeleteLoading] = useState(false)
   const [form] = Form.useForm()
 
   // 批量选择
@@ -137,6 +138,39 @@ export default function DistributorRedeemCodes() {
 
     navigator.clipboard.writeText(codeTexts)
     message.success(`已复制 ${selectedCodes.length} 个兑换码`)
+  }
+
+  // 批量删除
+  const handleBatchDelete = async () => {
+    if (selectedRowKeys.length === 0) {
+      message.warning('请先选择要删除的兑换码')
+      return
+    }
+
+    // 检查是否有已使用的兑换码
+    const selectedCodes = codes.filter(c => selectedRowKeys.includes(c.id))
+    const usedCodes = selectedCodes.filter(c => c.used_count > 0)
+
+    if (usedCodes.length === selectedCodes.length) {
+      message.error('所选兑换码都已使用，无法删除')
+      return
+    }
+
+    setBatchDeleteLoading(true)
+    try {
+      const res = await redeemApi.batchDelete(selectedRowKeys as number[]) as any
+      if (res.deleted > 0) {
+        message.success(`成功删除 ${res.deleted} 个兑换码${res.skipped > 0 ? `，跳过 ${res.skipped} 个` : ''}`)
+      } else {
+        message.warning(`删除失败：${res.errors?.[0] || '未知错误'}`)
+      }
+      setSelectedRowKeys([])
+      fetchCodes()
+    } catch (error: any) {
+      // 错误已在 interceptor 中处理
+    } finally {
+      setBatchDeleteLoading(false)
+    }
   }
 
   // 表格多选配置
@@ -284,6 +318,22 @@ export default function DistributorRedeemCodes() {
               >
                 批量复制邀请链接
               </Button>
+              <Popconfirm
+                title="批量删除兑换码"
+                description={`确定要删除选中的 ${selectedRowKeys.length} 个兑换码吗？已使用的兑换码会被跳过。`}
+                onConfirm={handleBatchDelete}
+                okText="确定删除"
+                cancelText="取消"
+                okButtonProps={{ danger: true }}
+              >
+                <Button
+                  danger
+                  icon={<DeleteOutlined />}
+                  loading={batchDeleteLoading}
+                >
+                  批量删除
+                </Button>
+              </Popconfirm>
               <Button
                 type="link"
                 onClick={() => setSelectedRowKeys([])}

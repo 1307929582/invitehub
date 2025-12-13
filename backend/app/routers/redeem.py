@@ -216,6 +216,75 @@ async def delete_code(
     return {"message": "删除成功"}
 
 
+class BatchDeleteRequest(BaseModel):
+    """批量删除请求"""
+    ids: List[int]
+
+
+class BatchDeleteResponse(BaseModel):
+    """批量删除响应"""
+    deleted: int
+    skipped: int
+    errors: List[str]
+
+
+@router.delete("/batch")
+async def batch_delete_codes(
+    data: BatchDeleteRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    批量删除兑换码
+
+    - 分销商只能删除自己创建的兑换码
+    - 已使用的兑换码不能删除（会被跳过）
+    """
+    from app.models import UserRole
+
+    if not data.ids:
+        raise HTTPException(status_code=400, detail="请选择要删除的兑换码")
+
+    if len(data.ids) > 100:
+        raise HTTPException(status_code=400, detail="一次最多删除 100 个")
+
+    deleted = 0
+    skipped = 0
+    errors = []
+
+    for code_id in data.ids:
+        code = db.query(RedeemCode).filter(RedeemCode.id == code_id).first()
+
+        if not code:
+            errors.append(f"ID {code_id}: 不存在")
+            skipped += 1
+            continue
+
+        # 分销商权限检查
+        if current_user.role == UserRole.DISTRIBUTOR:
+            if code.created_by != current_user.id:
+                errors.append(f"{code.code}: 无权限删除")
+                skipped += 1
+                continue
+
+        # 已使用的不能删除
+        if code.used_count and code.used_count > 0:
+            errors.append(f"{code.code}: 已使用 {code.used_count} 次")
+            skipped += 1
+            continue
+
+        db.delete(code)
+        deleted += 1
+
+    db.commit()
+
+    return BatchDeleteResponse(
+        deleted=deleted,
+        skipped=skipped,
+        errors=errors[:10]  # 只返回前 10 个错误
+    )
+
+
 @router.put("/{code_id}/toggle")
 async def toggle_code(
     code_id: int,
