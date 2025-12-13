@@ -102,7 +102,8 @@ export const inviteApi = {
 // Dashboard API
 export const dashboardApi = {
   getStats: () => api.get('/dashboard/stats'),
-  getLogs: (limit?: number, teamId?: number) => 
+  getSummary: () => api.get('/dashboard/summary'),
+  getLogs: (limit?: number, teamId?: number) =>
     api.get('/dashboard/logs', { params: { limit, team_id: teamId } }),
   getSeats: () => api.get('/dashboard/seats'),
 }

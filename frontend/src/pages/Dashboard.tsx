@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Row, Col, Card, Table, Spin, Tag, Progress, Button } from 'antd'
-import { TeamOutlined, UserOutlined, MailOutlined, RightOutlined } from '@ant-design/icons'
-import { Line } from '@ant-design/charts'
+import { Row, Col, Card, Table, Spin, Tag, Progress, Button, Alert } from 'antd'
+import { TeamOutlined, UserOutlined, MailOutlined, RightOutlined, ExclamationCircleOutlined, WarningOutlined } from '@ant-design/icons'
+import { Line, Pie } from '@ant-design/charts'
 import { dashboardApi, teamApi, revenueApi } from '../api'
 import { useStore } from '../store'
 import { formatShortDate, formatDateOnly } from '../utils/date'
@@ -15,6 +15,17 @@ interface Stats {
   invite_trend?: { date: string; count: number }[]
   queue_pending?: number
   daily_invite_limit?: number
+}
+
+interface DashboardSummary {
+  kpi: {
+    seat_utilization: { percentage: number; used: number; total: number }
+    today_activity: { new_users: number; rebinds: number }
+    total_teams: number
+  }
+  team_status_distribution: Array<{ type: string; value: number }>
+  activity_trend: Array<{ date: string; value: number; category: string }>
+  attention_teams: Array<{ id: number; name: string; status: string; reason: string; members: string }>
 }
 
 interface RevenueStats {
@@ -89,6 +100,7 @@ const StatCard = ({ icon, label, value, gradient }: { icon: React.ReactNode; lab
 
 export default function Dashboard() {
   const [stats, setStats] = useState<Stats | null>(null)
+  const [summary, setSummary] = useState<DashboardSummary | null>(null)
   const [logs, setLogs] = useState<Log[]>([])
   const [loading, setLoading] = useState(true)
   const [teamList, setTeamList] = useState<Team[]>([])
@@ -99,13 +111,15 @@ export default function Dashboard() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const [statsRes, logsRes, teamsRes, revenueRes]: any = await Promise.all([
+        const [statsRes, summaryRes, logsRes, teamsRes, revenueRes]: any = await Promise.all([
           dashboardApi.getStats(),
+          dashboardApi.getSummary(),
           dashboardApi.getLogs(10),
           teamApi.list(),
           revenueApi.getStats().catch(() => null),
         ])
         setStats(statsRes)
+        setSummary(summaryRes)
         setLogs(logsRes.logs)
         setTeams(teamsRes.teams)
         setTeamList(teamsRes.teams)
@@ -282,9 +296,9 @@ export default function Dashboard() {
         <Col span={8}>
           <Card title="总座位使用率" size="small">
             <div style={{ textAlign: 'center', padding: '20px 0' }}>
-              <Progress 
-                type="dashboard" 
-                percent={seatUsagePercent} 
+              <Progress
+                type="dashboard"
+                percent={seatUsagePercent}
                 strokeColor={seatUsagePercent >= 90 ? '#ef4444' : seatUsagePercent >= 70 ? '#f59e0b' : '#10b981'}
                 format={percent => (
                   <div>
@@ -296,7 +310,28 @@ export default function Dashboard() {
             </div>
           </Card>
         </Col>
-        <Col span={16}>
+        <Col span={8}>
+          <Card title="Team 状态分布" size="small">
+            {summary?.team_status_distribution && summary.team_status_distribution.length > 0 ? (
+              <div style={{ height: 180 }}>
+                <Pie
+                  data={summary.team_status_distribution}
+                  angleField="value"
+                  colorField="type"
+                  radius={0.8}
+                  innerRadius={0.6}
+                  label={{ type: 'inner', offset: '-30%', style: { fontSize: 14, textAlign: 'center' } }}
+                  statistic={{
+                    title: { style: { fontSize: 14, color: '#64748b' }, content: 'Teams' },
+                    content: { style: { fontSize: 20, fontWeight: 700 } }
+                  }}
+                  legend={{ position: 'bottom' }}
+                />
+              </div>
+            ) : <div style={{ height: 180, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#94a3b8' }}>暂无数据</div>}
+          </Card>
+        </Col>
+        <Col span={8}>
           <Card title="近7天邀请趋势" size="small">
             <div style={{ height: 160 }}>
               {stats?.invite_trend && stats.invite_trend.length > 0 ? (
@@ -346,6 +381,50 @@ export default function Dashboard() {
       </Row>
 
       {/* Team 预览 - 显示使用率最高的4个 */}
+      {summary?.attention_teams && summary.attention_teams.length > 0 && (
+        <Card
+          title={
+            <span>
+              <ExclamationCircleOutlined style={{ color: '#faad14', marginRight: 8 }} />
+              需要关注的 Teams
+            </span>
+          }
+          size="small"
+          style={{ marginBottom: 20 }}
+        >
+          <Table
+            dataSource={summary.attention_teams}
+            rowKey="id"
+            pagination={false}
+            size="small"
+            columns={[
+              { title: 'Team', dataIndex: 'name', width: 150 },
+              {
+                title: '状态',
+                dataIndex: 'status',
+                width: 120,
+                render: (status: string) => (
+                  <Tag color={status === 'banned' ? 'red' : 'orange'}>
+                    {status === 'banned' ? '已封禁' : 'Token失效'}
+                  </Tag>
+                )
+              },
+              { title: '原因', dataIndex: 'reason', ellipsis: true },
+              { title: '席位', dataIndex: 'members', width: 100 },
+              {
+                title: '操作',
+                width: 100,
+                render: (_: any, record: any) => (
+                  <Button type="link" size="small" onClick={() => navigate(`/admin/teams/${record.id}`)}>
+                    查看详情
+                  </Button>
+                )
+              }
+            ]}
+          />
+        </Card>
+      )}
+
       <Card 
         title="Team 座位预览"
         size="small"
