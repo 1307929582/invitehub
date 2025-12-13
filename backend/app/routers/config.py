@@ -225,18 +225,13 @@ async def setup_telegram_webhook(
             
             # 2. 设置命令菜单
             commands = [
-                {"command": "start", "description": "显示帮助信息"},
-                {"command": "status", "description": "系统概览"},
-                {"command": "seats", "description": "座位统计"},
+                {"command": "help", "description": "显示帮助信息"},
+                {"command": "stats", "description": "座位统计"},
                 {"command": "teams", "description": "Team 列表"},
-                {"command": "alerts", "description": "查看预警"},
-                {"command": "stats", "description": "今日统计"},
-                {"command": "search", "description": "搜索用户"},
-                {"command": "pending", "description": "待处理邀请"},
-                {"command": "recent", "description": "最近加入"},
-                {"command": "sync", "description": "同步成员 (管理员)"},
-                {"command": "newteam", "description": "创建 Team (管理员)"},
-                {"command": "cancel", "description": "取消当前操作"},
+                {"command": "search", "description": "查询用户 (用法: /search 邮箱)"},
+                {"command": "invite", "description": "邀请用户 (用法: /invite 邮箱)"},
+                {"command": "remove", "description": "移除成员 (用法: /remove 邮箱)"},
+                {"command": "codes", "description": "生成兑换码 (用法: /codes 数量)"},
             ]
             
             await client.post(

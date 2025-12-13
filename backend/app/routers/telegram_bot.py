@@ -2,10 +2,12 @@
 from fastapi import APIRouter, Request
 from sqlalchemy.orm import Session
 from app.database import SessionLocal
-from app.models import Team, TeamMember, RedeemCode, SystemConfig, InviteRecord
+from app.models import Team, TeamMember, RedeemCode, SystemConfig, InviteRecord, InviteStatus
 from app.services.telegram import send_telegram_message
 from datetime import datetime, timedelta
 import logging
+import secrets
+import string
 
 router = APIRouter(prefix="/telegram", tags=["telegram-bot"])
 logger = logging.getLogger(__name__)
@@ -117,7 +119,11 @@ async def handle_command(text: str, user_id: str, chat_id: str, db: Session, bot
         msg += "⚠️ /alerts - 查看预警\n📈 /stats - 今日统计\n🔍 /search - 搜索用户\n"
         msg += "📋 /pending - 待处理邀请\n🕐 /recent - 最近加入\n"
         if is_admin:
-            msg += "\n<i>━━━━━ 管理命令 ━━━━━</i>\n\n🔄 /sync - 同步成员\n➕ /newteam - 创建 Team\n❌ /cancel - 取消操作\n"
+            msg += "\n<i>━━━━━ 管理命令 ━━━━━</i>\n\n"
+            msg += "📨 /invite - 邀请用户 (自动分配)\n"
+            msg += "👋 /remove - 移除成员\n"
+            msg += "🎫 /codes - 生成兑换码\n"
+            msg += "🔄 /sync - 同步成员\n➕ /newteam - 创建 Team\n❌ /cancel - 取消操作\n"
         await send_telegram_message(bot_token, chat_id, msg)
         return
 
@@ -239,6 +245,120 @@ async def handle_command(text: str, user_id: str, chat_id: str, db: Session, bot
 
     if not is_admin:
         await send_telegram_message(bot_token, chat_id, "❓ 未知命令，/help 查看")
+        return
+
+    # ========== 管理员命令 ==========
+
+    if text.startswith("/invite"):
+        parts = text.split(maxsplit=1)
+        if len(parts) < 2:
+            await send_telegram_message(bot_token, chat_id, "用法: /invite 邮箱")
+            return
+        email = parts[1].strip().lower()
+        # 检查邮箱格式
+        if "@" not in email or "." not in email:
+            await send_telegram_message(bot_token, chat_id, "❌ 无效的邮箱格式")
+            return
+        # 检查是否已在任何 Team 中
+        existing = db.query(TeamMember).filter(TeamMember.email == email).first()
+        if existing:
+            team = db.query(Team).filter(Team.id == existing.team_id).first()
+            await send_telegram_message(bot_token, chat_id, f"❌ <code>{email}</code> 已在 {team.name if team else 'Team'} 中")
+            return
+        # 查找有空位的 Team（按 ID 排序）
+        teams_list = db.query(Team).filter(Team.is_active == True).order_by(Team.id).all()
+        target_team = None
+        for team in teams_list:
+            count = db.query(TeamMember).filter(TeamMember.team_id == team.id).count()
+            if count < team.max_seats:
+                target_team = team
+                break
+        if not target_team:
+            await send_telegram_message(bot_token, chat_id, "❌ 所有 Team 都已满，无法邀请")
+            return
+        # 发送邀请
+        try:
+            from app.services.chatgpt_api import ChatGPTAPI, ChatGPTAPIError
+            api = ChatGPTAPI(target_team.session_token, target_team.device_id or "", target_team.cookie or "")
+            await api.invite_members(target_team.account_id, [email])
+            # 记录邀请
+            invite = InviteRecord(
+                team_id=target_team.id,
+                email=email,
+                status=InviteStatus.SUCCESS,
+                batch_id=f"tg-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+            )
+            db.add(invite)
+            db.commit()
+            await send_telegram_message(bot_token, chat_id, f"✅ <b>邀请成功</b>\n\n📧 {email}\n👥 Team: {target_team.name}")
+        except ChatGPTAPIError as e:
+            await send_telegram_message(bot_token, chat_id, f"❌ 邀请失败: {e.message}")
+        except Exception as e:
+            logger.error(f"Invite error: {e}")
+            await send_telegram_message(bot_token, chat_id, f"❌ 邀请失败: {str(e)[:100]}")
+        return
+
+    if text.startswith("/remove"):
+        parts = text.split(maxsplit=1)
+        if len(parts) < 2:
+            await send_telegram_message(bot_token, chat_id, "用法: /remove 邮箱")
+            return
+        email = parts[1].strip().lower()
+        # 查找成员
+        member = db.query(TeamMember).filter(TeamMember.email == email).first()
+        if not member:
+            await send_telegram_message(bot_token, chat_id, f"❌ 未找到成员 <code>{email}</code>")
+            return
+        team = db.query(Team).filter(Team.id == member.team_id).first()
+        if not team:
+            await send_telegram_message(bot_token, chat_id, "❌ Team 不存在")
+            return
+        # 移除成员
+        try:
+            from app.services.chatgpt_api import ChatGPTAPI, ChatGPTAPIError
+            api = ChatGPTAPI(team.session_token, team.device_id or "", team.cookie or "")
+            await api.remove_member(team.account_id, member.chatgpt_user_id)
+            # 删除本地记录
+            db.delete(member)
+            db.commit()
+            await send_telegram_message(bot_token, chat_id, f"✅ <b>已移除</b>\n\n📧 {email}\n👥 原 Team: {team.name}")
+        except ChatGPTAPIError as e:
+            await send_telegram_message(bot_token, chat_id, f"❌ 移除失败: {e.message}")
+        except Exception as e:
+            logger.error(f"Remove error: {e}")
+            await send_telegram_message(bot_token, chat_id, f"❌ 移除失败: {str(e)[:100]}")
+        return
+
+    if text.startswith("/codes"):
+        parts = text.split(maxsplit=1)
+        count = 5  # 默认生成 5 个
+        if len(parts) > 1:
+            try:
+                count = int(parts[1].strip())
+                if count < 1 or count > 50:
+                    await send_telegram_message(bot_token, chat_id, "❌ 数量范围: 1-50")
+                    return
+            except ValueError:
+                await send_telegram_message(bot_token, chat_id, "❌ 请输入有效数字")
+                return
+        # 生成兑换码
+        codes = []
+        for _ in range(count):
+            code = ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(8))
+            redeem = RedeemCode(
+                code=code,
+                code_type="direct",  # 直接链接类型
+                max_uses=1,
+                used_count=0,
+                is_active=True
+            )
+            db.add(redeem)
+            codes.append(code)
+        db.commit()
+        msg = f"✅ <b>已生成 {count} 个兑换码</b>\n\n"
+        for c in codes:
+            msg += f"<code>{c}</code>\n"
+        await send_telegram_message(bot_token, chat_id, msg)
         return
 
     if text == "/sync":

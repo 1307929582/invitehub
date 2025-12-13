@@ -260,9 +260,15 @@ async def _process_team_invites_with_lock(
                     db.add(invite)
                 
                 logger.info(f"Batch invite success: {len(emails)} emails to {team.name}")
-                
-                # 发送 Telegram 通知
-                await send_batch_telegram_notify(db, emails, team.name)
+
+                # 发送 Telegram 通知（分别通知换车和普通上车）
+                rebind_emails = [t.email for t in tasks_to_process if t.is_rebind]
+                normal_emails = [t.email for t in tasks_to_process if not t.is_rebind]
+
+                if normal_emails:
+                    await send_batch_telegram_notify(db, normal_emails, team.name, is_rebind=False)
+                if rebind_emails:
+                    await send_batch_telegram_notify(db, rebind_emails, team.name, is_rebind=True)
                 
             except ChatGPTAPIError as e:
                 logger.error(f"Batch invite to {team.name} failed: {e.message}")
@@ -315,25 +321,33 @@ async def _process_team_invites_with_lock(
         db.add(record)
 
 
-async def send_batch_telegram_notify(db, emails: List[str], team_name: str):
+async def send_batch_telegram_notify(db, emails: List[str], team_name: str, is_rebind: bool = False, old_team_name: str = None):
     """批量发送 Telegram 通知"""
     from app.models import SystemConfig
     from app.services.telegram import send_telegram_message
-    
+
     try:
         def get_cfg(key):
             c = db.query(SystemConfig).filter(SystemConfig.key == key).first()
             return c.value if c else None
-        
+
         if get_cfg("telegram_enabled") != "true" or get_cfg("telegram_notify_invite") != "true":
             return
-        
+
         bot_token = get_cfg("telegram_bot_token")
         chat_id = get_cfg("telegram_chat_id")
         if not bot_token or not chat_id:
             return
-        
-        msg = f"🎉 <b>批量上车成功</b>\n\n👥 Team: {team_name}\n📧 人数: {len(emails)}\n\n"
+
+        if is_rebind:
+            msg = f"🔄 <b>用户换车</b>\n\n"
+            if old_team_name:
+                msg += f"📤 原 Team: {old_team_name}\n"
+            msg += f"📥 新 Team: {team_name}\n"
+            msg += f"📧 人数: {len(emails)}\n\n"
+        else:
+            msg = f"🎉 <b>新用户上车</b>\n\n👥 Team: {team_name}\n📧 人数: {len(emails)}\n\n"
+
         if len(emails) <= 5:
             msg += "\n".join([f"• <code>{e}</code>" for e in emails])
         else:

@@ -55,22 +55,32 @@ async def send_telegram_message(bot_token: str, chat_id: str, message: str) -> b
 
 
 async def notify_new_invite(
-    bot_token: str, 
-    chat_id: str, 
-    email: str, 
-    team_name: str, 
+    bot_token: str,
+    chat_id: str,
+    email: str,
+    team_name: str,
     redeem_code: Optional[str] = None,
-    username: Optional[str] = None
+    username: Optional[str] = None,
+    is_rebind: bool = False,
+    old_team_name: Optional[str] = None
 ):
-    """通知新用户上车"""
-    message = f"🎉 <b>新用户上车</b>\n\n"
-    message += f"📧 邮箱: <code>{email}</code>\n"
-    message += f"👥 Team: {team_name}\n"
+    """通知用户上车/换车"""
+    if is_rebind:
+        message = f"🔄 <b>用户换车</b>\n\n"
+        message += f"📧 邮箱: <code>{email}</code>\n"
+        if old_team_name:
+            message += f"📤 原 Team: {old_team_name}\n"
+        message += f"📥 新 Team: {team_name}\n"
+    else:
+        message = f"🎉 <b>新用户上车</b>\n\n"
+        message += f"📧 邮箱: <code>{email}</code>\n"
+        message += f"👥 Team: {team_name}\n"
+
     if redeem_code:
         message += f"🎫 兑换码: <code>{redeem_code}</code>\n"
     if username:
         message += f"👤 LinuxDO: {username}\n"
-    
+
     await send_telegram_message(bot_token, chat_id, message)
 
 
