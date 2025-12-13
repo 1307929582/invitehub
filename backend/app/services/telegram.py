@@ -1,9 +1,17 @@
 # Telegram 通知服务
+import html
 import httpx
 import logging
 from typing import Optional
 
 logger = logging.getLogger(__name__)
+
+
+def escape_html(text: str) -> str:
+    """HTML 转义，防止注入攻击"""
+    if text is None:
+        return ""
+    return html.escape(str(text))
 
 
 class TelegramError(Exception):
@@ -65,21 +73,28 @@ async def notify_new_invite(
     old_team_name: Optional[str] = None
 ):
     """通知用户上车/换车"""
+    # HTML 转义防止注入
+    safe_email = escape_html(email)
+    safe_team = escape_html(team_name)
+    safe_code = escape_html(redeem_code) if redeem_code else None
+    safe_username = escape_html(username) if username else None
+    safe_old_team = escape_html(old_team_name) if old_team_name else None
+
     if is_rebind:
         message = f"🔄 <b>用户换车</b>\n\n"
-        message += f"📧 邮箱: <code>{email}</code>\n"
-        if old_team_name:
-            message += f"📤 原 Team: {old_team_name}\n"
-        message += f"📥 新 Team: {team_name}\n"
+        message += f"📧 邮箱: <code>{safe_email}</code>\n"
+        if safe_old_team:
+            message += f"📤 原 Team: {safe_old_team}\n"
+        message += f"📥 新 Team: {safe_team}\n"
     else:
         message = f"🎉 <b>新用户上车</b>\n\n"
-        message += f"📧 邮箱: <code>{email}</code>\n"
-        message += f"👥 Team: {team_name}\n"
+        message += f"📧 邮箱: <code>{safe_email}</code>\n"
+        message += f"👥 Team: {safe_team}\n"
 
-    if redeem_code:
-        message += f"🎫 兑换码: <code>{redeem_code}</code>\n"
-    if username:
-        message += f"👤 LinuxDO: {username}\n"
+    if safe_code:
+        message += f"🎫 兑换码: <code>{safe_code}</code>\n"
+    if safe_username:
+        message += f"👤 LinuxDO: {safe_username}\n"
 
     await send_telegram_message(bot_token, chat_id, message)
 
@@ -93,16 +108,17 @@ async def notify_seat_alert(
     threshold: int
 ):
     """座位预警通知"""
+    safe_team = escape_html(team_name)
     available = total_seats - used_seats
     percentage = int((used_seats / total_seats) * 100)
-    
+
     message = f"⚠️ <b>座位预警</b>\n\n"
-    message += f"👥 Team: {team_name}\n"
+    message += f"👥 Team: {safe_team}\n"
     message += f"📊 使用率: {percentage}%\n"
     message += f"💺 已用/总数: {used_seats}/{total_seats}\n"
     message += f"🔔 剩余座位: {available}\n"
     message += f"\n预警阈值: 剩余 {threshold} 个座位"
-    
+
     await send_telegram_message(bot_token, chat_id, message)
 
 
@@ -113,18 +129,19 @@ async def notify_token_expiry(
     days_left: int
 ):
     """Token 过期提醒"""
+    safe_team = escape_html(team_name)
     if days_left <= 0:
         message = f"🔴 <b>Token 已过期</b>\n\n"
-        message += f"👥 Team: {team_name}\n"
+        message += f"👥 Team: {safe_team}\n"
         message += f"⚠️ Token 已过期，请立即更新！"
     elif days_left <= 3:
         message = f"🟠 <b>Token 即将过期</b>\n\n"
-        message += f"👥 Team: {team_name}\n"
+        message += f"👥 Team: {safe_team}\n"
         message += f"⏰ 剩余时间: {days_left} 天\n"
         message += f"⚠️ 请尽快更新 Token！"
     else:
         message = f"🟡 <b>Token 过期提醒</b>\n\n"
-        message += f"👥 Team: {team_name}\n"
+        message += f"👥 Team: {safe_team}\n"
         message += f"⏰ 剩余时间: {days_left} 天"
 
     await send_telegram_message(bot_token, chat_id, message)
@@ -139,14 +156,17 @@ async def notify_team_banned(
     error_message: str = ""
 ):
     """Team 被封禁通知"""
+    safe_team = escape_html(team_name)
+    safe_error = escape_html(error_message[:100]) if error_message else ""
+
     message = f"🚨 <b>Team 封禁警报</b> 🚨\n\n"
-    message += f"👥 Team: {team_name}\n"
+    message += f"👥 Team: {safe_team}\n"
     message += f"🆔 ID: {team_id}\n"
     if member_count > 0:
         message += f"👤 成员数: {member_count}\n"
     message += f"\n⚠️ <b>该 Team 已被检测到封禁！</b>\n"
-    if error_message:
-        message += f"📝 错误信息: {error_message[:100]}\n"
+    if safe_error:
+        message += f"📝 错误信息: {safe_error}\n"
     message += f"\n💡 请立即处理并考虑迁移成员到其他 Team"
 
     await send_telegram_message(bot_token, chat_id, message)
@@ -160,12 +180,15 @@ async def notify_token_invalid(
     error_message: str = ""
 ):
     """Token 失效通知"""
+    safe_team = escape_html(team_name)
+    safe_error = escape_html(error_message[:100]) if error_message else ""
+
     message = f"⚠️ <b>Token 失效警报</b>\n\n"
-    message += f"👥 Team: {team_name}\n"
+    message += f"👥 Team: {safe_team}\n"
     message += f"🆔 ID: {team_id}\n"
     message += f"\n🔑 <b>该 Team 的 Token 已失效！</b>\n"
-    if error_message:
-        message += f"📝 错误信息: {error_message[:100]}\n"
+    if safe_error:
+        message += f"📝 错误信息: {safe_error}\n"
     message += f"\n💡 请尽快更新 Token 以恢复正常服务"
 
     await send_telegram_message(bot_token, chat_id, message)
@@ -180,11 +203,15 @@ async def notify_migration_started(
     operator: str
 ):
     """成员迁移开始通知"""
+    safe_sources = ', '.join(escape_html(t) for t in source_teams)
+    safe_target = escape_html(target_team)
+    safe_operator = escape_html(operator)
+
     message = f"🚀 <b>成员迁移开始</b>\n\n"
-    message += f"📤 源 Team: {', '.join(source_teams)}\n"
-    message += f"📥 目标 Team: {target_team}\n"
+    message += f"📤 源 Team: {safe_sources}\n"
+    message += f"📥 目标 Team: {safe_target}\n"
     message += f"👤 待迁移: {email_count} 人\n"
-    message += f"👤 操作人: {operator}"
+    message += f"👤 操作人: {safe_operator}"
 
     try:
         await send_telegram_message(bot_token, chat_id, message)
@@ -202,15 +229,19 @@ async def notify_migration_completed(
     operator: str
 ):
     """成员迁移完成通知"""
+    safe_sources = ', '.join(escape_html(t) for t in source_teams)
+    safe_target = escape_html(target_team)
+    safe_operator = escape_html(operator)
     total = success_count + fail_count
+
     message = f"✅ <b>成员迁移完成</b>\n\n"
-    message += f"📤 源 Team: {', '.join(source_teams)}\n"
-    message += f"📥 目标 Team: {target_team}\n"
+    message += f"📤 源 Team: {safe_sources}\n"
+    message += f"📥 目标 Team: {safe_target}\n"
     message += f"📊 总数: {total}\n"
     message += f"✅ 成功: {success_count}\n"
     if fail_count > 0:
         message += f"❌ 失败: {fail_count}\n"
-    message += f"👤 操作人: {operator}"
+    message += f"👤 操作人: {safe_operator}"
 
     try:
         await send_telegram_message(bot_token, chat_id, message)
@@ -244,11 +275,13 @@ async def notify_daily_stats(
 
 async def notify_team_created(bot_token: str, chat_id: str, team_name: str, max_seats: int, operator: str):
     """通知新建 Team"""
+    safe_team = escape_html(team_name)
+    safe_operator = escape_html(operator)
     message = f"➕ <b>新建 Team</b>\n\n"
-    message += f"👥 名称: {team_name}\n"
+    message += f"👥 名称: {safe_team}\n"
     message += f"💺 座位数: {max_seats}\n"
-    message += f"👤 操作人: {operator}"
-    
+    message += f"👤 操作人: {safe_operator}"
+
     try:
         await send_telegram_message(bot_token, chat_id, message)
     except:
@@ -257,10 +290,12 @@ async def notify_team_created(bot_token: str, chat_id: str, team_name: str, max_
 
 async def notify_team_deleted(bot_token: str, chat_id: str, team_name: str, operator: str):
     """通知删除 Team"""
+    safe_team = escape_html(team_name)
+    safe_operator = escape_html(operator)
     message = f"🗑️ <b>删除 Team</b>\n\n"
-    message += f"👥 名称: {team_name}\n"
-    message += f"👤 操作人: {operator}"
-    
+    message += f"👥 名称: {safe_team}\n"
+    message += f"👤 操作人: {safe_operator}"
+
     try:
         await send_telegram_message(bot_token, chat_id, message)
     except:
@@ -269,11 +304,14 @@ async def notify_team_deleted(bot_token: str, chat_id: str, team_name: str, oper
 
 async def notify_member_removed(bot_token: str, chat_id: str, email: str, team_name: str, operator: str):
     """通知移除成员"""
+    safe_email = escape_html(email)
+    safe_team = escape_html(team_name)
+    safe_operator = escape_html(operator)
     message = f"👋 <b>移除成员</b>\n\n"
-    message += f"📧 邮箱: <code>{email}</code>\n"
-    message += f"👥 Team: {team_name}\n"
-    message += f"👤 操作人: {operator}"
-    
+    message += f"📧 邮箱: <code>{safe_email}</code>\n"
+    message += f"👥 Team: {safe_team}\n"
+    message += f"👤 操作人: {safe_operator}"
+
     try:
         await send_telegram_message(bot_token, chat_id, message)
     except:
@@ -282,11 +320,14 @@ async def notify_member_removed(bot_token: str, chat_id: str, email: str, team_n
 
 async def notify_invite_cancelled(bot_token: str, chat_id: str, email: str, team_name: str, operator: str):
     """通知取消邀请"""
+    safe_email = escape_html(email)
+    safe_team = escape_html(team_name)
+    safe_operator = escape_html(operator)
     message = f"❌ <b>取消邀请</b>\n\n"
-    message += f"📧 邮箱: <code>{email}</code>\n"
-    message += f"👥 Team: {team_name}\n"
-    message += f"👤 操作人: {operator}"
-    
+    message += f"📧 邮箱: <code>{safe_email}</code>\n"
+    message += f"👥 Team: {safe_team}\n"
+    message += f"👤 操作人: {safe_operator}"
+
     try:
         await send_telegram_message(bot_token, chat_id, message)
     except:
@@ -295,13 +336,14 @@ async def notify_invite_cancelled(bot_token: str, chat_id: str, email: str, team
 
 async def notify_redeem_codes_created(bot_token: str, chat_id: str, count: int, code_type: str, max_uses: int, operator: str):
     """通知创建兑换码"""
+    safe_operator = escape_html(operator)
     type_name = "直接链接" if code_type == "direct" else "LinuxDO"
     message = f"🎫 <b>创建兑换码</b>\n\n"
     message += f"📦 数量: {count} 个\n"
     message += f"🏷️ 类型: {type_name}\n"
     message += f"🔢 每码可用: {max_uses} 次\n"
-    message += f"👤 操作人: {operator}"
-    
+    message += f"👤 操作人: {safe_operator}"
+
     try:
         await send_telegram_message(bot_token, chat_id, message)
     except:
@@ -310,12 +352,14 @@ async def notify_redeem_codes_created(bot_token: str, chat_id: str, count: int, 
 
 async def notify_admin_created(bot_token: str, chat_id: str, username: str, role: str, operator: str):
     """通知创建管理员"""
+    safe_username = escape_html(username)
+    safe_operator = escape_html(operator)
     role_name = "管理员" if role == "admin" else "操作员"
     message = f"👤 <b>新建管理员</b>\n\n"
-    message += f"📛 用户名: {username}\n"
+    message += f"📛 用户名: {safe_username}\n"
     message += f"🔑 角色: {role_name}\n"
-    message += f"👤 操作人: {operator}"
-    
+    message += f"👤 操作人: {safe_operator}"
+
     try:
         await send_telegram_message(bot_token, chat_id, message)
     except:
@@ -324,13 +368,15 @@ async def notify_admin_created(bot_token: str, chat_id: str, username: str, role
 
 async def notify_batch_invite(bot_token: str, chat_id: str, team_name: str, total: int, success: int, fail: int, operator: str):
     """通知批量邀请"""
+    safe_team = escape_html(team_name)
+    safe_operator = escape_html(operator)
     message = f"📨 <b>批量邀请</b>\n\n"
-    message += f"👥 Team: {team_name}\n"
+    message += f"👥 Team: {safe_team}\n"
     message += f"📊 总数: {total}\n"
     message += f"✅ 成功: {success}\n"
     message += f"❌ 失败: {fail}\n"
-    message += f"👤 操作人: {operator}"
-    
+    message += f"👤 操作人: {safe_operator}"
+
     try:
         await send_telegram_message(bot_token, chat_id, message)
     except:
@@ -343,19 +389,21 @@ async def send_admin_notification(db, action: str, **kwargs):
     """统一的管理操作通知入口
 
     自动从数据库获取 Telegram 配置并发送通知
+    优化：使用单次批量查询获取所有配置
     """
     from app.models import SystemConfig
 
-    def get_config(key: str) -> str:
-        config = db.query(SystemConfig).filter(SystemConfig.key == key).first()
-        return config.value if config and config.value else ""
+    # 批量查询所有需要的配置（单次查询代替多次）
+    config_keys = ["telegram_enabled", "telegram_bot_token", "telegram_chat_id"]
+    configs = db.query(SystemConfig).filter(SystemConfig.key.in_(config_keys)).all()
+    config_map = {c.key: c.value for c in configs if c.value}
 
     # 检查是否启用
-    if get_config("telegram_enabled") != "true":
+    if config_map.get("telegram_enabled") != "true":
         return
 
-    bot_token = get_config("telegram_bot_token")
-    chat_id = get_config("telegram_chat_id")
+    bot_token = config_map.get("telegram_bot_token", "")
+    chat_id = config_map.get("telegram_chat_id", "")
 
     if not bot_token or not chat_id:
         return
@@ -401,17 +449,19 @@ async def notify_unauthorized_members(bot_token: str, chat_id: str, team_name: s
     """通知发现未授权成员"""
     if not members:
         return
-    
+
+    safe_team = escape_html(team_name)
     message = f"🚨 <b>发现未授权成员</b>\n\n"
-    message += f"👥 Team: {team_name}\n"
+    message += f"👥 Team: {safe_team}\n"
     message += f"⚠️ 以下成员不是通过系统邀请的：\n\n"
-    
+
     for email in members[:10]:  # 最多显示10个
-        message += f"• <code>{email}</code>\n"
-    
+        safe_email = escape_html(email)
+        message += f"• <code>{safe_email}</code>\n"
+
     if len(members) > 10:
         message += f"\n... 还有 {len(members) - 10} 个\n"
-    
+
     message += f"\n💡 请检查是否有人私自拉人进 Team"
     
     try:
@@ -422,15 +472,18 @@ async def notify_unauthorized_members(bot_token: str, chat_id: str, team_name: s
 
 async def notify_unauthorized_removed(bot_token: str, chat_id: str, team_name: str, count: int, emails: list, operator: str):
     """通知清理未授权成员"""
+    safe_team = escape_html(team_name)
+    safe_operator = escape_html(operator)
     message = f"🧹 <b>清理未授权成员</b>\n\n"
-    message += f"👥 Team: {team_name}\n"
+    message += f"👥 Team: {safe_team}\n"
     message += f"🗑️ 已删除: {count} 人\n"
-    message += f"👤 操作人: {operator}\n\n"
+    message += f"👤 操作人: {safe_operator}\n\n"
 
     if emails:
         message += "已删除邮箱：\n"
         for email in emails[:5]:
-            message += f"• <code>{email}</code>\n"
+            safe_email = escape_html(email)
+            message += f"• <code>{safe_email}</code>\n"
         if len(emails) > 5:
             message += f"... 还有 {len(emails) - 5} 个\n"
 
@@ -457,11 +510,15 @@ async def notify_distributor_code_used(
 
     当分销商的兑换码成功邀请用户时，发送通知
     """
+    safe_distributor = escape_html(distributor_name)
+    safe_email = escape_html(email)
+    safe_team = escape_html(team_name)
+    safe_code = escape_html(redeem_code)
     message = f"💰 <b>新销售！</b>\n\n"
-    message += f"👤 分销商: {distributor_name}\n"
-    message += f"📧 用户: <code>{email}</code>\n"
-    message += f"👥 Team: {team_name}\n"
-    message += f"🎫 兑换码: <code>{redeem_code}</code>\n"
+    message += f"👤 分销商: {safe_distributor}\n"
+    message += f"📧 用户: <code>{safe_email}</code>\n"
+    message += f"👥 Team: {safe_team}\n"
+    message += f"🎫 兑换码: <code>{safe_code}</code>\n"
     message += f"\n📊 今日销售: {today_sales} | 总销售: {total_sales}"
 
     try:
@@ -484,13 +541,18 @@ async def notify_distributor_member_removed(
 
     当分销商移除其成员时，发送通知
     """
+    safe_distributor = escape_html(distributor_name)
+    safe_email = escape_html(email)
+    safe_team = escape_html(team_name)
+    safe_code = escape_html(redeem_code)
+    safe_reason = escape_html(reason) if reason else ""
     message = f"👋 <b>成员移除</b>\n\n"
-    message += f"👤 分销商: {distributor_name}\n"
-    message += f"📧 邮箱: <code>{email}</code>\n"
-    message += f"👥 Team: {team_name}\n"
-    message += f"🎫 兑换码: <code>{redeem_code}</code>\n"
-    if reason:
-        message += f"📝 原因: {reason}\n"
+    message += f"👤 分销商: {safe_distributor}\n"
+    message += f"📧 邮箱: <code>{safe_email}</code>\n"
+    message += f"👥 Team: {safe_team}\n"
+    message += f"🎫 兑换码: <code>{safe_code}</code>\n"
+    if safe_reason:
+        message += f"📝 原因: {safe_reason}\n"
     message += f"\n✅ 兑换码使用次数已恢复"
 
     try:
@@ -512,11 +574,15 @@ async def notify_distributor_member_readded(
 
     当分销商重新邀请之前被移除的成员时，发送通知
     """
+    safe_distributor = escape_html(distributor_name)
+    safe_email = escape_html(email)
+    safe_team = escape_html(team_name)
+    safe_code = escape_html(redeem_code)
     message = f"🔄 <b>成员重新邀请</b>\n\n"
-    message += f"👤 分销商: {distributor_name}\n"
-    message += f"📧 邮箱: <code>{email}</code>\n"
-    message += f"👥 Team: {team_name}\n"
-    message += f"🎫 兑换码: <code>{redeem_code}</code>\n"
+    message += f"👤 分销商: {safe_distributor}\n"
+    message += f"📧 邮箱: <code>{safe_email}</code>\n"
+    message += f"👥 Team: {safe_team}\n"
+    message += f"🎫 兑换码: <code>{safe_code}</code>\n"
     message += f"\n⏳ 邀请任务已创建，请等待处理"
 
     try:

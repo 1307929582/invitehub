@@ -1,7 +1,7 @@
 # 分销商管理路由
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, Integer
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional
 from datetime import datetime
@@ -79,28 +79,46 @@ async def list_distributors(
 
     distributors = query.order_by(User.created_at.desc()).all()
 
-    # 为每个分销商计算统计数据
+    if not distributors:
+        return []
+
+    # 批量获取所有分销商的统计数据（避免 N+1 查询）
+    dist_ids = [d.id for d in distributors]
+
+    # 单次聚合查询：total_codes, active_codes, total_sales
+    stats = db.query(
+        RedeemCode.created_by,
+        func.count(RedeemCode.id).label("total_codes"),
+        func.sum(func.cast(RedeemCode.is_active == True, Integer)).label("active_codes"),
+        func.coalesce(func.sum(RedeemCode.used_count), 0).label("total_sales")
+    ).filter(
+        RedeemCode.created_by.in_(dist_ids)
+    ).group_by(
+        RedeemCode.created_by
+    ).all()
+
+    # 构建统计数据映射
+    stats_map = {
+        s.created_by: {
+            "total_codes": s.total_codes or 0,
+            "active_codes": int(s.active_codes or 0),
+            "total_sales": int(s.total_sales or 0)
+        }
+        for s in stats
+    }
+
     result = []
     for dist in distributors:
-        # 统计兑换码
-        codes_query = db.query(RedeemCode).filter(RedeemCode.created_by == dist.id)
-        total_codes = codes_query.count()
-        active_codes = codes_query.filter(RedeemCode.is_active == True).count()
-
-        # 统计销售次数（所有兑换码的 used_count 总和）
-        total_sales = db.query(
-            func.coalesce(func.sum(RedeemCode.used_count), 0)
-        ).filter(RedeemCode.created_by == dist.id).scalar()
-
+        dist_stats = stats_map.get(dist.id, {"total_codes": 0, "active_codes": 0, "total_sales": 0})
         result.append(DistributorResponse(
             id=dist.id,
             username=dist.username,
             email=dist.email,
             approval_status=dist.approval_status.value,
             created_at=to_beijing_iso(dist.created_at),
-            total_codes=total_codes,
-            active_codes=active_codes,
-            total_sales=int(total_sales)
+            total_codes=dist_stats["total_codes"],
+            active_codes=dist_stats["active_codes"],
+            total_sales=dist_stats["total_sales"]
         ))
 
     return result
@@ -416,6 +434,8 @@ async def remove_member(
 
     # 调用 ChatGPT API 移除成员
     from app.services.chatgpt_api import ChatGPTAPI
+    from app.logger import get_logger
+    logger = get_logger(__name__)
 
     api = ChatGPTAPI(team.session_token)
     try:
@@ -423,11 +443,15 @@ async def remove_member(
         if not team_member.chatgpt_user_id:
             raise HTTPException(status_code=400, detail="成员缺少 ChatGPT User ID，无法移除")
 
-        result = api.remove_member(team.chatgpt_account_id, team_member.chatgpt_user_id)
+        result = await api.remove_member(team.chatgpt_account_id, team_member.chatgpt_user_id)
         if not result:
-            raise HTTPException(status_code=500, detail="调用 ChatGPT API 移除成员失败")
+            raise HTTPException(status_code=500, detail="移除成员失败，请稍后重试")
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"移除成员失败: {str(e)}")
+        # 记录详细错误日志，但不向用户暴露内部错误信息
+        logger.error(f"Failed to remove member {payload.email} from team {team.name}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="移除成员失败，请稍后重试")
 
     # 从数据库删除成员记录
     db.delete(team_member)
@@ -440,13 +464,11 @@ async def remove_member(
         redeem_code.used_count -= 1
 
     # 更新邀请记录状态（标记为已移除）
-    invite_record.status = InviteStatus.FAILED
+    invite_record.status = InviteStatus.REMOVED
     invite_record.error_message = f"被分销商移除: {payload.reason or '无原因'}"
 
     db.commit()
 
-    from app.logger import get_logger
-    logger = get_logger(__name__)
     logger.info(f"Distributor {current_user.username} removed member {payload.email} from team {team.name}")
 
     # 发送 Telegram 通知
@@ -552,10 +574,22 @@ async def add_member(
             is_rebind=False
         )
     except Exception as e:
-        # 如果 Celery 不可用，回退到同步处理
+        # 如果 Celery 不可用，回退到进程内异步队列
         from app.logger import get_logger
         logger = get_logger(__name__)
-        logger.warning(f"Celery task dispatch failed, falling back to sync: {e}")
+        logger.warning(f"Celery task dispatch failed, falling back to async queue: {e}")
+        try:
+            from app.tasks import enqueue_invite
+            import asyncio
+            asyncio.create_task(enqueue_invite(
+                email=payload.email.lower(),
+                redeem_code=previous_invite.redeem_code,
+                group_id=redeem_code.group_id,
+                is_rebind=False
+            ))
+        except Exception as fallback_err:
+            logger.error(f"Fallback to async queue also failed: {fallback_err}")
+            raise HTTPException(status_code=503, detail="服务暂时不可用，请稍后重试")
 
     from app.logger import get_logger
     logger = get_logger(__name__)

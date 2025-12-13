@@ -129,15 +129,15 @@ def to_beijing_date_str(dt: datetime) -> str:
 
 def to_beijing_iso(dt: datetime) -> str:
     """
-    将 UTC datetime 转换为北京时间的 ISO 格式字符串
+    将 UTC datetime 转换为北京时间的 RFC3339 格式字符串
 
-    用于 API 返回时间字段，确保前端显示正确的北京时间
+    用于 API 返回时间字段，确保前端正确解析和显示
 
     Args:
         dt: UTC datetime（naive 或 aware）
 
     Returns:
-        北京时间 ISO 格式字符串，如 "2025-01-15T14:30:00"
+        北京时间 RFC3339 格式字符串，如 "2025-01-15T14:30:00+08:00"
         如果 dt 为 None，返回空字符串
     """
     if dt is None:
@@ -148,5 +148,5 @@ def to_beijing_iso(dt: datetime) -> str:
         dt = dt.replace(tzinfo=UTC_TZ)
 
     beijing_dt = dt.astimezone(BEIJING_TZ)
-    # 返回不带时区后缀的 ISO 格式（前端直接显示）
-    return beijing_dt.strftime("%Y-%m-%dT%H:%M:%S")
+    # 返回带时区偏移的 RFC3339 格式
+    return beijing_dt.strftime("%Y-%m-%dT%H:%M:%S+08:00")

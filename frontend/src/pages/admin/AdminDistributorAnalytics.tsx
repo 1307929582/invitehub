@@ -158,7 +158,6 @@ export default function AdminDistributorAnalytics() {
       dataIndex: 'total_sales',
       key: 'total_sales',
       width: 90,
-      sorter: true,
       render: (val: number) => <Text strong>{val}</Text>,
     },
     {
@@ -166,7 +165,6 @@ export default function AdminDistributorAnalytics() {
       dataIndex: 'today_sales',
       key: 'today_sales',
       width: 70,
-      sorter: true,
       render: (val: number) =>
         val > 0 ? <Tag color="green">{val}</Tag> : <Text type="secondary">{val}</Text>,
     },
@@ -189,7 +187,6 @@ export default function AdminDistributorAnalytics() {
       dataIndex: 'active_members',
       key: 'active_members',
       width: 90,
-      sorter: true,
       render: (val: number) => (
         <Space>
           <TeamOutlined style={{ color: '#1890ff' }} />
@@ -223,7 +220,6 @@ export default function AdminDistributorAnalytics() {
       dataIndex: 'created_at',
       key: 'created_at',
       width: 160,
-      sorter: true,
       render: (text: string) => new Date(text).toLocaleString('zh-CN'),
     },
     {

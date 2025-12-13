@@ -27,6 +27,7 @@ class InviteStatus(str, enum.Enum):
     PENDING = "pending"
     SUCCESS = "success"
     FAILED = "failed"
+    REMOVED = "removed"  # 成员被分销商/管理员移除
 
 
 class TeamStatus(str, enum.Enum):

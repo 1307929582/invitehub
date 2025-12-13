@@ -1,7 +1,7 @@
 # 管理员管理路由
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, Integer, case, and_
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional
 
@@ -438,6 +438,7 @@ async def get_distributors_analytics(
     - 支持分页和排序
     - 支持按审核状态筛选
     - 统计使用 UTC+8 时区
+    - 优化：使用批量聚合查询避免 N+1 问题
     """
     if current_user.role != UserRole.ADMIN:
         raise HTTPException(status_code=403, detail="仅管理员可访问")
@@ -450,7 +451,7 @@ async def get_distributors_analytics(
     # 获取单价
     unit_price = get_distributor_unit_price(db)
 
-    # 基础查询
+    # 基础查询：获取所有分销商 ID
     query = db.query(User).filter(User.role == UserRole.DISTRIBUTOR)
     if status:
         try:
@@ -461,66 +462,134 @@ async def get_distributors_analytics(
 
     distributors = query.all()
 
+    if not distributors:
+        return DistributorAnalyticsResponse(
+            items=[],
+            total=0,
+            summary={
+                "total_distributors": 0,
+                "approved_count": 0,
+                "pending_count": 0,
+                "total_revenue": 0,
+                "total_sales": 0,
+                "today_sales": 0,
+                "unit_price": unit_price
+            }
+        )
+
+    dist_ids = [d.id for d in distributors]
+
+    # 批量查询 1：兑换码统计（total_codes, active_codes, total_sales）
+    code_stats = db.query(
+        RedeemCode.created_by,
+        func.count(RedeemCode.id).label("total_codes"),
+        func.sum(func.cast(RedeemCode.is_active == True, Integer)).label("active_codes"),
+        func.coalesce(func.sum(RedeemCode.used_count), 0).label("total_sales")
+    ).filter(
+        RedeemCode.created_by.in_(dist_ids)
+    ).group_by(
+        RedeemCode.created_by
+    ).all()
+
+    code_stats_map = {
+        s.created_by: {
+            "total_codes": s.total_codes or 0,
+            "active_codes": int(s.active_codes or 0),
+            "total_sales": int(s.total_sales or 0)
+        }
+        for s in code_stats
+    }
+
+    # 批量查询 2：获取每个分销商的兑换码列表（用于后续查询）
+    all_codes = db.query(
+        RedeemCode.created_by,
+        RedeemCode.code
+    ).filter(
+        RedeemCode.created_by.in_(dist_ids)
+    ).all()
+
+    # 构建分销商 -> 兑换码列表映射
+    codes_by_distributor = {}
+    all_code_list = []
+    for c in all_codes:
+        if c.created_by not in codes_by_distributor:
+            codes_by_distributor[c.created_by] = []
+        codes_by_distributor[c.created_by].append(c.code)
+        all_code_list.append(c.code)
+
+    # 批量查询 3：销售统计（使用条件聚合）
+    if all_code_list:
+        sales_stats = db.query(
+            InviteRecord.redeem_code,
+            func.count(InviteRecord.id).filter(
+                InviteRecord.status == InviteStatus.SUCCESS,
+                InviteRecord.created_at >= today_start,
+                InviteRecord.created_at < today_end
+            ).label("today_sales"),
+            func.count(InviteRecord.id).filter(
+                InviteRecord.status == InviteStatus.SUCCESS,
+                InviteRecord.created_at >= week_start,
+                InviteRecord.created_at < week_end
+            ).label("week_sales"),
+            func.count(InviteRecord.id).filter(
+                InviteRecord.status == InviteStatus.SUCCESS,
+                InviteRecord.created_at >= month_start,
+                InviteRecord.created_at < month_end
+            ).label("month_sales")
+        ).filter(
+            InviteRecord.redeem_code.in_(all_code_list)
+        ).group_by(
+            InviteRecord.redeem_code
+        ).all()
+
+        # 构建兑换码 -> 销售统计映射
+        sales_by_code = {
+            s.redeem_code: {
+                "today": s.today_sales or 0,
+                "week": s.week_sales or 0,
+                "month": s.month_sales or 0
+            }
+            for s in sales_stats
+        }
+
+        # 批量查询 4：活跃成员数（简化查询）
+        active_members_stats = db.query(
+            InviteRecord.redeem_code,
+            func.count(func.distinct(TeamMember.id)).label("active_count")
+        ).join(
+            TeamMember, TeamMember.email == InviteRecord.email
+        ).filter(
+            InviteRecord.redeem_code.in_(all_code_list),
+            InviteRecord.status == InviteStatus.SUCCESS
+        ).group_by(
+            InviteRecord.redeem_code
+        ).all()
+
+        active_members_by_code = {
+            s.redeem_code: s.active_count or 0
+            for s in active_members_stats
+        }
+    else:
+        sales_by_code = {}
+        active_members_by_code = {}
+
+    # 聚合每个分销商的统计数据
     items = []
     total_revenue = 0.0
     total_sales_all = 0
     total_today_sales = 0
 
     for dist in distributors:
-        # 统计兑换码
-        codes_query = db.query(RedeemCode).filter(RedeemCode.created_by == dist.id)
-        total_codes = codes_query.count()
-        active_codes = codes_query.filter(RedeemCode.is_active == True).count()
+        dist_stats = code_stats_map.get(dist.id, {"total_codes": 0, "active_codes": 0, "total_sales": 0})
+        dist_codes = codes_by_distributor.get(dist.id, [])
 
-        # 总销售次数（used_count 总和）
-        total_sales = db.query(func.coalesce(func.sum(RedeemCode.used_count), 0)).filter(
-            RedeemCode.created_by == dist.id
-        ).scalar() or 0
+        # 聚合该分销商所有兑换码的销售数据
+        today_sales = sum(sales_by_code.get(code, {}).get("today", 0) for code in dist_codes)
+        week_sales = sum(sales_by_code.get(code, {}).get("week", 0) for code in dist_codes)
+        month_sales = sum(sales_by_code.get(code, {}).get("month", 0) for code in dist_codes)
+        active_members = sum(active_members_by_code.get(code, 0) for code in dist_codes)
 
-        # 获取该分销商的所有兑换码
-        my_codes = [c.code for c in codes_query.all()]
-
-        # 今日/本周/本月销售（基于 InviteRecord.created_at，UTC+8）
-        today_sales = 0
-        week_sales = 0
-        month_sales = 0
-        active_members = 0
-
-        if my_codes:
-            # 今日销售
-            today_sales = db.query(func.count(InviteRecord.id)).filter(
-                InviteRecord.redeem_code.in_(my_codes),
-                InviteRecord.status == InviteStatus.SUCCESS,
-                InviteRecord.created_at >= today_start,
-                InviteRecord.created_at < today_end
-            ).scalar() or 0
-
-            # 本周销售
-            week_sales = db.query(func.count(InviteRecord.id)).filter(
-                InviteRecord.redeem_code.in_(my_codes),
-                InviteRecord.status == InviteStatus.SUCCESS,
-                InviteRecord.created_at >= week_start,
-                InviteRecord.created_at < week_end
-            ).scalar() or 0
-
-            # 本月销售
-            month_sales = db.query(func.count(InviteRecord.id)).filter(
-                InviteRecord.redeem_code.in_(my_codes),
-                InviteRecord.status == InviteStatus.SUCCESS,
-                InviteRecord.created_at >= month_start,
-                InviteRecord.created_at < month_end
-            ).scalar() or 0
-
-            # 活跃成员数（未被移除的）
-            active_members = db.query(func.count(TeamMember.id.distinct())).join(
-                InviteRecord, TeamMember.email == InviteRecord.email
-            ).filter(
-                InviteRecord.redeem_code.in_(my_codes),
-                InviteRecord.status == InviteStatus.SUCCESS
-            ).scalar() or 0
-
-        # 预估收益
-        revenue = int(total_sales) * unit_price
+        revenue = dist_stats["total_sales"] * unit_price
 
         items.append(DistributorAnalyticsItem(
             id=dist.id,
@@ -528,9 +597,9 @@ async def get_distributors_analytics(
             email=dist.email,
             approval_status=dist.approval_status.value,
             created_at=to_beijing_iso(dist.created_at),
-            total_codes=total_codes,
-            active_codes=active_codes,
-            total_sales=int(total_sales),
+            total_codes=dist_stats["total_codes"],
+            active_codes=dist_stats["active_codes"],
+            total_sales=dist_stats["total_sales"],
             today_sales=today_sales,
             week_sales=week_sales,
             month_sales=month_sales,
@@ -539,10 +608,10 @@ async def get_distributors_analytics(
         ))
 
         total_revenue += revenue
-        total_sales_all += int(total_sales)
+        total_sales_all += dist_stats["total_sales"]
         total_today_sales += today_sales
 
-    # 排序
+    # 排序（内存排序，因为聚合字段无法在 SQL 层排序）
     if sort_by == "total_sales":
         items.sort(key=lambda x: x.total_sales, reverse=True)
     elif sort_by == "today_sales":

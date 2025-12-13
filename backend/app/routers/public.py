@@ -382,30 +382,53 @@ async def _do_direct_redeem(data: DirectRedeemRequest, db: Session):
         errors_total.labels(error_type="celery_error", endpoint="direct_redeem").inc()
         logger.error(f"Failed to submit Celery task: {e}")
 
-        # 回滚（补偿事务）
+        # 尝试回退到进程内异步队列
         try:
-            if redis_client:
-                limiter = RedeemLimiter(redis_client)
-                limiter.refund(code.code)
-                logger.info(f"Refunded Redis token for code {code.code}")
+            from app.tasks import enqueue_invite
+            import asyncio
+            asyncio.create_task(enqueue_invite(
+                email=email,
+                redeem_code=code.code,
+                group_id=code.group_id,
+                is_rebind=False
+            ))
+            logger.info(f"Fallback to async queue succeeded for {email}")
 
-            # 如果是首次使用，还需要清除绑定信息
-            if is_first_use:
-                db.execute(
-                    update(RedeemCode)
-                    .where(RedeemCode.id == code.id)
-                    .values(
-                        used_count=RedeemCode.used_count - 1,
-                        activated_at=None,
-                        bound_email=None
+            return DirectRedeemResponse(
+                success=True,
+                message="已加入队列，邀请将在几秒内发送，请查收邮箱",
+                team_name=None,
+                expires_at=code.user_expires_at,
+                remaining_days=code.remaining_days,
+                is_first_use=is_first_use
+            )
+        except Exception as fallback_err:
+            logger.error(f"Fallback to async queue also failed: {fallback_err}")
+
+            # 回滚（补偿事务）
+            try:
+                if redis_client:
+                    limiter = RedeemLimiter(redis_client)
+                    limiter.refund(code.code)
+                    logger.info(f"Refunded Redis token for code {code.code}")
+
+                # 如果是首次使用，还需要清除绑定信息
+                if is_first_use:
+                    db.execute(
+                        update(RedeemCode)
+                        .where(RedeemCode.id == code.id)
+                        .values(
+                            used_count=RedeemCode.used_count - 1,
+                            activated_at=None,
+                            bound_email=None
+                        )
                     )
-                )
-                db.commit()
-                logger.info(f"Rolled back first use for code {code.code}")
-        except Exception as rollback_error:
-            logger.error(f"Failed to rollback code {code.code}: {rollback_error}")
+                    db.commit()
+                    logger.info(f"Rolled back first use for code {code.code}")
+            except Exception as rollback_error:
+                logger.error(f"Failed to rollback code {code.code}: {rollback_error}")
 
-        raise HTTPException(status_code=503, detail=str(e))
+            raise HTTPException(status_code=503, detail="服务暂时不可用，请稍后重试")
 
 
 # ========== 商业版兑换 API ==========
@@ -566,29 +589,51 @@ async def _do_redeem(data: RedeemRequest, db: Session) -> RedeemResponse:
         errors_total.labels(error_type="celery_error", endpoint="redeem").inc()
         logger.error(f"Failed to submit Celery task: {e}")
 
-        # 回滚使用次数（补偿事务）
+        # 尝试回退到进程内异步队列
         try:
-            db.execute(
-                update(RedeemCode)
-                .where(RedeemCode.id == redeem_code.id)
-                .values(used_count=RedeemCode.used_count - 1)
+            from app.tasks import enqueue_invite
+            import asyncio
+            asyncio.create_task(enqueue_invite(
+                email=email,
+                redeem_code=redeem_code.code,
+                group_id=redeem_code.group_id,
+                is_rebind=False
+            ))
+            logger.info(f"Fallback to async queue succeeded for {email}")
+
+            return RedeemResponse(
+                success=True,
+                message="已加入队列，邀请将在几秒内发送，请查收邮箱",
+                team_name=None,
+                expires_at=redeem_code.user_expires_at,
+                remaining_days=redeem_code.remaining_days
             )
-            # 如果是首次使用，还需要清除绑定信息
-            if is_first_use:
+        except Exception as fallback_err:
+            logger.error(f"Fallback to async queue also failed: {fallback_err}")
+
+            # 回滚使用次数（补偿事务）
+            try:
                 db.execute(
                     update(RedeemCode)
                     .where(RedeemCode.id == redeem_code.id)
-                    .values(
-                        activated_at=None,
-                        bound_email=None
-                    )
+                    .values(used_count=RedeemCode.used_count - 1)
                 )
-            db.commit()
-            logger.info(f"Rolled back redeem code {redeem_code.code} after Celery failure")
-        except Exception as rollback_error:
-            logger.error(f"Failed to rollback redeem code: {rollback_error}")
+                # 如果是首次使用，还需要清除绑定信息
+                if is_first_use:
+                    db.execute(
+                        update(RedeemCode)
+                        .where(RedeemCode.id == redeem_code.id)
+                        .values(
+                            activated_at=None,
+                            bound_email=None
+                        )
+                    )
+                db.commit()
+                logger.info(f"Rolled back redeem code {redeem_code.code} after all failures")
+            except Exception as rollback_error:
+                logger.error(f"Failed to rollback redeem code: {rollback_error}")
 
-        raise HTTPException(status_code=503, detail={"error": "QUEUE_ERROR", "message": str(e)})
+            raise HTTPException(status_code=503, detail={"error": "QUEUE_ERROR", "message": "服务暂时不可用，请稍后重试"})
 
 
 def _mask_email(email: str) -> str:
@@ -861,7 +906,21 @@ async def get_invite_status(email: str, db: Session = Depends(get_db)):
             can_retry=False
         )
 
-    # 4. 没有找到任何记录
+    # 4. 如果 InviteRecord 显示成员被移除
+    if invite_record and invite_record.status == InviteStatus.REMOVED:
+        return InviteStatusResponse(
+            found=True,
+            email=normalized_email,
+            status="removed",
+            status_message=invite_record.error_message or "成员已被移除",
+            team_name=None,
+            created_at=invite_record.created_at,
+            processed_at=invite_record.created_at,
+            retry_count=0,
+            can_retry=False
+        )
+
+    # 5. 没有找到任何记录
     return InviteStatusResponse(found=False)
 
 
@@ -1035,7 +1094,28 @@ async def _do_rebind(data: RebindRequest, db: Session) -> RebindResponse:
     except Exception as e:
         errors_total.labels(error_type="celery_error", endpoint="rebind").inc()
         logger.error(f"Failed to submit rebind Celery task: {e}")
-        raise HTTPException(
-            status_code=503,
-            detail={"error": "QUEUE_ERROR", "message": str(e)}
-        )
+
+        # 尝试回退到进程内异步队列
+        try:
+            from app.tasks import enqueue_invite
+            import asyncio
+            asyncio.create_task(enqueue_invite(
+                email=email,
+                redeem_code=redeem_code.code,
+                group_id=redeem_code.group_id,
+                is_rebind=True
+            ))
+            logger.info(f"Fallback to async queue succeeded for rebind {email}")
+
+            message_suffix = "（免费换车）" if not consume_rebind_count else f"（{redeem_code.safe_rebind_count}/{redeem_code.safe_rebind_limit}）"
+            return RebindResponse(
+                success=True,
+                message=f"换车请求已提交{message_suffix}，新邀请将在几秒内发送，请查收邮箱",
+                new_team_name=None
+            )
+        except Exception as fallback_err:
+            logger.error(f"Fallback to async queue also failed for rebind: {fallback_err}")
+            raise HTTPException(
+                status_code=503,
+                detail={"error": "QUEUE_ERROR", "message": "服务暂时不可用，请稍后重试"}
+            )

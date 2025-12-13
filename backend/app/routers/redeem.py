@@ -8,8 +8,8 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel
 
 from app.database import get_db
-from app.models import RedeemCode, RedeemCodeType, User, TeamGroup, InviteRecord
-from app.services.auth import get_current_user
+from app.models import RedeemCode, RedeemCodeType, User, TeamGroup, InviteRecord, UserRole
+from app.services.auth import get_current_user, require_roles
 
 router = APIRouter(prefix="/redeem-codes", tags=["redeem-codes"])
 
@@ -67,11 +67,9 @@ async def list_redeem_codes(
     is_active: Optional[bool] = None,
     code_type: Optional[str] = None,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.OPERATOR, UserRole.DISTRIBUTOR))
 ):
     """获取兑换码列表"""
-    from app.models import UserRole
-
     query = db.query(RedeemCode)
 
     # 分销商只能查看自己创建的兑换码
@@ -118,10 +116,10 @@ async def list_redeem_codes(
 async def batch_create_codes(
     data: RedeemCodeCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.OPERATOR, UserRole.DISTRIBUTOR))
 ):
     """批量创建兑换码"""
-    from app.models import UserRole, SystemConfig
+    from app.models import SystemConfig
 
     if data.count < 1 or data.count > 100:
         raise HTTPException(status_code=400, detail="数量必须在 1-100 之间")
@@ -199,7 +197,7 @@ class BatchDeleteResponse(BaseModel):
 async def batch_delete_codes(
     data: BatchDeleteRequest,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.OPERATOR, UserRole.DISTRIBUTOR))
 ):
     """
     批量删除兑换码
@@ -207,7 +205,6 @@ async def batch_delete_codes(
     - 分销商只能删除自己创建的兑换码
     - 已使用的兑换码不能删除（会被跳过）
     """
-    from app.models import UserRole
     from app.logger import get_logger
     logger = get_logger(__name__)
 
@@ -274,11 +271,9 @@ async def batch_delete_codes(
 async def delete_code(
     code_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.OPERATOR, UserRole.DISTRIBUTOR))
 ):
     """删除兑换码"""
-    from app.models import UserRole
-
     code = db.query(RedeemCode).filter(RedeemCode.id == code_id).first()
     if not code:
         raise HTTPException(status_code=404, detail="兑换码不存在")
@@ -308,7 +303,7 @@ async def delete_code(
 async def toggle_code(
     code_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.OPERATOR, UserRole.DISTRIBUTOR))
 ):
     """禁用/启用兑换码"""
     code = db.query(RedeemCode).filter(RedeemCode.id == code_id).first()
@@ -338,7 +333,7 @@ class InviteRecordResponse(BaseModel):
 async def get_code_records(
     code_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
+    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.OPERATOR, UserRole.DISTRIBUTOR))
 ):
     """获取兑换码使用记录"""
     code = db.query(RedeemCode).filter(RedeemCode.id == code_id).first()
