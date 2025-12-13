@@ -149,41 +149,49 @@ async def handle_command(text: str, user_id: str, chat_id: str, db: Session, bot
         return
 
     if text == "/status":
-        teams = db.query(Team).filter(Team.is_active == True).all()
-        total_seats = sum(t.max_seats for t in teams)
-        used_seats = sum(db.query(TeamMember).filter(TeamMember.team_id == t.id).count() for t in teams)
+        from app.services.seat_calculator import get_all_teams_with_seats
+
+        teams_with_seats = get_all_teams_with_seats(db, only_active=True)
+        total_seats = sum(t.max_seats for t in teams_with_seats)
+        used_seats = sum(t.confirmed_members for t in teams_with_seats)
         active_codes = db.query(RedeemCode).filter(RedeemCode.is_active == True).count()
+
         pct = int((used_seats / total_seats * 100)) if total_seats > 0 else 0
         icon = "🔴" if pct >= 90 else ("🟡" if pct >= 70 else "🟢")
-        msg = f"<b>📊 系统概览</b>\n\n{icon} 运行正常\n\n<b>💺 座位</b>\n{make_circle_bar(pct)}\n{used_seats}/{total_seats} ({pct}%)\n\nTeam: {len(teams)} | 兑换码: {active_codes}"
+        msg = f"<b>📊 系统概览</b>\n\n{icon} 运行正常\n\n<b>💺 座位</b>\n{make_circle_bar(pct)}\n{used_seats}/{total_seats} ({pct}%)\n\nTeam: {len(teams_with_seats)} | 兑换码: {active_codes}"
         await send_telegram_message(bot_token, chat_id, msg)
         return
 
     if text == "/seats":
-        teams = db.query(Team).filter(Team.is_active == True).all()
+        from app.services.seat_calculator import get_all_teams_with_seats
+
+        teams_with_seats = get_all_teams_with_seats(db, only_active=True)
         msg = "<b>💺 座位统计</b>\n\n"
         total_used, total_max = 0, 0
-        for team in teams:
-            count = db.query(TeamMember).filter(TeamMember.team_id == team.id).count()
-            total_used += count
-            total_max += team.max_seats
-            pct = int((count / team.max_seats) * 100) if team.max_seats > 0 else 0
-            icon = "🔴" if count >= team.max_seats else ("🟡" if count >= team.max_seats - 2 else "🟢")
+
+        for t in teams_with_seats:
+            total_used += t.confirmed_members
+            total_max += t.max_seats
+            pct = int((t.confirmed_members / t.max_seats) * 100) if t.max_seats > 0 else 0
+            icon = "🔴" if t.confirmed_members >= t.max_seats else ("🟡" if t.confirmed_members >= t.max_seats - 2 else "🟢")
             bar = "●" * round(pct / 10) + "○" * (10 - round(pct / 10))
-            msg += f"{icon} <b>{team.name}</b>\n{bar} {count}/{team.max_seats}\n\n"
+            msg += f"{icon} <b>{t.team_name}</b>\n{bar} {t.confirmed_members}/{t.max_seats}\n\n"
         total_pct = int((total_used / total_max * 100)) if total_max > 0 else 0
         msg += f"<b>总计</b>: {total_used}/{total_max} ({total_pct}%)"
         await send_telegram_message(bot_token, chat_id, msg)
         return
 
     if text == "/teams":
-        teams = db.query(Team).filter(Team.is_active == True).all()
+        from app.services.seat_calculator import get_all_teams_with_seats
+
+        teams_with_seats = get_all_teams_with_seats(db, only_active=True)
         msg = "<b>👥 Team 列表</b>\n\n"
-        for i, team in enumerate(teams, 1):
-            count = db.query(TeamMember).filter(TeamMember.team_id == team.id).count()
-            avail = team.max_seats - count
+
+        for i, t in enumerate(teams_with_seats, 1):
+            avail = t.available_seats
             badge = "🔴已满" if avail <= 0 else (f"🟡剩{avail}" if avail <= 2 else f"🟢剩{avail}")
-            msg += f"{i}. {team.name} ({count}/{team.max_seats}) {badge}\n"
+            msg += f"{i}. {t.team_name} ({t.confirmed_members}/{t.max_seats}) {badge}\n"
+
         await send_telegram_message(bot_token, chat_id, msg)
         return
 
@@ -319,32 +327,73 @@ async def handle_command(text: str, user_id: str, chat_id: str, db: Session, bot
     if text.startswith("/remove"):
         parts = text.split(maxsplit=1)
         if len(parts) < 2:
-            await send_telegram_message(bot_token, chat_id, "用法: /remove 邮箱")
+            await send_telegram_message(bot_token, chat_id, "用法: /remove 邮箱 [team_id]")
             return
-        email = parts[1].strip().lower()
-        # 查找成员
-        member = db.query(TeamMember).filter(TeamMember.email == email).first()
-        if not member:
-            await send_telegram_message(bot_token, chat_id, f"❌ 未找到成员 <code>{email}</code>")
+
+        args = parts[1].strip().split()
+        email = args[0].lower()
+        target_team_id = int(args[1]) if len(args) > 1 else None
+
+        # 查找该用户的所有 Team
+        members = db.query(TeamMember).filter(TeamMember.email == email).all()
+
+        if not members:
+            await send_telegram_message(bot_token, chat_id, f"❌ 未找到成员: <code>{email}</code>")
             return
+
+        # 用户在多个 Team，需要指定
+        if len(members) > 1 and not target_team_id:
+            team_list = '\n'.join([
+                f"• {db.query(Team).filter(Team.id == m.team_id).first().name} (ID: {m.team_id})"
+                for m in members
+            ])
+            await send_telegram_message(
+                bot_token, chat_id,
+                f"⚠️ 用户在 {len(members)} 个 Team:\n\n{team_list}\n\n用法: /remove {email} team_id"
+            )
+            return
+
+        # 选择目标成员
+        member = None
+        if target_team_id:
+            member = next((m for m in members if m.team_id == target_team_id), None)
+            if not member:
+                await send_telegram_message(bot_token, chat_id, f"❌ 用户不在 Team {target_team_id}")
+                return
+        else:
+            member = members[0]
+
         team = db.query(Team).filter(Team.id == member.team_id).first()
         if not team:
             await send_telegram_message(bot_token, chat_id, "❌ Team 不存在")
             return
+
+        # 检查 chatgpt_user_id
+        if not member.chatgpt_user_id:
+            await send_telegram_message(
+                bot_token, chat_id,
+                f"❌ 无法移除: 缺少 ChatGPT User ID\n\n建议先执行: /sync {team.id}"
+            )
+            return
+
         # 移除成员
         try:
             from app.services.chatgpt_api import ChatGPTAPI, ChatGPTAPIError
             api = ChatGPTAPI(team.session_token, team.device_id or "", team.cookie or "")
             await api.remove_member(team.account_id, member.chatgpt_user_id)
-            # 删除本地记录
+
             db.delete(member)
             db.commit()
-            await send_telegram_message(bot_token, chat_id, f"✅ <b>已移除</b>\n\n📧 {email}\n👥 原 Team: {team.name}")
+
+            await send_telegram_message(bot_token, chat_id, f"✅ <b>已移除</b>\n\n📧 {email}\n👥 Team: {team.name}")
         except ChatGPTAPIError as e:
-            await send_telegram_message(bot_token, chat_id, f"❌ 移除失败: {e.message}")
+            # HTML 转义错误消息
+            error_msg = str(e.message).replace("<", "&lt;").replace(">", "&gt;")
+            await send_telegram_message(bot_token, chat_id, f"❌ 移除失败: {error_msg}")
         except Exception as e:
             logger.error(f"Remove error: {e}")
-            await send_telegram_message(bot_token, chat_id, f"❌ 移除失败: {str(e)[:100]}")
+            error_msg = str(e)[:100].replace("<", "&lt;").replace(">", "&gt;")
+            await send_telegram_message(bot_token, chat_id, f"❌ 移除失败: {error_msg}")
         return
 
     if text.startswith("/codes"):

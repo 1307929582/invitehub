@@ -20,7 +20,7 @@ class RedeemCodeCreate(BaseModel):
     validity_days: int = 30  # 用户有效天数（从激活开始计算）
     count: int = 1
     prefix: str = ""
-    code_type: str = "direct"  # linuxdo 或 direct（商业版默认 direct）
+    code_type: str = "direct"  # 仅支持 direct（LinuxDO 已废弃）
     note: Optional[str] = None
     group_id: Optional[int] = None  # 绑定分组
 

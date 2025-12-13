@@ -58,14 +58,24 @@ async def get_dashboard_stats(
         InviteRecord.created_at >= week_ago
     ).count()
     
-    # 近7天邀请趋势
+    # 近7天邀请趋势（优化：一次查询代替 7 次）
+    week_ago_date = (datetime.utcnow() - timedelta(days=7)).date()
+    trend_data = db.query(
+        func.date(InviteRecord.created_at).label('date'),
+        func.count(InviteRecord.id).label('count')
+    ).filter(
+        func.date(InviteRecord.created_at) >= week_ago_date
+    ).group_by(func.date(InviteRecord.created_at)).all()
+
+    # 构建完整的 7 天数据（填充缺失日期为 0）
+    trend_map = {str(row.date): row.count for row in trend_data}
     invite_trend = []
     for i in range(6, -1, -1):
         date = (datetime.utcnow() - timedelta(days=i)).date()
-        count = db.query(InviteRecord).filter(
-            func.date(InviteRecord.created_at) == date
-        ).count()
-        invite_trend.append({"date": date.isoformat(), "count": count})
+        invite_trend.append({
+            "date": date.isoformat(),
+            "count": trend_map.get(str(date), 0)
+        })
     
     return {
         "total_teams": total_teams,
@@ -82,47 +92,29 @@ async def get_seat_stats(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user)
 ):
-    """获取座位统计（管理员）"""
-    teams = db.query(Team).filter(Team.is_active == True).all()
-    
-    total_seats = 0
-    total_used = 0
-    total_pending = 0
-    team_infos = []
-    
-    for team in teams:
-        max_seats = team.max_seats
-        total_seats += max_seats
-        
-        # 已同步成员
-        used = db.query(TeamMember).filter(TeamMember.team_id == team.id).count()
-        total_used += used
-        
-        # 已邀请未接受
-        pending = db.query(InviteRecord).filter(
-            InviteRecord.team_id == team.id,
-            InviteRecord.status == InviteStatus.SUCCESS,
-            InviteRecord.accepted_at == None
-        ).count()
-        total_pending += pending
-        
-        available = max_seats - used - pending
-        if available < 0:
-            available = 0
-        
-        team_infos.append(TeamSeatInfo(
-            id=team.id,
-            name=team.name,
-            max_seats=max_seats,
-            used_seats=used,
-            pending_seats=pending,
-            available_seats=available
-        ))
-    
-    total_available = total_seats - total_used - total_pending
-    if total_available < 0:
-        total_available = 0
-    
+    """获取座位统计（优化：使用 SeatCalculator）"""
+    from app.services.seat_calculator import get_all_teams_with_seats
+
+    # 使用 SeatCalculator 一次性获取所有数据（已优化）
+    teams_with_seats = get_all_teams_with_seats(db, only_active=True)
+
+    total_seats = sum(t.max_seats for t in teams_with_seats)
+    total_used = sum(t.confirmed_members for t in teams_with_seats)
+    total_pending = sum(t.pending_invites for t in teams_with_seats)
+    total_available = sum(t.available_seats for t in teams_with_seats)
+
+    team_infos = [
+        TeamSeatInfo(
+            id=t.team_id,
+            name=t.team_name,
+            max_seats=t.max_seats,
+            used_seats=t.confirmed_members,
+            pending_seats=t.pending_invites,
+            available_seats=t.available_seats
+        )
+        for t in teams_with_seats
+    ]
+
     return SeatStatsResponse(
         total_seats=total_seats,
         used_seats=total_used,
