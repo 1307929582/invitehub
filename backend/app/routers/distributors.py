@@ -448,6 +448,17 @@ async def remove_member(
     logger = get_logger(__name__)
     logger.info(f"Distributor {current_user.username} removed member {payload.email} from team {team.name}")
 
+    # 发送 Telegram 通知
+    from app.services.telegram import send_admin_notification
+    await send_admin_notification(
+        db, "distributor_member_removed",
+        distributor_name=current_user.username,
+        email=payload.email,
+        team_name=team.name,
+        redeem_code=invite_record.redeem_code,
+        reason=payload.reason or ""
+    )
+
     return {
         "message": "成员移除成功",
         "email": payload.email,
@@ -533,7 +544,12 @@ async def add_member(
     # 触发 Celery 邀请任务
     try:
         from app.tasks_celery import process_invite_task
-        process_invite_task.delay(new_invite.id)
+        process_invite_task.delay(
+            email=payload.email.lower(),
+            redeem_code=previous_invite.redeem_code,
+            group_id=redeem_code.group_id,
+            is_rebind=False
+        )
     except Exception as e:
         # 如果 Celery 不可用，回退到同步处理
         from app.logger import get_logger
@@ -543,6 +559,16 @@ async def add_member(
     from app.logger import get_logger
     logger = get_logger(__name__)
     logger.info(f"Distributor {current_user.username} re-invited {payload.email} to team {team.name}")
+
+    # 发送 Telegram 通知
+    from app.services.telegram import send_admin_notification
+    await send_admin_notification(
+        db, "distributor_member_readded",
+        distributor_name=current_user.username,
+        email=payload.email,
+        team_name=team.name,
+        redeem_code=previous_invite.redeem_code
+    )
 
     return {
         "message": "邀请任务已创建",

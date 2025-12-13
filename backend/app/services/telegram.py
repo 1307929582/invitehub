@@ -387,6 +387,12 @@ async def send_admin_notification(db, action: str, **kwargs):
             await notify_migration_started(bot_token, chat_id, kwargs.get("source_teams", []), kwargs.get("target_team", ""), kwargs.get("email_count", 0), kwargs.get("operator", ""))
         elif action == "migration_completed":
             await notify_migration_completed(bot_token, chat_id, kwargs.get("source_teams", []), kwargs.get("target_team", ""), kwargs.get("success_count", 0), kwargs.get("fail_count", 0), kwargs.get("operator", ""))
+        elif action == "distributor_code_used":
+            await notify_distributor_code_used(bot_token, chat_id, kwargs.get("distributor_name", ""), kwargs.get("email", ""), kwargs.get("team_name", ""), kwargs.get("redeem_code", ""), kwargs.get("today_sales", 0), kwargs.get("total_sales", 0))
+        elif action == "distributor_member_removed":
+            await notify_distributor_member_removed(bot_token, chat_id, kwargs.get("distributor_name", ""), kwargs.get("email", ""), kwargs.get("team_name", ""), kwargs.get("redeem_code", ""), kwargs.get("reason", ""))
+        elif action == "distributor_member_readded":
+            await notify_distributor_member_readded(bot_token, chat_id, kwargs.get("distributor_name", ""), kwargs.get("email", ""), kwargs.get("team_name", ""), kwargs.get("redeem_code", ""))
     except Exception as e:
         logger.warning(f"Admin notification failed: {e}")
 
@@ -420,14 +426,99 @@ async def notify_unauthorized_removed(bot_token: str, chat_id: str, team_name: s
     message += f"👥 Team: {team_name}\n"
     message += f"🗑️ 已删除: {count} 人\n"
     message += f"👤 操作人: {operator}\n\n"
-    
+
     if emails:
         message += "已删除邮箱：\n"
         for email in emails[:5]:
             message += f"• <code>{email}</code>\n"
         if len(emails) > 5:
             message += f"... 还有 {len(emails) - 5} 个\n"
-    
+
+    try:
+        await send_telegram_message(bot_token, chat_id, message)
+    except:
+        pass
+
+
+# ========== 分销商专属通知 ==========
+
+async def notify_distributor_code_used(
+    bot_token: str,
+    chat_id: str,
+    distributor_name: str,
+    email: str,
+    team_name: str,
+    redeem_code: str,
+    today_sales: int,
+    total_sales: int
+):
+    """
+    通知分销商其兑换码被使用
+
+    当分销商的兑换码成功邀请用户时，发送通知
+    """
+    message = f"💰 <b>新销售！</b>\n\n"
+    message += f"👤 分销商: {distributor_name}\n"
+    message += f"📧 用户: <code>{email}</code>\n"
+    message += f"👥 Team: {team_name}\n"
+    message += f"🎫 兑换码: <code>{redeem_code}</code>\n"
+    message += f"\n📊 今日销售: {today_sales} | 总销售: {total_sales}"
+
+    try:
+        await send_telegram_message(bot_token, chat_id, message)
+    except:
+        pass
+
+
+async def notify_distributor_member_removed(
+    bot_token: str,
+    chat_id: str,
+    distributor_name: str,
+    email: str,
+    team_name: str,
+    redeem_code: str,
+    reason: str = ""
+):
+    """
+    通知分销商其成员被移除
+
+    当分销商移除其成员时，发送通知
+    """
+    message = f"👋 <b>成员移除</b>\n\n"
+    message += f"👤 分销商: {distributor_name}\n"
+    message += f"📧 邮箱: <code>{email}</code>\n"
+    message += f"👥 Team: {team_name}\n"
+    message += f"🎫 兑换码: <code>{redeem_code}</code>\n"
+    if reason:
+        message += f"📝 原因: {reason}\n"
+    message += f"\n✅ 兑换码使用次数已恢复"
+
+    try:
+        await send_telegram_message(bot_token, chat_id, message)
+    except:
+        pass
+
+
+async def notify_distributor_member_readded(
+    bot_token: str,
+    chat_id: str,
+    distributor_name: str,
+    email: str,
+    team_name: str,
+    redeem_code: str
+):
+    """
+    通知分销商重新邀请成员
+
+    当分销商重新邀请之前被移除的成员时，发送通知
+    """
+    message = f"🔄 <b>成员重新邀请</b>\n\n"
+    message += f"👤 分销商: {distributor_name}\n"
+    message += f"📧 邮箱: <code>{email}</code>\n"
+    message += f"👥 Team: {team_name}\n"
+    message += f"🎫 兑换码: <code>{redeem_code}</code>\n"
+    message += f"\n⏳ 邀请任务已创建，请等待处理"
+
     try:
         await send_telegram_message(bot_token, chat_id, message)
     except:

@@ -146,10 +146,16 @@ async def batch_create_codes(
             except ValueError:
                 pass  # 如果配置值无效，保持 None
 
+    # 分销商兑换码自动添加 ID 前缀，格式：D{id}_
+    # 管理员创建的兑换码使用用户指定的前缀（或无前缀）
+    effective_prefix = data.prefix
+    if current_user.role == UserRole.DISTRIBUTOR:
+        effective_prefix = f"D{current_user.id}_"
+
     codes = []
     for _ in range(data.count):
         while True:
-            code_str = generate_code(data.prefix)
+            code_str = generate_code(effective_prefix)
             existing = db.query(RedeemCode).filter(RedeemCode.code == code_str).first()
             if not existing:
                 break

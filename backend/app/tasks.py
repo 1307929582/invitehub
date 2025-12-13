@@ -290,13 +290,13 @@ async def _process_team_invites_with_lock(
                             # 踢人失败不影响整体流程，只记录日志
 
                 # 发送 Telegram 通知（分别通知换车和普通上车）
-                rebind_emails = [t.email for t in tasks_to_process if t.is_rebind]
-                normal_emails = [t.email for t in tasks_to_process if not t.is_rebind]
+                rebind_tasks = [t for t in tasks_to_process if t.is_rebind]
+                normal_tasks = [t for t in tasks_to_process if not t.is_rebind]
 
-                if normal_emails:
-                    await send_batch_telegram_notify(db, normal_emails, team.name, is_rebind=False)
-                if rebind_emails:
-                    await send_batch_telegram_notify(db, rebind_emails, team.name, is_rebind=True)
+                if normal_tasks:
+                    await send_batch_telegram_notify(db, normal_tasks, team.name, is_rebind=False)
+                if rebind_tasks:
+                    await send_batch_telegram_notify(db, rebind_tasks, team.name, is_rebind=True)
                 
             except ChatGPTAPIError as e:
                 logger.error(f"Batch invite to {team.name} failed: {e.message}")
@@ -390,10 +390,30 @@ async def _remove_from_old_team(db, task, new_team_name: str):
         logger.error(f"Unexpected error kicking {task.email}: {e}")
 
 
-async def send_batch_telegram_notify(db, emails: List[str], team_name: str, is_rebind: bool = False, old_team_name: str = None):
-    """批量发送 Telegram 通知"""
-    from app.models import SystemConfig
-    from app.services.telegram import send_telegram_message
+async def send_batch_telegram_notify(
+    db,
+    tasks: List,
+    team_name: str,
+    is_rebind: bool = False,
+    old_team_name: str = None
+):
+    """
+    批量发送 Telegram 通知
+
+    Args:
+        db: 数据库会话
+        tasks: InviteTask 列表（包含 email 和 redeem_code）
+        team_name: Team 名称
+        is_rebind: 是否为换车操作
+        old_team_name: 原 Team 名称（换车时使用）
+    """
+    from app.models import SystemConfig, RedeemCode, User, UserRole
+    from app.services.telegram import send_telegram_message, send_admin_notification
+    from app.utils.timezone import get_today_range_utc8
+    from sqlalchemy import func
+
+    if not tasks:
+        return
 
     try:
         def get_cfg(key):
@@ -413,17 +433,70 @@ async def send_batch_telegram_notify(db, emails: List[str], team_name: str, is_r
             if old_team_name:
                 msg += f"📤 原 Team: {old_team_name}\n"
             msg += f"📥 新 Team: {team_name}\n"
-            msg += f"📧 人数: {len(emails)}\n\n"
+            msg += f"📧 人数: {len(tasks)}\n\n"
         else:
-            msg = f"🎉 <b>新用户上车</b>\n\n👥 Team: {team_name}\n📧 人数: {len(emails)}\n\n"
+            msg = f"🎉 <b>新用户上车</b>\n\n👥 Team: {team_name}\n📧 人数: {len(tasks)}\n\n"
 
-        if len(emails) <= 5:
-            msg += "\n".join([f"• <code>{e}</code>" for e in emails])
+        # 显示详情（包含兑换码）
+        if len(tasks) <= 5:
+            for task in tasks:
+                code_str = f" | 🎫 <code>{task.redeem_code}</code>" if task.redeem_code else ""
+                msg += f"• <code>{task.email}</code>{code_str}\n"
         else:
-            msg += "\n".join([f"• <code>{e}</code>" for e in emails[:5]])
-            msg += f"\n... 等 {len(emails)} 人"
-        
+            for task in tasks[:5]:
+                code_str = f" | 🎫 <code>{task.redeem_code}</code>" if task.redeem_code else ""
+                msg += f"• <code>{task.email}</code>{code_str}\n"
+            msg += f"\n... 等 {len(tasks)} 人"
+
         await send_telegram_message(bot_token, chat_id, msg)
+
+        # 发送分销商专属通知（每个分销商单独通知）
+        today_start, today_end = get_today_range_utc8()
+
+        for task in tasks:
+            if not task.redeem_code:
+                continue
+
+            # 查找兑换码的创建者
+            code = db.query(RedeemCode).filter(RedeemCode.code == task.redeem_code).first()
+            if not code or not code.created_by:
+                continue
+
+            # 检查是否为分销商创建的兑换码
+            distributor = db.query(User).filter(
+                User.id == code.created_by,
+                User.role == UserRole.DISTRIBUTOR
+            ).first()
+
+            if not distributor:
+                continue
+
+            # 统计分销商今日和总销售
+            from app.models import InviteRecord, InviteStatus
+            total_sales = db.query(func.coalesce(func.sum(RedeemCode.used_count), 0)).filter(
+                RedeemCode.created_by == distributor.id
+            ).scalar() or 0
+
+            today_sales = db.query(func.count(InviteRecord.id)).filter(
+                InviteRecord.redeem_code.in_(
+                    db.query(RedeemCode.code).filter(RedeemCode.created_by == distributor.id)
+                ),
+                InviteRecord.status == InviteStatus.SUCCESS,
+                InviteRecord.created_at >= today_start,
+                InviteRecord.created_at < today_end
+            ).scalar() or 0
+
+            # 发送分销商销售通知
+            await send_admin_notification(
+                db, "distributor_code_used",
+                distributor_name=distributor.username,
+                email=task.email,
+                team_name=team_name,
+                redeem_code=task.redeem_code,
+                today_sales=today_sales,
+                total_sales=int(total_sales)
+            )
+
     except Exception as e:
         logger.warning(f"Telegram batch notify failed: {e}")
 
