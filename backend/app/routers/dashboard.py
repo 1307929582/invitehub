@@ -14,6 +14,14 @@ from app.services.auth import get_current_user
 router = APIRouter(prefix="/dashboard", tags=["Dashboard"])
 
 
+class DashboardSummaryResponse(BaseModel):
+    """Dashboard 汇总数据"""
+    kpi: dict
+    team_status_distribution: List[dict]
+    activity_trend: List[dict]
+    attention_teams: List[dict]
+
+
 class TeamSeatInfo(BaseModel):
     id: int
     name: str
@@ -29,6 +37,57 @@ class SeatStatsResponse(BaseModel):
     pending_seats: int
     available_seats: int
     teams: List[TeamSeatInfo]
+
+
+@router.get("/summary", response_model=DashboardSummaryResponse)
+async def get_dashboard_summary(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """Dashboard 汇总数据（优化：一次调用）"""
+    from app.services.seat_calculator import get_total_seat_stats
+    from app.models import TeamStatus, RebindHistory
+
+    seat_stats = get_total_seat_stats(db)
+    total_teams = db.query(Team).count()
+    today = datetime.utcnow().date()
+    today_invites = db.query(func.count(InviteRecord.id)).filter(func.date(InviteRecord.created_at) == today).scalar() or 0
+    today_rebinds = db.query(func.count(RebindHistory.id)).filter(func.date(RebindHistory.created_at) == today).scalar() or 0
+
+    kpi = {
+        "seat_utilization": {
+            "percentage": round((seat_stats["confirmed_members"] / seat_stats["total_seats"] * 100), 1) if seat_stats["total_seats"] > 0 else 0,
+            "used": seat_stats["confirmed_members"],
+            "total": seat_stats["total_seats"]
+        },
+        "today_activity": {"new_users": today_invites, "rebinds": today_rebinds},
+        "total_teams": total_teams
+    }
+
+    status_dist = db.query(Team.status, func.count(Team.id)).group_by(Team.status).all()
+    team_status_distribution = [{"type": s.value, "value": c} for s, c in status_dist]
+
+    week_ago = datetime.utcnow() - timedelta(days=7)
+    trend_invites = db.query(func.date(InviteRecord.created_at).label('date'), func.count(InviteRecord.id).label('count')).filter(InviteRecord.created_at >= week_ago).group_by(func.date(InviteRecord.created_at)).all()
+    trend_rebinds = db.query(func.date(RebindHistory.created_at).label('date'), func.count(RebindHistory.id).label('count')).filter(RebindHistory.created_at >= week_ago).group_by(func.date(RebindHistory.created_at)).all()
+
+    activity_trend = []
+    for row in trend_invites:
+        activity_trend.append({"date": str(row.date), "value": row.count, "category": "新增邀请"})
+    for row in trend_rebinds:
+        activity_trend.append({"date": str(row.date), "value": row.count, "category": "换车次数"})
+
+    attention_teams_query = db.query(Team).filter(Team.status.in_([TeamStatus.BANNED, TeamStatus.TOKEN_INVALID])).limit(10).all()
+    member_counts = db.query(TeamMember.team_id, func.count(TeamMember.id)).filter(TeamMember.team_id.in_([t.id for t in attention_teams_query])).group_by(TeamMember.team_id).all()
+    count_map = dict(member_counts)
+
+    attention_teams = []
+    for team in attention_teams_query:
+        reason = "被封禁" if team.status == TeamStatus.BANNED else "Token 失效"
+        member_count = count_map.get(team.id, 0)
+        attention_teams.append({"id": team.id, "name": team.name, "status": team.status.value, "reason": reason, "members": f"{member_count}/{team.max_seats}"})
+
+    return DashboardSummaryResponse(kpi=kpi, team_status_distribution=team_status_distribution, activity_trend=activity_trend, attention_teams=attention_teams)
 
 
 @router.get("/stats")
