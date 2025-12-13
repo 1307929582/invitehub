@@ -9,6 +9,7 @@ from datetime import datetime
 from app.database import get_db
 from app.models import User, UserRole, RedeemCode, InviteRecord, UserApprovalStatus, Team, TeamMember, InviteStatus
 from app.services.auth import get_current_user, require_roles
+from app.utils.timezone import to_beijing_iso
 
 router = APIRouter(prefix="/distributors", tags=["分销商管理"])
 
@@ -96,7 +97,7 @@ async def list_distributors(
             username=dist.username,
             email=dist.email,
             approval_status=dist.approval_status.value,
-            created_at=dist.created_at.isoformat() if dist.created_at else "",
+            created_at=to_beijing_iso(dist.created_at),
             total_codes=total_codes,
             active_codes=active_codes,
             total_sales=int(total_sales)
@@ -217,8 +218,8 @@ async def get_my_sales(
             email=r.email,
             team_name=teams.get(r.team_id, "未知"),
             status=r.status.value,
-            created_at=r.created_at.isoformat() if r.created_at else "",
-            accepted_at=r.accepted_at.isoformat() if r.accepted_at else None
+            created_at=to_beijing_iso(r.created_at),
+            accepted_at=to_beijing_iso(r.accepted_at) or None
         )
         for r in records
     ]
@@ -278,8 +279,8 @@ async def get_distributor_sales(
             email=r.email,
             team_name=teams.get(r.team_id, "未知"),
             status=r.status.value,
-            created_at=r.created_at.isoformat() if r.created_at else "",
-            accepted_at=r.accepted_at.isoformat() if r.accepted_at else None
+            created_at=to_beijing_iso(r.created_at),
+            accepted_at=to_beijing_iso(r.accepted_at) or None
         )
         for r in records
     ]
@@ -359,7 +360,7 @@ async def get_my_members(
             team_id=r.team_id,
             team_name=teams.get(r.team_id, "未知"),
             redeem_code=r.redeem_code,
-            joined_at=r.accepted_at.isoformat() if r.accepted_at else None,
+            joined_at=to_beijing_iso(r.accepted_at) or None,
             status="active" if is_active else "removed"
         ))
 

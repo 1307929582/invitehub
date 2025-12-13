@@ -18,6 +18,7 @@ from app.logger import get_logger
 from app.cache import get_redis
 from app.services.distributed_limiter import DistributedLimiter
 from app.services.redeem_limiter import RedeemLimiter
+from app.utils.timezone import to_beijing_iso
 
 router = APIRouter(prefix="/public", tags=["public"])
 logger = get_logger(__name__)
@@ -220,11 +221,11 @@ async def get_direct_code_info(code: str, db: Session = Depends(get_db)):
     
     if redeem_code.used_count >= redeem_code.max_uses:
         raise HTTPException(status_code=400, detail="兑换码已用完")
-    
+
     return {
         "valid": True,
         "remaining": redeem_code.max_uses - redeem_code.used_count,
-        "expires_at": redeem_code.expires_at.isoformat() if redeem_code.expires_at else None
+        "expires_at": to_beijing_iso(redeem_code.expires_at) or None
     }
 
 

@@ -125,3 +125,28 @@ def to_beijing_str(dt: datetime, fmt: str = "%Y-%m-%d %H:%M:%S") -> str:
 def to_beijing_date_str(dt: datetime) -> str:
     """将 UTC datetime 转换为北京时间日期字符串 (YYYY-MM-DD)"""
     return to_beijing_str(dt, "%Y-%m-%d")
+
+
+def to_beijing_iso(dt: datetime) -> str:
+    """
+    将 UTC datetime 转换为北京时间的 ISO 格式字符串
+
+    用于 API 返回时间字段，确保前端显示正确的北京时间
+
+    Args:
+        dt: UTC datetime（naive 或 aware）
+
+    Returns:
+        北京时间 ISO 格式字符串，如 "2025-01-15T14:30:00"
+        如果 dt 为 None，返回空字符串
+    """
+    if dt is None:
+        return ""
+
+    # 如果是 naive datetime，假定为 UTC
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC_TZ)
+
+    beijing_dt = dt.astimezone(BEIJING_TZ)
+    # 返回不带时区后缀的 ISO 格式（前端直接显示）
+    return beijing_dt.strftime("%Y-%m-%dT%H:%M:%S")

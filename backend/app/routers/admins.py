@@ -8,7 +8,7 @@ from typing import List, Optional
 from app.database import get_db
 from app.models import User, UserRole, UserApprovalStatus, RedeemCode, InviteRecord, TeamMember, InviteStatus, SystemConfig
 from app.services.auth import get_current_user, get_password_hash
-from app.utils.timezone import get_today_range_utc8, get_week_range_utc8, get_month_range_utc8
+from app.utils.timezone import get_today_range_utc8, get_week_range_utc8, get_month_range_utc8, to_beijing_iso
 
 router = APIRouter(prefix="/admins", tags=["管理员管理"])
 
@@ -55,7 +55,7 @@ async def list_admins(
         email=u.email,
         role=u.role.value,
         is_active=u.is_active,
-        created_at=u.created_at.isoformat() if u.created_at else ""
+        created_at=to_beijing_iso(u.created_at)
     ) for u in users]
 
 
@@ -104,7 +104,7 @@ async def create_admin(
         email=user.email,
         role=user.role.value,
         is_active=user.is_active,
-        created_at=user.created_at.isoformat() if user.created_at else ""
+        created_at=to_beijing_iso(user.created_at)
     )
 
 
@@ -153,7 +153,7 @@ async def update_admin(
         email=user.email,
         role=user.role.value,
         is_active=user.is_active,
-        created_at=user.created_at.isoformat() if user.created_at else ""
+        created_at=to_beijing_iso(user.created_at)
     )
 
 
@@ -226,7 +226,7 @@ async def list_pending_distributors(
             id=u.id,
             username=u.username,
             email=u.email,
-            created_at=u.created_at.isoformat() if u.created_at else "",
+            created_at=to_beijing_iso(u.created_at),
             approval_status=u.approval_status.value,
             rejection_reason=u.rejection_reason,
         )
@@ -527,7 +527,7 @@ async def get_distributors_analytics(
             username=dist.username,
             email=dist.email,
             approval_status=dist.approval_status.value,
-            created_at=dist.created_at.isoformat() if dist.created_at else "",
+            created_at=to_beijing_iso(dist.created_at),
             total_codes=total_codes,
             active_codes=active_codes,
             total_sales=int(total_sales),
@@ -660,7 +660,7 @@ async def get_distributor_detail(
                 "redeem_code": r.redeem_code,
                 "team_name": teams.get(r.team_id, "未知"),
                 "status": r.status.value,
-                "created_at": r.created_at.isoformat() if r.created_at else ""
+                "created_at": to_beijing_iso(r.created_at)
             }
             for r in records
         ]
@@ -671,7 +671,7 @@ async def get_distributor_detail(
             username=distributor.username,
             email=distributor.email,
             approval_status=distributor.approval_status.value,
-            created_at=distributor.created_at.isoformat() if distributor.created_at else "",
+            created_at=to_beijing_iso(distributor.created_at),
             total_codes=total_codes,
             active_codes=active_codes,
             total_sales=int(total_sales),

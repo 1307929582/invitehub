@@ -18,6 +18,7 @@ from app.schemas import (
     TeamBulkStatusUpdate, TeamBulkStatusResponse
 )
 from app.services.auth import get_current_user
+from app.utils.timezone import to_beijing_iso
 from app.services.chatgpt_api import ChatGPTAPI, ChatGPTAPIError, TokenInvalidError, TeamBannedError
 
 router = APIRouter(prefix="/teams", tags=["Team 管理"])
@@ -96,7 +97,7 @@ async def get_all_unauthorized_members(
             "name": m.name,
             "role": m.role,
             "chatgpt_user_id": m.chatgpt_user_id,
-            "synced_at": m.synced_at.isoformat() if m.synced_at else None
+            "synced_at": to_beijing_iso(m.synced_at) or None
         })
     
     return {"members": result, "total": len(result)}
