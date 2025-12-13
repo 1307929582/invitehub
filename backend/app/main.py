@@ -338,6 +338,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Telegram Webhook 安全验证中间件（防止伪造攻击）
+try:
+    from app.middleware.telegram_webhook import TelegramWebhookSecretMiddleware
+    app.add_middleware(
+        TelegramWebhookSecretMiddleware,
+        path=f"{settings.API_PREFIX}/telegram/webhook",
+        enable_ip_allowlist=False  # IP 白名单可选，需要反代配置可信
+    )
+    logger.info("Telegram Webhook security middleware enabled")
+except ImportError as e:
+    logger.warning(f"Telegram Webhook middleware not available: {e}")
+
 
 # 请求日志中间件
 @app.middleware("http")

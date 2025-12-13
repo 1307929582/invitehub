@@ -10,8 +10,10 @@ from app.models import SystemConfig, User, Team
 from app.services.auth import get_current_user
 from app.services.email import send_email, send_alert_email
 from app.services.telegram import send_telegram_message
+from app.logger import get_logger
 
 router = APIRouter(prefix="/config", tags=["config"])
+logger = get_logger(__name__)
 
 
 class ConfigItem(BaseModel):
@@ -199,27 +201,49 @@ async def setup_telegram_webhook(
 ):
     """设置 Telegram Bot Webhook 和命令菜单"""
     import httpx
-    
+    import secrets as pysecrets
+
     bot_token = get_config_value(db, "telegram_bot_token")
     site_url = get_config_value(db, "site_url")
-    
+
     if not bot_token:
         raise HTTPException(status_code=400, detail="请先配置 Telegram Bot Token")
-    
+
     if not site_url:
         raise HTTPException(status_code=400, detail="请先配置站点 URL（site_url）")
-    
+
     webhook_url = f"{site_url.rstrip('/')}/api/v1/telegram/webhook"
-    
+
+    # 生成或获取 webhook secret token（防止伪造攻击）
+    secret = get_config_value(db, "telegram_webhook_secret")
+    if not secret:
+        # 生成新的 secret token
+        secret = pysecrets.token_urlsafe(32)
+        cfg = db.query(SystemConfig).filter(SystemConfig.key == "telegram_webhook_secret").first()
+        if cfg:
+            cfg.value = secret
+        else:
+            db.add(SystemConfig(
+                key="telegram_webhook_secret",
+                value=secret,
+                description="Telegram Webhook Secret Token（用于防伪造攻击）"
+            ))
+        db.commit()
+        logger.info("Generated new Telegram webhook secret")
+
     try:
         async with httpx.AsyncClient(timeout=10) as client:
-            # 1. 设置 Webhook
+            # 1. 设置 Webhook（带 secret_token）
             resp = await client.post(
                 f"https://api.telegram.org/bot{bot_token}/setWebhook",
-                json={"url": webhook_url}
+                json={
+                    "url": webhook_url,
+                    "secret_token": secret,  # 防伪造
+                    "allowed_updates": ["message"]  # 只接收消息更新
+                }
             )
             result = resp.json()
-            
+
             if not result.get("ok"):
                 raise HTTPException(status_code=400, detail=f"Webhook 设置失败: {result.get('description')}")
             

@@ -110,9 +110,25 @@ async def handle_interactive(text: str, user_id: str, chat_id: str, db: Session,
 
 async def handle_command(text: str, user_id: str, chat_id: str, db: Session, bot_token: str, is_admin: bool):
     text = text.strip()
-    # 去掉 @bot_username 后缀，如 /start@MyBot -> /start
-    if "@" in text:
-        text = text.split("@")[0]
+
+    # 正确解析命令：只去除 @botname 后缀，不破坏参数中的 @（邮箱）
+    parts = text.split(maxsplit=1)
+    cmd = parts[0] if parts else ""
+    args = parts[1] if len(parts) > 1 else ""
+
+    # 只处理命令中的 @bot_username，不影响参数
+    if cmd.startswith("/") and "@" in cmd:
+        cmd = cmd.split("@", 1)[0]
+
+    # 管理员专属命令（敏感操作）
+    ADMIN_ONLY_COMMANDS = {"/invite", "/remove", "/codes", "/sync", "/newteam"}
+    if cmd in ADMIN_ONLY_COMMANDS and not is_admin:
+        await send_telegram_message(bot_token, chat_id, "⛔ <b>权限不足</b>\n\n此命令仅管理员可用")
+        return
+
+    # 重新组合为完整命令（供后续逻辑使用）
+    text = cmd + (f" {args}" if args else "")
+
     if text == "/start" or text == "/help":
         msg = "<b>🤖 ChatGPT Team 管理助手</b>\n\n<i>━━━━━ 查询命令 ━━━━━</i>\n\n"
         msg += "📊 /status - 系统概览\n💺 /seats - 座位统计\n👥 /teams - Team 列表\n"
