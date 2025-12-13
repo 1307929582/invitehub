@@ -116,6 +116,18 @@ database_pool_usage = Gauge(
     ['state']  # state: active/idle/overflow
 )
 
+# 孤儿用户数量（同时在多个 Team 的用户）
+orphan_users_count = Gauge(
+    'orphan_users_count',
+    'Number of users present in multiple teams simultaneously'
+)
+
+# 换车任务僵尸数量（长时间未完成的换车）
+zombie_rebind_tasks = Gauge(
+    'zombie_rebind_tasks',
+    'Number of rebind tasks stuck in processing state'
+)
+
 # ========== 错误指标 ==========
 
 # 错误计数器

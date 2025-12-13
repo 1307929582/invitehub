@@ -9,7 +9,7 @@ from typing import Optional
 from app.database import get_db
 from app.models import (
     Team, TeamMember, RedeemCode, RedeemCodeType, InviteRecord, InviteStatus,
-    SystemConfig, OperationLog
+    SystemConfig, OperationLog, TeamStatus
 )
 from app.services.chatgpt_api import ChatGPTAPI, ChatGPTAPIError
 from app.services.telegram import notify_new_invite
@@ -690,8 +690,9 @@ async def get_user_status(
             if team:
                 team_name = team.name
                 team_active = team.is_active
-                # 换车可用性：Team 不活跃且兑换码未过期 (Requirements 8.2)
-                can_rebind = not team.is_active and not redeem_code.is_user_expired
+                # 换车可用性：Team 不健康或不活跃，且兑换码未过期 (Requirements 8.2)
+                team_healthy = team.is_active and team.status == TeamStatus.ACTIVE
+                can_rebind = not team_healthy and not redeem_code.is_user_expired
 
     # 返回完整状态信息 (Requirements 8.1, 8.2)
     return StatusResponse(
@@ -911,17 +912,7 @@ async def _do_rebind(data: RebindRequest, db: Session) -> RebindResponse:
             }
         )
 
-    # 4. 检查换车次数限制（使用安全属性处理 NULL）
-    if not redeem_code.can_rebind:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": "REBIND_LIMIT_REACHED",
-                "message": f"已达到换车次数上限（{redeem_code.safe_rebind_count}/{redeem_code.safe_rebind_limit}）"
-            }
-        )
-    
-    # 5. 查找最近的邀请记录（获取当前 Team）
+    # 4. 查找最近的邀请记录（获取当前 Team）
     last_invite = db.query(InviteRecord).filter(
         InviteRecord.email == email,
         InviteRecord.redeem_code == redeem_code.code,
@@ -931,7 +922,41 @@ async def _do_rebind(data: RebindRequest, db: Session) -> RebindResponse:
     current_team_id = last_invite.team_id if last_invite else None
     current_team = db.query(Team).filter(Team.id == current_team_id).first() if current_team_id else None
 
-    # 6. 分配新 Team（在同一分组内寻找可用 Team）
+    # 5. 检测原 Team 健康状态，决定是否消耗换车次数
+    # 如果从封禁车或 Token 失效的车换车，不消耗次数（不算用户的错）
+    consume_rebind_count = True
+    old_team_chatgpt_user_id = None
+
+    if current_team:
+        # Team 不健康（BANNED 或 TOKEN_INVALID）则免费换车
+        if current_team.status in [TeamStatus.BANNED, TeamStatus.TOKEN_INVALID]:
+            consume_rebind_count = False
+            logger.info(f"Free rebind from unhealthy team", extra={
+                "email": email,
+                "team": current_team.name,
+                "team_status": current_team.status.value
+            })
+
+        # 获取用户在原 Team 的 chatgpt_user_id（用于踢人）
+        member = db.query(TeamMember).filter(
+            TeamMember.team_id == current_team_id,
+            TeamMember.email == email
+        ).first()
+        if member:
+            old_team_chatgpt_user_id = member.chatgpt_user_id
+
+    # 6. 检查换车次数限制（免费换车也需要检查，除非要绕过上限）
+    # 决策：免费换车绕过上限（否则用户会被锁死在坏车上）
+    if consume_rebind_count and not redeem_code.can_rebind:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "error": "REBIND_LIMIT_REACHED",
+                "message": f"已达到换车次数上限（{redeem_code.safe_rebind_count}/{redeem_code.safe_rebind_limit}）"
+            }
+        )
+
+    # 7. 分配新 Team（在同一分组内寻找可用 Team）
     new_team = get_available_team(db, group_id=redeem_code.group_id)
 
     if not new_team:
@@ -940,46 +965,53 @@ async def _do_rebind(data: RebindRequest, db: Session) -> RebindResponse:
             detail={"error": RebindError.NO_AVAILABLE_TEAM, "message": "暂无可用的 Team，请稍后重试"}
         )
 
-    # 7. 增加换车计数（使用悲观锁已在第1步获取）
-    result = db.execute(
-        update(RedeemCode)
-        .where(RedeemCode.id == redeem_code.id)
-        .where(RedeemCode.rebind_count < RedeemCode.rebind_limit)  # 再次检查
-        .values(rebind_count=RedeemCode.rebind_count + 1)
-    )
-
-    if result.rowcount == 0:
-        # 并发情况下可能已达上限
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": "REBIND_LIMIT_REACHED",
-                "message": "换车次数已达上限，请联系管理员"
-            }
+    # 8. 增加换车计数（只有付费换车才增加，免费换车不增加）
+    if consume_rebind_count:
+        result = db.execute(
+            update(RedeemCode)
+            .where(RedeemCode.id == redeem_code.id)
+            .where(RedeemCode.rebind_count < RedeemCode.rebind_limit)  # 再次检查
+            .values(rebind_count=RedeemCode.rebind_count + 1)
         )
 
-    db.commit()
-    db.refresh(redeem_code)
+        if result.rowcount == 0:
+            # 并发情况下可能已达上限
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "REBIND_LIMIT_REACHED",
+                    "message": "换车次数已达上限，请联系管理员"
+                }
+            )
 
-    # 8. 创建换车历史记录
+        db.commit()
+        db.refresh(redeem_code)
+    else:
+        # 免费换车，不增加计数，但仍需要 commit 之前的更改
+        db.commit()
+
+    # 9. 创建换车历史记录
     rebind_history = RebindHistory(
         redeem_code=redeem_code.code,
         email=email,
         from_team_id=current_team_id,
         to_team_id=None,  # 异步分配，暂时不知道
         reason="user_requested",
-        notes=f"从 {current_team.name if current_team else 'unknown'} 换车"
+        notes=f"从 {current_team.name if current_team else 'unknown'} 换车 ({'免费' if not consume_rebind_count else '消耗次数'})"
     )
     db.add(rebind_history)
     db.commit()
 
-    # 9. 发送新邀请
+    # 10. 发送新邀请（带踢人参数）
     try:
         process_invite_task.delay(
             email=email,
             redeem_code=redeem_code.code,
             group_id=redeem_code.group_id,
-            is_rebind=True  # 标记为换车操作
+            is_rebind=True,  # 标记为换车操作
+            consume_rebind_count=consume_rebind_count,  # 是否消耗次数（用于回滚）
+            old_team_id=current_team_id,  # 原 Team ID（用于踢人）
+            old_team_chatgpt_user_id=old_team_chatgpt_user_id  # 原 chatgpt_user_id
         )
 
         rebind_requests_total.labels(status="success").inc()
@@ -989,12 +1021,14 @@ async def _do_rebind(data: RebindRequest, db: Session) -> RebindResponse:
             "code": redeem_code.code,
             "old_team": current_team.name if current_team else "unknown",
             "rebind_count": redeem_code.safe_rebind_count,
-            "rebind_limit": redeem_code.safe_rebind_limit
+            "rebind_limit": redeem_code.safe_rebind_limit,
+            "consume_count": consume_rebind_count
         })
 
+        message_suffix = "（免费换车）" if not consume_rebind_count else f"（{redeem_code.safe_rebind_count}/{redeem_code.safe_rebind_limit}）"
         return RebindResponse(
             success=True,
-            message=f"换车请求已提交（{redeem_code.safe_rebind_count}/{redeem_code.safe_rebind_limit}），新邀请将在几秒内发送，请查收邮箱",
+            message=f"换车请求已提交{message_suffix}，新邀请将在几秒内发送，请查收邮箱",
             new_team_name=None  # 队列模式下不知道具体分配到哪个 Team
         )
     except Exception as e:

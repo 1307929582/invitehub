@@ -14,7 +14,8 @@ from app.schemas import (
     TeamMemberResponse, TeamMemberListResponse, MessageResponse,
     MemberExportResponse, BulkExportRequest,
     MigrationPreviewRequest, MigrationPreviewResponse,
-    MigrationExecuteRequest, MigrationExecuteResponse
+    MigrationExecuteRequest, MigrationExecuteResponse,
+    TeamBulkStatusUpdate, TeamBulkStatusResponse
 )
 from app.services.auth import get_current_user
 from app.services.chatgpt_api import ChatGPTAPI, ChatGPTAPIError, TokenInvalidError, TeamBannedError
@@ -323,8 +324,12 @@ async def get_all_pending_invites(
         if cached:
             print(f"[PendingInvites] 从缓存获取，共 {cached.get('total', 0)} 条")
             return cached
-    
-    teams_list = db.query(Team).filter(Team.is_active == True).all()
+
+    # 只获取健康 Team 的待处理邀请（避免访问已封禁或 Token 失效的 Team）
+    teams_list = db.query(Team).filter(
+        Team.is_active == True,
+        Team.status == TeamStatus.ACTIVE
+    ).all()
     print(f"[PendingInvites] 开始获取 {len(teams_list)} 个 Team 的待处理邀请")
     all_invites = []
     errors = []
@@ -405,10 +410,20 @@ async def update_team(
             await api.verify_token()
         except ChatGPTAPIError as e:
             raise HTTPException(status_code=400, detail=f"Token 验证失败: {e.message}")
-    
+
+    # 处理状态更新时的联动逻辑
+    if "status" in update_data:
+        new_status = update_data["status"]
+        if new_status == TeamStatus.PAUSED:
+            update_data["is_active"] = False
+        elif new_status == TeamStatus.ACTIVE:
+            update_data["is_active"] = True
+        # 记录状态变更时间
+        update_data["status_changed_at"] = datetime.utcnow()
+
     for key, value in update_data.items():
         setattr(team, key, value)
-    
+
     db.commit()
     db.refresh(team)
     return team
@@ -1200,3 +1215,58 @@ async def update_team_status(
     db.commit()
 
     return MessageResponse(message=f"Team 状态已从 {old_status.value} 更新为 {status.value}")
+
+
+@router.patch("/status/bulk", response_model=TeamBulkStatusResponse)
+async def bulk_update_team_status(
+    data: TeamBulkStatusUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """批量更新 Team 状态
+
+    允许管理员一次性修改多个 Team 的状态
+    """
+    success_count = 0
+    failed_count = 0
+    failed_teams = []
+
+    for team_id in data.team_ids:
+        try:
+            team = db.query(Team).filter(Team.id == team_id).first()
+            if not team:
+                failed_count += 1
+                failed_teams.append({
+                    "team_id": team_id,
+                    "error": "Team 不存在"
+                })
+                continue
+
+            # 更新状态
+            team.status = data.status
+            team.status_message = data.status_message
+            team.status_changed_at = datetime.utcnow()
+
+            # 状态与 is_active 的联动
+            if data.status == TeamStatus.PAUSED:
+                team.is_active = False
+            elif data.status == TeamStatus.ACTIVE:
+                team.is_active = True
+
+            success_count += 1
+
+        except Exception as e:
+            failed_count += 1
+            failed_teams.append({
+                "team_id": team_id,
+                "error": str(e)
+            })
+            logger.exception(f"Failed to update team {team_id}: {e}")
+
+    db.commit()
+
+    return TeamBulkStatusResponse(
+        success_count=success_count,
+        failed_count=failed_count,
+        failed_teams=failed_teams
+    )

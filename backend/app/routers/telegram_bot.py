@@ -265,13 +265,15 @@ async def handle_command(text: str, user_id: str, chat_id: str, db: Session, bot
             team = db.query(Team).filter(Team.id == existing.team_id).first()
             await send_telegram_message(bot_token, chat_id, f"❌ <code>{email}</code> 已在 {team.name if team else 'Team'} 中")
             return
-        # 查找有空位的 Team（按 ID 排序）
-        teams_list = db.query(Team).filter(Team.is_active == True).order_by(Team.id).all()
+        # 查找有空位的健康 Team（使用 SeatCalculator 精确计算）
+        from app.services.seat_calculator import get_all_teams_with_seats
+        teams_with_seats = get_all_teams_with_seats(db, group_id=None, only_active=True)
         target_team = None
-        for team in teams_list:
-            count = db.query(TeamMember).filter(TeamMember.team_id == team.id).count()
-            if count < team.max_seats:
-                target_team = team
+        target_team_info = None
+        for team_info in teams_with_seats:
+            if team_info.available_seats > 0:
+                target_team = db.query(Team).filter(Team.id == team_info.team_id).first()
+                target_team_info = team_info
                 break
         if not target_team:
             await send_telegram_message(bot_token, chat_id, "❌ 所有 Team 都已满，无法邀请")

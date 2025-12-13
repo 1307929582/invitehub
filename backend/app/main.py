@@ -18,14 +18,18 @@ logger = get_logger(__name__)
 
 
 async def sync_all_teams():
-    """定时同步所有 Team 成员"""
-    from app.models import Team, TeamMember, InviteRecord, InviteStatus
+    """定时同步所有 Team 成员（仅同步健康的 Team）"""
+    from app.models import Team, TeamMember, InviteRecord, InviteStatus, TeamStatus
     from app.services.chatgpt_api import ChatGPTAPI, ChatGPTAPIError
     from datetime import datetime
-    
+
     db = SessionLocal()
     try:
-        teams_list = db.query(Team).filter(Team.is_active == True).all()
+        # 只同步健康的 Team（is_active=True AND status=ACTIVE）
+        teams_list = db.query(Team).filter(
+            Team.is_active == True,
+            Team.status == TeamStatus.ACTIVE
+        ).all()
         
         for team in teams_list:
             try:
@@ -102,10 +106,10 @@ async def sync_all_teams():
 
 
 async def check_and_send_alerts():
-    """检查预警并发送邮件"""
-    from app.models import Team, TeamMember, TeamGroup
+    """检查预警并发送邮件（仅检查健康的 Team）"""
+    from app.models import Team, TeamMember, TeamGroup, TeamStatus
     from app.services.email import (
-        send_alert_email, 
+        send_alert_email,
         get_notification_settings,
         send_token_expiring_notification,
         send_seat_warning_notification,
@@ -113,7 +117,7 @@ async def check_and_send_alerts():
     )
     from datetime import datetime, timedelta
     from sqlalchemy import func
-    
+
     db = SessionLocal()
     try:
         # 获取通知设置
@@ -121,13 +125,17 @@ async def check_and_send_alerts():
         if not settings.get("enabled"):
             logger.info("Notifications disabled, skipping alert check")
             return
-        
+
         token_expiring_days = settings.get("token_expiring_days", 7)
         seat_warning_threshold = settings.get("seat_warning_threshold", 80)
         group_seat_warning_threshold = settings.get("group_seat_warning_threshold", 5)  # 分组剩余座位预警阈值
-        
+
         alerts = []
-        teams_list = db.query(Team).filter(Team.is_active == True).all()
+        # 只检查健康的 Team（is_active=True AND status=ACTIVE）
+        teams_list = db.query(Team).filter(
+            Team.is_active == True,
+            Team.status == TeamStatus.ACTIVE
+        ).all()
         
         for team in teams_list:
             # 检查成员数量和座位使用率
@@ -176,10 +184,11 @@ async def check_and_send_alerts():
             if group_threshold == 0:
                 continue  # 该分组不需要预警
             
-            # 获取该分组下所有 Team 的座位统计
+            # 获取该分组下所有健康的 Team 的座位统计
             group_teams = db.query(Team).filter(
                 Team.group_id == group.id,
-                Team.is_active == True
+                Team.is_active == True,
+                Team.status == TeamStatus.ACTIVE
             ).all()
             
             if not group_teams:

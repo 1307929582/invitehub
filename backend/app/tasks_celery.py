@@ -51,7 +51,10 @@ def process_invite_task(
     email: str,
     redeem_code: str,
     group_id: int = None,
-    is_rebind: bool = False
+    is_rebind: bool = False,
+    consume_rebind_count: bool = False,  # 是否消耗换车次数（用于回滚）
+    old_team_id: int = None,  # 原 Team ID（用于踢人）
+    old_team_chatgpt_user_id: str = None  # 原 chatgpt_user_id（用于踢人）
 ):
     """
     处理单个邀请请求（Celery 任务）
@@ -61,12 +64,15 @@ def process_invite_task(
         redeem_code: 兑换码
         group_id: 分组 ID（可选）
         is_rebind: 是否为换车操作
+        consume_rebind_count: 是否消耗换车次数（用于回滚判断）
+        old_team_id: 原 Team ID（换车时踢出原 Team）
+        old_team_chatgpt_user_id: 原 chatgpt_user_id（换车时踢出原 Team）
 
     Raises:
         Retry: 失败时自动重试（最多3次）
     """
     try:
-        logger.info(f"Processing invite task: {email}, is_rebind: {is_rebind}")
+        logger.info(f"Processing invite task: {email}, is_rebind: {is_rebind}, consume_count: {consume_rebind_count}")
 
         # 复用现有的批量处理逻辑
         from app.tasks import process_invite_batch
@@ -81,6 +87,9 @@ def process_invite_task(
                 "redeem_code": redeem_code,
                 "group_id": group_id,
                 "is_rebind": is_rebind,
+                "consume_rebind_count": consume_rebind_count,
+                "old_team_id": old_team_id,
+                "old_team_chatgpt_user_id": old_team_chatgpt_user_id,
                 "created_at": datetime.utcnow()
             }]))
         finally:
@@ -113,7 +122,7 @@ def process_invite_task(
         # 最终失败时回滚兑换码使用次数
         if is_final_failure and redeem_code:
             try:
-                _rollback_redeem_code_usage(self.db, redeem_code, email, is_rebind)
+                _rollback_redeem_code_usage(self.db, redeem_code, email, is_rebind, consume_rebind_count)
                 logger.info(f"Rolled back redeem code usage for {redeem_code} after final failure")
             except Exception as rollback_err:
                 logger.error(f"Failed to rollback redeem code: {rollback_err}")
@@ -122,11 +131,18 @@ def process_invite_task(
         raise self.retry(exc=e)
 
 
-def _rollback_redeem_code_usage(db: Session, code_str: str, email: str, is_rebind: bool):
+def _rollback_redeem_code_usage(db: Session, code_str: str, email: str, is_rebind: bool, consume_rebind_count: bool = False):
     """
     回滚兑换码使用次数
 
     当邀请最终失败时，回滚 Redis 令牌桶和数据库中的使用计数。
+
+    Args:
+        db: 数据库会话
+        code_str: 兑换码
+        email: 用户邮箱
+        is_rebind: 是否为换车操作
+        consume_rebind_count: 是否消耗了换车次数（只有 True 时才回滚 rebind_count）
     """
     from sqlalchemy import update
     from app.cache import get_redis
@@ -151,8 +167,8 @@ def _rollback_redeem_code_usage(db: Session, code_str: str, email: str, is_rebin
         db.commit()
         logger.info(f"Rolled back database used_count for code {code_str}")
 
-    # 3. 如果是换车操作，回滚换车计数
-    if is_rebind and code and code.rebind_count and code.rebind_count > 0:
+    # 3. 如果是换车操作且消耗了次数，回滚换车计数
+    if is_rebind and consume_rebind_count and code and code.rebind_count and code.rebind_count > 0:
         db.execute(
             update(RedeemCode)
             .where(RedeemCode.code == code_str)
@@ -874,5 +890,114 @@ async def _send_waiting_queue_notification(processed: int, skipped: int, availab
 
     except Exception as e:
         logger.error(f"Failed to send waiting queue notification: {e}")
+    finally:
+        db.close()
+
+
+@celery_app.task(bind=True, base=DatabaseTask)
+def detect_orphan_users(self):
+    """
+    检测孤儿用户（同时在多个 Team 的用户）
+
+    定时任务：每 30 分钟执行一次
+    这是关键的健康检查，理论上孤儿用户数应该永远为 0
+    """
+    from app.models import TeamMember, Team, TeamStatus
+    from app.metrics import orphan_users_count
+    from sqlalchemy import func
+    import asyncio
+
+    try:
+        # 查找同时在多个健康 Team 中的用户
+        # 只检查健康的 Team（is_active=True AND status=ACTIVE）
+        orphan_query = (
+            self.db.query(TeamMember.email, func.count(func.distinct(TeamMember.team_id)).label('team_count'))
+            .join(Team, TeamMember.team_id == Team.id)
+            .filter(
+                Team.is_active == True,
+                Team.status == TeamStatus.ACTIVE
+            )
+            .group_by(TeamMember.email)
+            .having(func.count(func.distinct(TeamMember.team_id)) > 1)
+        )
+
+        orphan_users = orphan_query.all()
+        orphan_count = len(orphan_users)
+
+        # 更新监控指标
+        orphan_users_count.set(orphan_count)
+
+        if orphan_count > 0:
+            logger.error(f"Detected {orphan_count} orphan users!", extra={
+                "orphan_users": [(email, count) for email, count in orphan_users]
+            })
+
+            # 发送 P0 告警到 Telegram
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(_send_orphan_alert(orphan_users))
+                finally:
+                    loop.close()
+            except Exception as e:
+                logger.error(f"Failed to send orphan alert: {e}")
+        else:
+            logger.info("No orphan users detected - system healthy")
+
+    except Exception as e:
+        logger.exception(f"Orphan user detection failed: {e}")
+
+
+async def _send_orphan_alert(orphan_users: list):
+    """发送孤儿用户告警到 Telegram"""
+    from app.models import SystemConfig, TeamMember, Team
+    from app.services.telegram import send_telegram_message
+
+    db = SessionLocal()
+    try:
+        tg_enabled = db.query(SystemConfig).filter(SystemConfig.key == "telegram_enabled").first()
+        if not tg_enabled or tg_enabled.value != "true":
+            return
+
+        bot_token = db.query(SystemConfig).filter(SystemConfig.key == "telegram_bot_token").first()
+        chat_id = db.query(SystemConfig).filter(SystemConfig.key == "telegram_chat_id").first()
+
+        if not bot_token or not chat_id:
+            return
+
+        # 构建详细信息
+        details = []
+        for email, team_count in orphan_users[:10]:  # 最多显示 10 个
+            # 查找该用户所在的所有 Team
+            members = db.query(TeamMember).join(Team).filter(
+                TeamMember.email == email,
+                Team.is_active == True,
+                Team.status == TeamStatus.ACTIVE
+            ).all()
+            team_names = [db.query(Team).filter(Team.id == m.team_id).first().name for m in members]
+            details.append(f"• {email}: {', '.join(team_names)}")
+
+        message_text = f"""
+🚨 **P0 告警：检测到孤儿用户！**
+
+⚠️ 发现 {len(orphan_users)} 个用户同时存在于多个 Team 中。
+这是严重的数据一致性问题，需要立即处理！
+
+详情（前 10 个）：
+{'\\n'.join(details)}
+
+可能原因：
+- 换车逻辑未正确踢出原 Team
+- 清理任务失败
+- 并发操作导致的数据不一致
+
+请立即检查并修复！
+        """
+
+        await send_telegram_message(bot_token.value, chat_id.value, message_text)
+
+    except Exception as e:
+        logger.error(f"Failed to send orphan alert: {e}")
     finally:
         db.close()

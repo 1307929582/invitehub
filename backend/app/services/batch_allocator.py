@@ -15,6 +15,9 @@ class InviteTask:
     redeem_code: str
     group_id: Optional[int] = None
     is_rebind: bool = False
+    consume_rebind_count: bool = False  # 是否消耗换车次数
+    old_team_id: Optional[int] = None  # 原 Team ID（换车时踢人）
+    old_team_chatgpt_user_id: Optional[str] = None  # 原 chatgpt_user_id（换车时踢人）
 
 
 @dataclass

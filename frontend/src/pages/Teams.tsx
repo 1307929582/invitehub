@@ -89,6 +89,12 @@ export default function Teams() {
   const [exportModalOpen, setExportModalOpen] = useState(false)
   const [exportFormat, setExportFormat] = useState<'csv' | 'json' | 'txt'>('csv')
 
+  // 批量状态修改模态框状态
+  const [bulkStatusModalOpen, setBulkStatusModalOpen] = useState(false)
+  const [bulkTargetStatus, setBulkTargetStatus] = useState<TeamStatus | undefined>(undefined)
+  const [bulkStatusReason, setBulkStatusReason] = useState('')
+  const [bulkStatusLoading, setBulkStatusLoading] = useState(false)
+
   const fetchTeams = async (statusFilter?: string) => {
     setLoading(true)
     try {
@@ -284,6 +290,48 @@ export default function Teams() {
     }
   }
 
+  // 批量状态修改
+  const handleBulkStatusUpdate = async () => {
+    if (!bulkTargetStatus) {
+      message.warning('请选择目标状态')
+      return
+    }
+
+    setBulkStatusLoading(true)
+    try {
+      const res: any = await teamApi.updateStatusBulk({
+        team_ids: selectedTeamIds,
+        status: bulkTargetStatus,
+        status_message: bulkStatusReason.trim() || undefined
+      })
+
+      message.success(`批量操作完成：成功 ${res.success_count} 个，失败 ${res.failed_count} 个`)
+
+      if (res.failed_count > 0) {
+        Modal.warning({
+          title: '部分操作失败',
+          content: (
+            <div>
+              {res.failed_teams.map((f: any) => (
+                <div key={f.team_id}>Team {f.team_id}: {f.error}</div>
+              ))}
+            </div>
+          )
+        })
+      }
+
+      setBulkStatusModalOpen(false)
+      setBulkTargetStatus(undefined)
+      setBulkStatusReason('')
+      clearSelection()
+      fetchTeams()
+    } catch {
+      message.error('批量操作失败')
+    } finally {
+      setBulkStatusLoading(false)
+    }
+  }
+
   // 迁移预览
   const handleOpenMigration = () => {
     if (selectedTeamIds.length === 0) {
@@ -345,6 +393,13 @@ export default function Teams() {
 
   // 批量操作菜单
   const bulkActionItems = [
+    {
+      key: 'status',
+      label: '批量修改状态',
+      icon: <SafetyOutlined />,
+      onClick: () => setBulkStatusModalOpen(true)
+    },
+    { type: 'divider' as const },
     {
       key: 'export',
       label: '导出邮箱',
@@ -616,6 +671,75 @@ export default function Teams() {
               <Select.Option value="json">JSON（包含详细信息）</Select.Option>
               <Select.Option value="txt">纯文本（仅邮箱，一行一个）</Select.Option>
             </Select>
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 批量状态修改模态框 */}
+      <Modal
+        title="批量修改 Team 状态"
+        open={bulkStatusModalOpen}
+        onOk={handleBulkStatusUpdate}
+        onCancel={() => {
+          setBulkStatusModalOpen(false)
+          setBulkTargetStatus(undefined)
+          setBulkStatusReason('')
+        }}
+        confirmLoading={bulkStatusLoading}
+        okText="确认修改"
+        cancelText="取消"
+        okButtonProps={{
+          danger: bulkTargetStatus && ['banned', 'token_invalid', 'paused'].includes(bulkTargetStatus)
+        }}
+        width={600}
+      >
+        <div style={{ marginBottom: 16 }}>
+          <p>将要修改 <strong>{selectedTeamIds.length}</strong> 个 Team 的状态</p>
+          <p style={{ color: '#64748b', fontSize: 13 }}>
+            包含: {selectedTeams.map(t => t.name).join(', ')}
+          </p>
+        </div>
+
+        {bulkTargetStatus && ['banned', 'token_invalid', 'paused'].includes(bulkTargetStatus) && (
+          <Alert
+            message="危险操作"
+            description="此操作会影响团队成员的正常使用，系统将停止向这些 Team 分配新用户。请谨慎确认。"
+            type="warning"
+            showIcon
+            style={{ marginBottom: 16 }}
+          />
+        )}
+
+        <Form layout="vertical">
+          <Form.Item label="目标状态" required>
+            <Select
+              value={bulkTargetStatus}
+              onChange={setBulkTargetStatus}
+              placeholder="请选择目标状态"
+              style={{ width: '100%' }}
+            >
+              <Select.Option value="active">
+                <Tag color="success">正常 (Active)</Tag>
+              </Select.Option>
+              <Select.Option value="banned">
+                <Tag color="error">封禁 (Banned)</Tag>
+              </Select.Option>
+              <Select.Option value="token_invalid">
+                <Tag color="warning">Token失效 (Token Invalid)</Tag>
+              </Select.Option>
+              <Select.Option value="paused">
+                <Tag color="default">暂停 (Paused)</Tag>
+              </Select.Option>
+            </Select>
+          </Form.Item>
+
+          <Form.Item label="变更原因（可选）">
+            <TextArea
+              rows={3}
+              value={bulkStatusReason}
+              onChange={e => setBulkStatusReason(e.target.value)}
+              placeholder="请输入本次状态变更的原因或备注（status_message）"
+            />
           </Form.Item>
         </Form>
       </Modal>

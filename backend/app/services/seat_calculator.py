@@ -6,7 +6,7 @@ from typing import List, Optional
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, not_
 
-from app.models import Team, TeamMember, InviteRecord, InviteStatus
+from app.models import Team, TeamMember, InviteRecord, InviteStatus, TeamStatus
 
 logger = logging.getLogger(__name__)
 
@@ -122,10 +122,13 @@ def get_all_teams_with_seats(
     
     Requirements: 2.1
     """
-    # 1. 查询 Teams
+    # 1. 查询 Teams（统一可分配条件：is_active=true AND status=active）
     team_query = db.query(Team)
     if only_active:
-        team_query = team_query.filter(Team.is_active == True)
+        team_query = team_query.filter(
+            Team.is_active == True,
+            Team.status == TeamStatus.ACTIVE
+        )
     if group_id:
         team_query = team_query.filter(Team.group_id == group_id)
     

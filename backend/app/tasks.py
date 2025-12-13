@@ -131,7 +131,10 @@ async def process_invite_batch(batch: List[Dict]):
                     email=item["email"],
                     redeem_code=item.get("redeem_code"),
                     group_id=group_id if group_id else None,
-                    is_rebind=item.get("is_rebind", False)
+                    is_rebind=item.get("is_rebind", False),
+                    consume_rebind_count=item.get("consume_rebind_count", False),
+                    old_team_id=item.get("old_team_id"),
+                    old_team_chatgpt_user_id=item.get("old_team_chatgpt_user_id")
                 )
                 for item in items
             ]
@@ -188,12 +191,12 @@ async def _process_team_invites_with_lock(
     Requirements: 3.1, 3.2, 3.3
     """
     from app.services.chatgpt_api import ChatGPTAPI, ChatGPTAPIError
-    from app.models import Team, InviteRecord, InviteStatus, InviteQueue, InviteQueueStatus
+    from app.models import Team, InviteRecord, InviteStatus, InviteQueue, InviteQueueStatus, TeamStatus
     from app.services.seat_calculator import get_team_available_seats
     from sqlalchemy import text
-    
+
     MAX_RETRIES = 3
-    
+
     for retry in range(MAX_RETRIES):
         try:
             # 1. 使用 SELECT FOR UPDATE 锁定 Team 行
@@ -203,7 +206,23 @@ async def _process_team_invites_with_lock(
                 logger.error(f"Team {team_id} not found")
                 return
 
-            # 2. 重新验证可用座位
+            # 2. 二次校验 Team 健康状态（防止竞态：分配后、发邀请前状态变更）
+            if not team.is_active or team.status != TeamStatus.ACTIVE:
+                logger.warning(f"Team {team_id} is no longer healthy (is_active={team.is_active}, status={team.status}), skipping")
+                # 进入等待队列，等待 Team 恢复或分配到其他 Team
+                for task in tasks:
+                    record = InviteQueue(
+                        email=task.email,
+                        redeem_code=task.redeem_code,
+                        group_id=task.group_id,
+                        status=InviteQueueStatus.WAITING,
+                        error_message=f"Team {team.name} 状态异常，等待重新分配",
+                        processed_at=None
+                    )
+                    db.add(record)
+                return
+
+            # 3. 重新验证可用座位
             seat_info = get_team_available_seats(db, team_id)
 
             if seat_info.available_seats <= 0:
@@ -260,6 +279,15 @@ async def _process_team_invites_with_lock(
                     db.add(invite)
                 
                 logger.info(f"Batch invite success: {len(emails)} emails to {team.name}")
+
+                # 换车操作：邀请成功后，踢出原 Team（先邀再踢）
+                for task in tasks_to_process:
+                    if task.is_rebind and task.old_team_id and task.old_team_chatgpt_user_id:
+                        try:
+                            await _remove_from_old_team(db, task, team.name)
+                        except Exception as kick_err:
+                            logger.error(f"Failed to kick {task.email} from old team {task.old_team_id}: {kick_err}")
+                            # 踢人失败不影响整体流程，只记录日志
 
                 # 发送 Telegram 通知（分别通知换车和普通上车）
                 rebind_emails = [t.email for t in tasks_to_process if t.is_rebind]
@@ -319,6 +347,47 @@ async def _process_team_invites_with_lock(
             processed_at=None
         )
         db.add(record)
+
+
+async def _remove_from_old_team(db, task, new_team_name: str):
+    """
+    从原 Team 踢出用户（换车操作）
+
+    Args:
+        db: 数据库会话
+        task: InviteTask 对象
+        new_team_name: 新 Team 名称（用于日志）
+    """
+    from app.services.chatgpt_api import ChatGPTAPI, ChatGPTAPIError
+    from app.models import Team, TeamMember
+
+    # 获取原 Team 信息
+    old_team = db.query(Team).filter(Team.id == task.old_team_id).first()
+    if not old_team:
+        logger.warning(f"Old team {task.old_team_id} not found, skipping kick")
+        return
+
+    logger.info(f"Kicking {task.email} from old team {old_team.name} (moving to {new_team_name})")
+
+    try:
+        # 调用 ChatGPT API 踢人
+        api = ChatGPTAPI(old_team.session_token, old_team.device_id or "")
+        await api.remove_member(old_team.account_id, task.old_team_chatgpt_user_id)
+
+        # 从本地缓存删除成员记录
+        db.query(TeamMember).filter(
+            TeamMember.team_id == task.old_team_id,
+            TeamMember.email == task.email
+        ).delete()
+        db.commit()
+
+        logger.info(f"Successfully kicked {task.email} from old team {old_team.name}")
+
+    except ChatGPTAPIError as e:
+        logger.error(f"Failed to kick {task.email} from old team {old_team.name}: {e.message}")
+        # 可能原 Team 已经不健康，不影响整体流程
+    except Exception as e:
+        logger.error(f"Unexpected error kicking {task.email}: {e}")
 
 
 async def send_batch_telegram_notify(db, emails: List[str], team_name: str, is_rebind: bool = False, old_team_name: str = None):

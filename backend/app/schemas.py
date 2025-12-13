@@ -87,6 +87,20 @@ class TeamListResponse(BaseModel):
     total: int
 
 
+class TeamBulkStatusUpdate(BaseModel):
+    """批量更新 Team 状态"""
+    team_ids: List[int]
+    status: TeamStatus
+    status_message: Optional[str] = None
+
+
+class TeamBulkStatusResponse(BaseModel):
+    """批量更新响应"""
+    success_count: int
+    failed_count: int
+    failed_teams: List[dict] = []  # [{"team_id": int, "error": str}]
+
+
 # ========== Team Member ==========
 class TeamMemberResponse(BaseModel):
     id: int

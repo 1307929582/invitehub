@@ -73,6 +73,8 @@ export const teamApi = {
   removeUnauthorizedMembers: (teamId: number) => api.delete(`/teams/${teamId}/unauthorized-members`),
   updateStatus: (id: number, status: TeamStatus, message?: string) =>
     api.patch(`/teams/${id}/status`, null, { params: { status, message } }),
+  updateStatusBulk: (data: { team_ids: number[]; status: TeamStatus; status_message?: string }) =>
+    api.patch('/teams/status/bulk', data),
 
   // 导出 API
   exportMembers: (teamId: number, format: 'csv' | 'json' = 'csv') =>
