@@ -208,18 +208,25 @@ async def batch_delete_codes(
     - 已使用的兑换码不能删除（会被跳过）
     """
     from app.models import UserRole
+    from app.logger import get_logger
+    logger = get_logger(__name__)
 
     if not data.ids:
         raise HTTPException(status_code=400, detail="请选择要删除的兑换码")
 
-    if len(data.ids) > 100:
+    # 保序去重（dict.fromkeys 保持原始顺序）
+    unique_ids = list(dict.fromkeys(data.ids))
+
+    if len(unique_ids) > 100:
         raise HTTPException(status_code=400, detail="一次最多删除 100 个")
 
-    # 去重
-    unique_ids = list(set(data.ids))
-
     # 批量查询（优化：一次查询代替 N 次）
-    codes = db.query(RedeemCode).filter(RedeemCode.id.in_(unique_ids)).all()
+    # 分销商场景：直接在查询时过滤 created_by，避免泄露其他用户的 ID 存在性
+    query = db.query(RedeemCode).filter(RedeemCode.id.in_(unique_ids))
+    if current_user.role == UserRole.DISTRIBUTOR:
+        query = query.filter(RedeemCode.created_by == current_user.id)
+
+    codes = query.all()
     codes_map = {c.id: c for c in codes}
 
     deleted = 0
@@ -230,17 +237,11 @@ async def batch_delete_codes(
     for code_id in unique_ids:
         code = codes_map.get(code_id)
 
+        # 不存在或无权限统一返回"无法删除"，避免泄露 ID 存在性
         if not code:
-            errors.append(f"ID {code_id}: 不存在")
+            errors.append(f"ID {code_id}: 无法删除")
             skipped += 1
             continue
-
-        # 分销商权限检查
-        if current_user.role == UserRole.DISTRIBUTOR:
-            if code.created_by != current_user.id:
-                errors.append(f"ID {code_id}: 无权限删除")
-                skipped += 1
-                continue
 
         # 已使用的不能删除
         if code.used_count and code.used_count > 0:
@@ -259,7 +260,8 @@ async def batch_delete_codes(
             db.commit()
         except Exception as e:
             db.rollback()
-            raise HTTPException(status_code=500, detail=f"删除失败: {str(e)}")
+            logger.error(f"批量删除兑换码失败: {e}", exc_info=True)
+            raise HTTPException(status_code=500, detail="删除失败，请稍后重试")
 
     return BatchDeleteResponse(
         deleted=deleted,
