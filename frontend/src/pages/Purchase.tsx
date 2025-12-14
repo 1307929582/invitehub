@@ -626,13 +626,16 @@ export default function Purchase() {
 
           {/* 邮箱输入 */}
           <div style={{ marginBottom: 24 }}>
-            <Text strong style={{ display: 'block', marginBottom: 8 }}>联系邮箱</Text>
+            <Text strong style={{ display: 'block', marginBottom: 8 }}>
+              联系邮箱 <Text type="danger">*</Text>
+            </Text>
             <Input
               placeholder="请输入邮箱，用于查询订单"
               value={email}
               onChange={e => setEmail(e.target.value)}
               size="large"
               style={{ borderRadius: 8 }}
+              status={!email.trim() ? 'warning' : undefined}
             />
             <Text type="secondary" style={{ fontSize: 12, marginTop: 4, display: 'block' }}>
               支付成功后可通过邮箱查询订单和兑换码

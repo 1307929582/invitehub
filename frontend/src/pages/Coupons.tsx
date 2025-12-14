@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Card, Table, Button, Space, Tag, Modal, Form, Input, InputNumber, message, Popconfirm, Switch, Tooltip, Select, DatePicker, Badge, Typography, Row, Col } from 'antd'
-import { PlusOutlined, EditOutlined, DeleteOutlined, GiftOutlined, CheckCircleFilled } from '@ant-design/icons'
+import { PlusOutlined, EditOutlined, DeleteOutlined, GiftOutlined, CheckCircleFilled, EyeOutlined } from '@ant-design/icons'
 import { couponApi, planApi } from '../api'
 import { formatDate } from '../utils/date'
 import dayjs from 'dayjs'
@@ -33,6 +33,17 @@ interface Plan {
   is_active: boolean
 }
 
+interface UsageRecord {
+  order_no: string
+  email: string
+  amount: number
+  discount_amount: number
+  final_amount: number
+  status: string
+  paid_at?: string
+  created_at: string
+}
+
 export default function Coupons() {
   const [coupons, setCoupons] = useState<Coupon[]>([])
   const [plans, setPlans] = useState<Plan[]>([])
@@ -48,6 +59,12 @@ export default function Coupons() {
 
   // 批量生成模式
   const [batchMode, setBatchMode] = useState(false)
+
+  // 使用记录弹窗
+  const [usageModalOpen, setUsageModalOpen] = useState(false)
+  const [usageLoading, setUsageLoading] = useState(false)
+  const [usageRecords, setUsageRecords] = useState<UsageRecord[]>([])
+  const [usageCouponCode, setUsageCouponCode] = useState('')
 
   const fetchCoupons = async () => {
     setLoading(true)
@@ -176,6 +193,20 @@ export default function Coupons() {
     message.success({ content: '已复制', icon: <CheckCircleFilled style={{ color: '#52c41a' }} /> })
   }
 
+  const handleViewUsage = async (coupon: Coupon) => {
+    setUsageCouponCode(coupon.code)
+    setUsageModalOpen(true)
+    setUsageLoading(true)
+    try {
+      const res: any = await couponApi.getUsage(coupon.id)
+      setUsageRecords(res.records || [])
+    } catch {
+      message.error('获取使用记录失败')
+    } finally {
+      setUsageLoading(false)
+    }
+  }
+
   const discountType = Form.useWatch('discount_type', form)
 
   const columns = [
@@ -280,9 +311,12 @@ export default function Coupons() {
     },
     {
       title: '操作',
-      width: 130,
+      width: 160,
       render: (_: any, r: Coupon) => (
         <Space size={4}>
+          <Tooltip title="使用记录">
+            <Button size="small" type="text" icon={<EyeOutlined />} onClick={() => handleViewUsage(r)} disabled={r.used_count === 0} />
+          </Tooltip>
           <Tooltip title="编辑">
             <Button size="small" type="text" icon={<EditOutlined />} onClick={() => handleEdit(r)} />
           </Tooltip>
@@ -453,6 +487,77 @@ export default function Coupons() {
             </Form.Item>
           )}
         </Form>
+      </Modal>
+
+      {/* 使用记录弹窗 */}
+      <Modal
+        title={
+          <Space>
+            <EyeOutlined />
+            <span>优惠码 <Text code>{usageCouponCode}</Text> 使用记录</span>
+          </Space>
+        }
+        open={usageModalOpen}
+        onCancel={() => setUsageModalOpen(false)}
+        footer={null}
+        width={800}
+      >
+        <Table
+          dataSource={usageRecords}
+          loading={usageLoading}
+          rowKey="order_no"
+          size="small"
+          pagination={{ pageSize: 10, showTotal: t => `共 ${t} 条` }}
+          locale={{ emptyText: '暂无使用记录' }}
+          columns={[
+            {
+              title: '订单号',
+              dataIndex: 'order_no',
+              width: 140,
+              render: (v: string) => <Text copyable={{ text: v }} style={{ fontSize: 12 }}>{v}</Text>
+            },
+            {
+              title: '邮箱',
+              dataIndex: 'email',
+              ellipsis: true,
+              render: (v: string) => <Text type="secondary">{v || '-'}</Text>
+            },
+            {
+              title: '订单金额',
+              dataIndex: 'amount',
+              width: 100,
+              render: (v: number) => <Text>¥{(v / 100).toFixed(2)}</Text>
+            },
+            {
+              title: '优惠金额',
+              dataIndex: 'discount_amount',
+              width: 100,
+              render: (v: number) => <Text type="success">-¥{(v / 100).toFixed(2)}</Text>
+            },
+            {
+              title: '实付金额',
+              dataIndex: 'final_amount',
+              width: 100,
+              render: (v: number) => <Text strong style={{ color: '#f5222d' }}>¥{(v / 100).toFixed(2)}</Text>
+            },
+            {
+              title: '状态',
+              dataIndex: 'status',
+              width: 80,
+              render: (v: string) => (
+                <Tag color={v === 'paid' ? 'green' : v === 'pending' ? 'blue' : 'default'}>
+                  {v === 'paid' ? '已支付' : v === 'pending' ? '待支付' : v === 'expired' ? '已过期' : v}
+                </Tag>
+              )
+            },
+            {
+              title: '支付时间',
+              dataIndex: 'paid_at',
+              width: 140,
+              render: (v: string) => v ? <Text type="secondary" style={{ fontSize: 12 }}>{formatDate(v, 'MM-DD HH:mm')}</Text> : '-'
+            },
+          ]}
+        />
       </Modal>
     </div>
   )

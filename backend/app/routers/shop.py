@@ -406,6 +406,60 @@ async def query_orders_by_email(
     return OrderListResponse(orders=result, total=len(result))
 
 
+@router.get("/debug-order/{order_no}")
+async def debug_order(order_no: str, db: Session = Depends(get_db)):
+    """调试：查看订单详情（上线前删除）"""
+    order = db.query(Order).filter(Order.order_no == order_no).first()
+    if not order:
+        return {"error": "Order not found"}
+    return {
+        "order_no": order.order_no,
+        "amount": order.amount,
+        "final_amount": order.final_amount,
+        "discount_amount": order.discount_amount,
+        "coupon_code": order.coupon_code,
+        "status": order.status.value if hasattr(order.status, 'value') else order.status,
+        "pay_type": order.pay_type,
+    }
+
+
+@router.post("/debug-notify/{order_no}")
+async def debug_notify(order_no: str, money: str, db: Session = Depends(get_db)):
+    """调试：模拟回调逻辑（上线前删除）"""
+    order = db.query(Order).filter(Order.order_no == order_no).first()
+    if not order:
+        return {"step": "order_lookup", "error": "Order not found"}
+
+    if order.status == OrderStatus.PAID:
+        return {"step": "status_check", "error": "Already paid"}
+
+    # 金额校验
+    try:
+        paid_money = Decimal(money).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        expected_amount = order.final_amount if order.final_amount is not None else order.amount
+        expected_money = (Decimal(expected_amount) / Decimal(100)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    except Exception as e:
+        return {"step": "money_parse", "error": str(e)}
+
+    if paid_money != expected_money:
+        return {
+            "step": "money_check",
+            "error": "Money mismatch",
+            "paid_money": str(paid_money),
+            "expected_money": str(expected_money),
+            "order_amount": order.amount,
+            "order_final_amount": order.final_amount,
+        }
+
+    return {
+        "step": "all_passed",
+        "message": "All checks passed",
+        "order_amount": order.amount,
+        "order_final_amount": order.final_amount,
+        "expected_money": str(expected_money),
+    }
+
+
 @router.get("/notify", response_class=PlainTextResponse)
 @router.post("/notify", response_class=PlainTextResponse)
 async def payment_notify(request: Request, db: Session = Depends(get_db)):
@@ -490,17 +544,19 @@ async def payment_notify(request: Request, db: Session = Depends(get_db)):
         return "success"
 
     # 校验金额（易支付回调 money 是"元"）
+    # 使用 final_amount（实付金额），兼容旧订单使用 amount
     try:
         paid_money = Decimal(money).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        expected_money = (Decimal(order.amount) / Decimal(100)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        expected_amount = order.final_amount if order.final_amount is not None else order.amount
+        expected_money = (Decimal(expected_amount) / Decimal(100)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
     except (InvalidOperation, TypeError):
         logger.warning("Payment notify money invalid: out_trade_no=%s money=%s", order_no, money)
         return "fail"
 
     if paid_money != expected_money:
         logger.warning(
-            "Payment notify money mismatch: out_trade_no=%s paid=%s expected=%s",
-            order_no, str(paid_money), str(expected_money)
+            "Payment notify money mismatch: out_trade_no=%s paid=%s expected=%s (final_amount=%s, amount=%s)",
+            order_no, str(paid_money), str(expected_money), order.final_amount, order.amount
         )
         return "fail"
 

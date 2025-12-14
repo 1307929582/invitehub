@@ -308,6 +308,7 @@ export const couponApi = {
   }>) => api.put(`/coupons/${id}`, data),
   delete: (id: number) => api.delete(`/coupons/${id}`),
   toggle: (id: number) => api.put(`/coupons/${id}/toggle`),
+  getUsage: (id: number) => api.get(`/coupons/${id}/usage`),
 }
 
 export default api

@@ -9,7 +9,7 @@ from sqlalchemy.orm import Session
 from pydantic import BaseModel, Field, field_validator
 
 from app.database import get_db
-from app.models import Coupon, DiscountType, User, UserRole
+from app.models import Coupon, DiscountType, User, UserRole, Order, OrderStatus
 from app.routers.auth import get_current_user
 from app.logger import get_logger
 
@@ -316,3 +316,62 @@ async def toggle_coupon(
     logger.info(f"Coupon toggled: {coupon.code} -> {'active' if coupon.is_active else 'inactive'}")
 
     return {"message": "操作成功", "is_active": coupon.is_active}
+
+
+class CouponUsageRecord(BaseModel):
+    """优惠码使用记录"""
+    order_no: str
+    email: str
+    amount: int
+    discount_amount: int
+    final_amount: int
+    status: str
+    paid_at: Optional[datetime]
+    created_at: datetime
+
+
+class CouponUsageResponse(BaseModel):
+    """优惠码使用记录响应"""
+    code: str
+    used_count: int
+    records: List[CouponUsageRecord]
+
+
+@router.get("/{coupon_id}/usage", response_model=CouponUsageResponse)
+async def get_coupon_usage(
+    coupon_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """获取优惠码使用记录"""
+    if current_user.role not in [UserRole.ADMIN, UserRole.OPERATOR]:
+        raise HTTPException(status_code=403, detail="权限不足")
+
+    coupon = db.query(Coupon).filter(Coupon.id == coupon_id).first()
+    if not coupon:
+        raise HTTPException(status_code=404, detail="优惠码不存在")
+
+    # 查询使用此优惠码的订单
+    orders = db.query(Order).filter(
+        Order.coupon_code == coupon.code
+    ).order_by(Order.created_at.desc()).limit(100).all()
+
+    records = [
+        CouponUsageRecord(
+            order_no=o.order_no,
+            email=o.email or "",
+            amount=o.amount or 0,
+            discount_amount=o.discount_amount or 0,
+            final_amount=o.final_amount or o.amount or 0,
+            status=o.status.value if isinstance(o.status, OrderStatus) else o.status,
+            paid_at=o.paid_at,
+            created_at=o.created_at,
+        )
+        for o in orders
+    ]
+
+    return CouponUsageResponse(
+        code=coupon.code,
+        used_count=coupon.used_count or 0,
+        records=records,
+    )
