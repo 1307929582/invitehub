@@ -11,6 +11,7 @@ This migration adds:
 """
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 from datetime import datetime
 
 
@@ -54,9 +55,14 @@ def upgrade() -> None:
     op.create_index('ix_plans_id', 'plans', ['id'])
     op.create_index('ix_plans_is_active', 'plans', ['is_active'])
 
-    # 创建 orders 表
+    # 创建 orders 表 - 使用 postgresql.ENUM 并禁用自动创建
     if dialect == 'postgresql':
-        status_type = sa.Enum('pending', 'paid', 'expired', 'refunded', name='orderstatus', create_type=False)
+        # 使用已存在的 orderstatus 类型，不要让 SQLAlchemy 尝试创建
+        status_type = postgresql.ENUM(
+            'pending', 'paid', 'expired', 'refunded',
+            name='orderstatus',
+            create_type=False
+        )
     else:
         status_type = sa.String(20)
 
