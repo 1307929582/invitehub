@@ -5,6 +5,7 @@ from app.database import SessionLocal
 from app.models import Team, TeamMember, RedeemCode, SystemConfig, InviteRecord, InviteStatus
 from app.services.telegram import send_telegram_message
 from datetime import datetime, timedelta
+from collections import OrderedDict
 import logging
 import secrets
 import string
@@ -12,6 +13,33 @@ import string
 router = APIRouter(prefix="/telegram", tags=["telegram-bot"])
 logger = logging.getLogger(__name__)
 user_sessions = {}
+
+# 消息去重缓存（LRU，最多保留 1000 条）
+_processed_messages: OrderedDict[int, float] = OrderedDict()
+_MAX_CACHE_SIZE = 1000
+
+
+def _is_duplicate_message(message_id: int) -> bool:
+    """检查消息是否已处理过（防止 webhook 重试导致重复处理）"""
+    now = datetime.utcnow().timestamp()
+
+    # 清理过期缓存（超过 5 分钟的）
+    expired = [k for k, v in _processed_messages.items() if now - v > 300]
+    for k in expired:
+        _processed_messages.pop(k, None)
+
+    # 检查是否重复
+    if message_id in _processed_messages:
+        return True
+
+    # 添加到缓存
+    _processed_messages[message_id] = now
+
+    # 维护缓存大小
+    while len(_processed_messages) > _MAX_CACHE_SIZE:
+        _processed_messages.popitem(last=False)
+
+    return False
 
 
 def get_config(db: Session, key: str) -> str:
@@ -119,6 +147,8 @@ async def handle_command(text: str, user_id: str, chat_id: str, db: Session, bot
     # 只处理命令中的 @bot_username，不影响参数
     if cmd.startswith("/") and "@" in cmd:
         cmd = cmd.split("@", 1)[0]
+
+    logger.info(f"handle_command: cmd={cmd}, is_admin={is_admin}, user={user_id}")
 
     # 管理员专属命令（敏感操作）
     ADMIN_ONLY_COMMANDS = {"/invite", "/remove", "/codes", "/sync", "/newteam"}
@@ -463,7 +493,8 @@ async def handle_command(text: str, user_id: str, chat_id: str, db: Session, bot
         return
 
     if text == "/sync":
-        await send_telegram_message(bot_token, chat_id, "🔄 同步中...")
+        logger.info(f"Manual /sync command triggered by user {user_id}")
+        await send_telegram_message(bot_token, chat_id, "🔄 <b>手动同步中...</b>")
         from app.services.chatgpt_api import ChatGPTAPI
         teams = db.query(Team).filter(Team.is_active == True).all()
         results = []
@@ -482,7 +513,7 @@ async def handle_command(text: str, user_id: str, chat_id: str, db: Session, bot
             except Exception as e:
                 logger.error(f"Sync {team.name}: {e}")
                 results.append(f"❌ {team.name}")
-        await send_telegram_message(bot_token, chat_id, "<b>🔄 完成</b>\n\n" + "\n".join(results))
+        await send_telegram_message(bot_token, chat_id, "<b>🔄 手动同步完成</b>\n\n" + "\n".join(results))
         return
 
     if text == "/newteam":
@@ -498,13 +529,22 @@ async def handle_command(text: str, user_id: str, chat_id: str, db: Session, bot
 async def telegram_webhook(request: Request):
     try:
         data = await request.json()
-        logger.info(f"Telegram webhook: {data}")
         message = data.get("message", {})
+        message_id = message.get("message_id")
         text = message.get("text", "")
         chat_id = str(message.get("chat", {}).get("id", ""))
         user_id = str(message.get("from", {}).get("id", ""))
+
+        # 消息去重检查（防止 webhook 重试）
+        if message_id and _is_duplicate_message(message_id):
+            logger.debug(f"Duplicate message ignored: {message_id}")
+            return {"ok": True}
+
+        logger.info(f"Telegram webhook: msg_id={message_id}, text={text[:50] if text else ''}, user={user_id}")
+
         if not text or not chat_id:
             return {"ok": True}
+
         db = SessionLocal()
         try:
             bot_token = get_config(db, "telegram_bot_token")
@@ -514,14 +554,19 @@ async def telegram_webhook(request: Request):
                 await send_telegram_message(bot_token, chat_id, "⛔ 无权限")
                 return {"ok": True}
             is_admin = is_admin_user(user_id, db)
+
+            # 处理交互式输入（仅管理员的非命令文本）
             if is_admin and not text.startswith("/"):
                 if await handle_interactive(text, user_id, chat_id, db, bot_token):
                     return {"ok": True}
+
+            # 处理命令
             if text.startswith("/"):
+                logger.info(f"Processing command: {text.split()[0]} from user {user_id}")
                 await handle_command(text, user_id, chat_id, db, bot_token, is_admin)
         finally:
             db.close()
         return {"ok": True}
     except Exception as e:
-        logger.error(f"Telegram webhook error: {e}")
+        logger.error(f"Telegram webhook error: {e}", exc_info=True)
         return {"ok": True}
