@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from typing import Optional, List
 
 from app.database import get_db
-from app.models import TeamGroup, Team, RedeemCode, TeamMember, InviteRecord, InviteStatus
+from app.models import TeamGroup, Team, RedeemCode, TeamMember
 from app.services.auth import get_current_user
 
 router = APIRouter(prefix="/groups", tags=["分组管理"])
@@ -41,35 +41,30 @@ class GroupResponse(BaseModel):
 
 @router.get("", response_model=List[GroupResponse])
 async def list_groups(db: Session = Depends(get_db), _=Depends(get_current_user)):
-    """获取所有分组"""
+    """获取所有分组（使用 SeatCalculator 统一计算座位）"""
+    from app.services.seat_calculator import get_all_teams_with_seats
+
     groups = db.query(TeamGroup).all()
     result = []
-    
+
     for group in groups:
-        # 统计该分组下的 Team 数量和座位
-        teams = db.query(Team).filter(Team.group_id == group.id, Team.is_active == True).all()
-        total_seats = sum(t.max_seats for t in teams)
-        used_seats = 0
-        for t in teams:
-            member_count = db.query(TeamMember).filter(TeamMember.team_id == t.id).count()
-            pending_count = db.query(InviteRecord).filter(
-                InviteRecord.team_id == t.id,
-                InviteRecord.status == InviteStatus.SUCCESS,
-                InviteRecord.accepted_at == None
-            ).count()
-            used_seats += member_count + pending_count
-        
+        # 使用 SeatCalculator 获取该分组的座位统计
+        teams_with_seats = get_all_teams_with_seats(db, group_id=group.id, only_active=True)
+
+        total_seats = sum(t.max_seats for t in teams_with_seats)
+        used_seats = sum(t.confirmed_members + t.pending_invites for t in teams_with_seats)
+
         result.append(GroupResponse(
             id=group.id,
             name=group.name,
             description=group.description,
             color=group.color or "#1890ff",
             alert_threshold=group.alert_threshold if group.alert_threshold is not None else 5,
-            team_count=len(teams),
+            team_count=len(teams_with_seats),
             total_seats=total_seats,
             used_seats=used_seats
         ))
-    
+
     return result
 
 
@@ -125,22 +120,20 @@ async def update_group(group_id: int, data: GroupUpdate, db: Session = Depends(g
     
     db.commit()
     db.refresh(group)
-    
-    # 统计
-    teams = db.query(Team).filter(Team.group_id == group.id, Team.is_active == True).all()
-    total_seats = sum(t.max_seats for t in teams)
-    used_seats = sum(
-        db.query(TeamMember).filter(TeamMember.team_id == t.id).count()
-        for t in teams
-    )
-    
+
+    # 使用 SeatCalculator 统计
+    from app.services.seat_calculator import get_all_teams_with_seats
+    teams_with_seats = get_all_teams_with_seats(db, group_id=group.id, only_active=True)
+    total_seats = sum(t.max_seats for t in teams_with_seats)
+    used_seats = sum(t.confirmed_members + t.pending_invites for t in teams_with_seats)
+
     return GroupResponse(
         id=group.id,
         name=group.name,
         description=group.description,
         color=group.color or "#1890ff",
         alert_threshold=group.alert_threshold if group.alert_threshold is not None else 5,
-        team_count=len(teams),
+        team_count=len(teams_with_seats),
         total_seats=total_seats,
         used_seats=used_seats
     )
