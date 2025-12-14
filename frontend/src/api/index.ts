@@ -247,9 +247,10 @@ export const publicApi = {
   // 商店 API
   getPaymentConfig: () => publicApiClient.get('/shop/config'),
   getPlans: () => publicApiClient.get('/shop/plans'),
-  createOrder: (data: { plan_id: number; pay_type: string }) =>
+  createOrder: (data: { plan_id: number; email: string; pay_type: string }) =>
     publicApiClient.post('/shop/buy', data),
   getOrderStatus: (orderNo: string) => publicApiClient.get(`/shop/order/${orderNo}`),
+  queryOrdersByEmail: (email: string) => publicApiClient.get('/shop/orders', { params: { email } }),
 }
 
 // 套餐管理 API (管理后台)

@@ -1,14 +1,15 @@
 # 商店公开 API（购买、查询订单、支付回调）
+import re
 import secrets
 import string
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Optional, List, Literal
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from fastapi.responses import PlainTextResponse
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.database import get_db
 from app.limiter import limiter
@@ -24,6 +25,9 @@ from app.logger import get_logger
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/shop", tags=["商店"])
+
+# 邮箱格式校验正则
+EMAIL_REGEX = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
 
 
 # ============ 请求/响应模型 ============
@@ -42,7 +46,16 @@ class PublicPlanResponse(BaseModel):
 
 class CreateOrderRequest(BaseModel):
     plan_id: int = Field(..., ge=1)
+    email: str = Field(..., min_length=5, max_length=100)
     pay_type: Literal["alipay", "wxpay"] = "alipay"
+
+    @field_validator('email')
+    @classmethod
+    def validate_email(cls, v: str) -> str:
+        v = v.strip().lower()
+        if not EMAIL_REGEX.match(v):
+            raise ValueError('邮箱格式不正确')
+        return v
 
 
 class CreateOrderResponse(BaseModel):
@@ -56,9 +69,17 @@ class OrderStatusResponse(BaseModel):
     order_no: str
     status: str
     amount: int
+    email: Optional[str] = None
     redeem_code: Optional[str] = None
     plan_name: Optional[str] = None
     validity_days: Optional[int] = None
+    created_at: Optional[datetime] = None
+    paid_at: Optional[datetime] = None
+
+
+class OrderListResponse(BaseModel):
+    orders: List[OrderStatusResponse]
+    total: int
 
 
 class PaymentConfigResponse(BaseModel):
@@ -158,6 +179,7 @@ async def create_order(
         order = Order(
             order_no=order_no,
             plan_id=plan.id,
+            email=data.email,
             amount=plan.price,
             status=OrderStatus.PENDING,
             pay_type=data.pay_type,
@@ -199,10 +221,49 @@ async def get_order_status(
         order_no=order.order_no,
         status=order.status.value if isinstance(order.status, OrderStatus) else order.status,
         amount=order.amount,
+        email=order.email if hasattr(order, 'email') else None,
         redeem_code=order.redeem_code if order.status == OrderStatus.PAID else None,
         plan_name=plan.name if plan else None,
         validity_days=plan.validity_days if plan else None,
+        created_at=order.created_at,
+        paid_at=order.paid_at,
     )
+
+
+@router.get("/orders", response_model=OrderListResponse)
+@limiter.limit("30/minute")
+async def query_orders_by_email(
+    request: Request,
+    email: str = Query(..., min_length=5, max_length=100, description="查询邮箱"),
+    db: Session = Depends(get_db)
+):
+    """按邮箱查询订单列表"""
+    # 格式校验
+    email = email.strip().lower()
+    if not EMAIL_REGEX.match(email):
+        raise HTTPException(status_code=400, detail="邮箱格式不正确")
+
+    # 查询订单（按时间倒序）
+    orders = db.query(Order).filter(
+        Order.email == email
+    ).order_by(Order.created_at.desc()).limit(50).all()
+
+    result = []
+    for order in orders:
+        plan = db.query(Plan).filter(Plan.id == order.plan_id).first()
+        result.append(OrderStatusResponse(
+            order_no=order.order_no,
+            status=order.status.value if isinstance(order.status, OrderStatus) else order.status,
+            amount=order.amount,
+            email=order.email,
+            redeem_code=order.redeem_code if order.status == OrderStatus.PAID else None,
+            plan_name=plan.name if plan else None,
+            validity_days=plan.validity_days if plan else None,
+            created_at=order.created_at,
+            paid_at=order.paid_at,
+        ))
+
+    return OrderListResponse(orders=result, total=len(result))
 
 
 @router.post("/notify", response_class=PlainTextResponse)

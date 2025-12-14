@@ -1,8 +1,8 @@
 // 购买套餐页面
 import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Button, Typography, Spin, Result, Input, Tooltip, message, Space, Row, Col, Radio } from 'antd'
-import { ShoppingCartOutlined, CheckCircleFilled, CopyOutlined, ArrowRightOutlined, LoadingOutlined, AlipayCircleOutlined, WechatOutlined, ArrowLeftOutlined } from '@ant-design/icons'
+import { Button, Typography, Spin, Result, Input, Tooltip, message, Modal, Radio, Space, Row, Col, Card, Tag, Divider, Table, Empty } from 'antd'
+import { ShoppingCartOutlined, CheckCircleFilled, CopyOutlined, ArrowRightOutlined, LoadingOutlined, AlipayCircleOutlined, WechatOutlined, ArrowLeftOutlined, SearchOutlined, GiftOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import { publicApi } from '../api'
 
 const { Title, Text, Paragraph } = Typography
@@ -35,90 +35,41 @@ interface OrderStatus {
   order_no: string
   status: string
   amount: number
+  email?: string
   redeem_code?: string
   plan_name?: string
   validity_days?: number
+  created_at?: string
+  paid_at?: string
 }
 
 // 套餐卡片
-const PricingCard: React.FC<{ plan: Plan; selected: boolean; onSelect: (plan: Plan) => void }> = ({ plan, selected, onSelect }) => {
+const PlanCard: React.FC<{ plan: Plan; selected: boolean; onSelect: () => void }> = ({ plan, selected, onSelect }) => {
   const priceYuan = (plan.price / 100).toFixed(2)
-  const originalPriceYuan = plan.original_price ? (plan.original_price / 100).toFixed(2) : null
 
   return (
-    <div
-      onClick={() => onSelect(plan)}
+    <Card
+      hoverable
+      onClick={onSelect}
       style={{
-        position: 'relative',
-        background: selected ? 'rgba(0, 122, 255, 0.08)' : 'rgba(255, 255, 255, 0.8)',
-        backdropFilter: 'blur(20px)',
-        WebkitBackdropFilter: 'blur(20px)',
-        borderRadius: 20,
-        border: selected ? '2px solid #007aff' : plan.is_recommended ? '2px solid #ff9500' : '1px solid rgba(0, 0, 0, 0.08)',
-        padding: 32,
-        height: '100%',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        boxShadow: selected ? '0 8px 32px rgba(0, 122, 255, 0.2)' : '0 8px 32px 0 rgba(31, 38, 135, 0.1)',
-        transition: 'all 0.3s ease',
-        cursor: 'pointer',
+        borderRadius: 16,
+        border: selected ? '2px solid #007aff' : plan.is_recommended ? '2px solid #ff9500' : '1px solid #e8e8e8',
+        background: selected ? 'rgba(0, 122, 255, 0.05)' : '#fff',
+        transition: 'all 0.2s',
       }}
+      bodyStyle={{ padding: 20, textAlign: 'center' }}
     >
       {plan.is_recommended && (
-        <div style={{
-          position: 'absolute',
-          top: -15,
-          background: 'linear-gradient(45deg, #ff9500, #ff5e3a)',
-          color: 'white',
-          padding: '6px 16px',
-          borderRadius: 20,
-          fontSize: 14,
-          fontWeight: 600,
-          boxShadow: '0 4px 12px rgba(255, 149, 0, 0.4)',
-        }}>
-          推荐
-        </div>
+        <Tag color="orange" style={{ position: 'absolute', top: 12, right: 12 }}>推荐</Tag>
       )}
-
-      <Title level={4} style={{ color: '#1d1d1f', fontWeight: 600, marginTop: plan.is_recommended ? 8 : 0 }}>
-        {plan.name}
-      </Title>
-
-      <div style={{ margin: '16px 0' }}>
-        {originalPriceYuan && (
-          <Text delete style={{ fontSize: 16, color: '#86868b', marginRight: 8 }}>¥{originalPriceYuan}</Text>
-        )}
-        <Text style={{ fontSize: 20, fontWeight: 500, color: '#1d1d1f', marginRight: 4 }}>¥</Text>
-        <Text style={{ fontSize: 44, fontWeight: 700, color: '#1d1d1f', lineHeight: 1 }}>
-          {priceYuan.split('.')[0]}
+      <Title level={5} style={{ margin: '0 0 8px', color: '#1d1d1f' }}>{plan.name}</Title>
+      <div>
+        <Text style={{ fontSize: 24, fontWeight: 700, color: selected ? '#007aff' : '#1d1d1f' }}>
+          ¥{priceYuan}
         </Text>
-        <Text style={{ fontSize: 20, fontWeight: 500, color: '#1d1d1f' }}>.{priceYuan.split('.')[1]}</Text>
       </div>
-
-      <Paragraph style={{ color: '#86868b', marginBottom: 8 }}>
-        有效期 {plan.validity_days} 天
-      </Paragraph>
-
-      {plan.description && (
-        <Paragraph style={{ color: '#86868b', fontSize: 13, textAlign: 'center', marginBottom: 16 }}>
-          {plan.description}
-        </Paragraph>
-      )}
-
-      {selected && (
-        <div style={{
-          marginTop: 'auto',
-          background: '#007aff',
-          color: '#fff',
-          padding: '8px 24px',
-          borderRadius: 20,
-          fontWeight: 600,
-        }}>
-          已选择
-        </div>
-      )}
-    </div>
+      <Text type="secondary" style={{ fontSize: 13 }}>{plan.validity_days}天有效</Text>
+    </Card>
   )
 }
 
@@ -128,11 +79,24 @@ export default function Purchase() {
   const [plans, setPlans] = useState<Plan[]>([])
   const [paymentConfig, setPaymentConfig] = useState<PaymentConfig | null>(null)
   const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null)
+
+  // 支付弹窗状态
+  const [payModalVisible, setPayModalVisible] = useState(false)
+  const [email, setEmail] = useState(() => localStorage.getItem('purchase_email') || '')
   const [payType, setPayType] = useState<string>('alipay')
-  const [status, setStatus] = useState<'SELECT' | 'LOADING' | 'PAYING' | 'SUCCESS'>('SELECT')
-  const [orderNo, setOrderNo] = useState<string>('')
-  const [payUrl, setPayUrl] = useState<string>('')
-  const [redeemCode, setRedeemCode] = useState<string>('')
+  const [submitting, setSubmitting] = useState(false)
+
+  // 支付中状态
+  const [payingOrder, setPayingOrder] = useState<{ orderNo: string; payUrl: string; amount: number } | null>(null)
+
+  // 支付成功状态
+  const [successOrder, setSuccessOrder] = useState<{ redeemCode: string; validityDays: number } | null>(null)
+
+  // 订单查询状态
+  const [queryModalVisible, setQueryModalVisible] = useState(false)
+  const [queryEmail, setQueryEmail] = useState('')
+  const [queryLoading, setQueryLoading] = useState(false)
+  const [queryOrders, setQueryOrders] = useState<OrderStatus[]>([])
 
   useEffect(() => {
     Promise.all([
@@ -143,10 +107,6 @@ export default function Purchase() {
       setPaymentConfig(payConfig)
       const plansList = (plansData || []) as unknown as Plan[]
       setPlans(plansList)
-      // 默认选中推荐套餐或第一个
-      const recommended = plansList.find(p => p.is_recommended) || plansList[0]
-      if (recommended) setSelectedPlan(recommended)
-      // 默认支付方式
       if (payConfig) {
         if (payConfig.alipay_enabled) setPayType('alipay')
         else if (payConfig.wxpay_enabled) setPayType('wxpay')
@@ -154,28 +114,53 @@ export default function Purchase() {
     }).finally(() => setLoading(false))
   }, [])
 
+  // 打开支付弹窗
+  const handleBuyClick = () => {
+    if (!selectedPlan) {
+      message.warning('请先选择套餐')
+      return
+    }
+    setPayModalVisible(true)
+  }
+
   // 创建订单
   const handleCreateOrder = async () => {
-    if (!selectedPlan) {
-      message.warning('请选择套餐')
+    if (!selectedPlan) return
+
+    // 邮箱校验
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!email.trim() || !emailRegex.test(email.trim())) {
+      message.error('请输入正确的邮箱地址')
       return
     }
 
-    setStatus('LOADING')
+    setSubmitting(true)
     try {
+      // 保存邮箱到本地
+      localStorage.setItem('purchase_email', email.trim().toLowerCase())
+
       const response = await publicApi.createOrder({
         plan_id: selectedPlan.id,
+        email: email.trim().toLowerCase(),
         pay_type: payType,
       }) as unknown as OrderResponse
 
-      setOrderNo(response.order_no)
-      setPayUrl(response.pay_url)
-      setStatus('PAYING')
+      setPayModalVisible(false)
+      setPayingOrder({
+        orderNo: response.order_no,
+        payUrl: response.pay_url,
+        amount: response.amount,
+      })
+
+      // 打开支付页面
       window.open(response.pay_url, '_blank')
+
+      // 开始轮询
       startPolling(response.order_no)
     } catch (error: any) {
       message.error(error.response?.data?.detail || '创建订单失败')
-      setStatus('SELECT')
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -191,8 +176,11 @@ export default function Purchase() {
       try {
         const response = await publicApi.getOrderStatus(orderNo) as unknown as OrderStatus
         if (response.status === 'paid' && response.redeem_code) {
-          setRedeemCode(response.redeem_code)
-          setStatus('SUCCESS')
+          setPayingOrder(null)
+          setSuccessOrder({
+            redeemCode: response.redeem_code,
+            validityDays: response.validity_days || 30,
+          })
           return
         }
       } catch {}
@@ -203,9 +191,32 @@ export default function Purchase() {
     poll()
   }
 
-  const handleCopy = () => {
-    navigator.clipboard.writeText(redeemCode)
-    message.success({ content: '兑换码已复制！', icon: <CheckCircleFilled style={{ color: '#34c759' }} /> })
+  // 复制兑换码
+  const handleCopy = (code: string) => {
+    navigator.clipboard.writeText(code)
+    message.success({ content: '已复制！', icon: <CheckCircleFilled style={{ color: '#34c759' }} /> })
+  }
+
+  // 查询订单
+  const handleQueryOrders = async () => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!queryEmail.trim() || !emailRegex.test(queryEmail.trim())) {
+      message.error('请输入正确的邮箱地址')
+      return
+    }
+
+    setQueryLoading(true)
+    try {
+      const response = await publicApi.queryOrdersByEmail(queryEmail.trim().toLowerCase()) as unknown as { orders: OrderStatus[]; total: number }
+      setQueryOrders(response.orders)
+      if (response.orders.length === 0) {
+        message.info('未找到相关订单')
+      }
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || '查询失败')
+    } finally {
+      setQueryLoading(false)
+    }
   }
 
   if (loading) {
@@ -229,96 +240,81 @@ export default function Purchase() {
     )
   }
 
-  // 支付成功
-  if (status === 'SUCCESS') {
+  // 支付成功页面
+  if (successOrder) {
     return (
       <div style={{ minHeight: '100vh', background: 'linear-gradient(180deg, #fafafa 0%, #f5f5f7 100%)', padding: '60px 20px' }}>
         <div style={{ maxWidth: 500, margin: '0 auto', textAlign: 'center' }}>
-          <Result
-            status="success"
-            icon={<CheckCircleFilled style={{ color: '#34c759', fontSize: 72 }} />}
-            title={<Title level={2} style={{ color: '#1d1d1f' }}>支付成功！</Title>}
-            subTitle={
-              <Paragraph style={{ color: '#ff3b30', fontWeight: 600, fontSize: 16 }}>
-                请立即保存您的兑换码，关闭后无法找回！
-              </Paragraph>
-            }
-            extra={[
-              <div key="code" style={{
-                background: 'rgba(0, 122, 255, 0.08)',
-                padding: 24,
-                borderRadius: 16,
-                marginBottom: 24,
-              }}>
-                <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
-                  <Input
-                    value={redeemCode}
-                    readOnly
-                    style={{
-                      width: 280,
-                      textAlign: 'center',
-                      fontSize: 20,
-                      fontWeight: 700,
-                      letterSpacing: 2,
-                      color: '#007aff',
-                      background: '#fff',
-                      borderColor: 'rgba(0, 122, 255, 0.4)',
-                      borderRadius: '12px 0 0 12px',
-                    }}
-                  />
-                  <Tooltip title="复制">
-                    <Button
-                      icon={<CopyOutlined />}
-                      onClick={handleCopy}
-                      style={{
-                        height: 40,
-                        background: '#007aff',
-                        borderColor: '#007aff',
-                        color: '#fff',
-                        borderRadius: '0 12px 12px 0',
-                      }}
-                    />
-                  </Tooltip>
-                </div>
-                <Paragraph style={{ color: '#86868b', margin: 0 }}>
-                  有效期：{selectedPlan?.validity_days} 天（从兑换激活时开始计算）
-                </Paragraph>
-              </div>,
-              <Button
-                key="redeem"
-                type="primary"
-                size="large"
-                shape="round"
-                icon={<ArrowRightOutlined />}
-                onClick={() => navigate('/invite')}
-                style={{ background: '#007aff', borderColor: '#007aff', fontWeight: 600, height: 50, padding: '0 40px' }}
-              >
-                前往兑换
-              </Button>,
-            ]}
-          />
+          <CheckCircleFilled style={{ fontSize: 72, color: '#34c759', marginBottom: 24 }} />
+          <Title level={2} style={{ color: '#1d1d1f', marginBottom: 8 }}>支付成功！</Title>
+          <Paragraph style={{ color: '#ff3b30', fontWeight: 600, fontSize: 16, marginBottom: 32 }}>
+            请立即保存您的兑换码，关闭后可通过邮箱查询
+          </Paragraph>
+
+          <div style={{
+            background: 'rgba(0, 122, 255, 0.08)',
+            padding: 24,
+            borderRadius: 16,
+            marginBottom: 32,
+          }}>
+            <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
+              <Input
+                value={successOrder.redeemCode}
+                readOnly
+                style={{
+                  width: 280,
+                  textAlign: 'center',
+                  fontSize: 20,
+                  fontWeight: 700,
+                  letterSpacing: 2,
+                  color: '#007aff',
+                  background: '#fff',
+                  borderRadius: '12px 0 0 12px',
+                }}
+              />
+              <Tooltip title="复制">
+                <Button
+                  icon={<CopyOutlined />}
+                  onClick={() => handleCopy(successOrder.redeemCode)}
+                  style={{ height: 40, background: '#007aff', borderColor: '#007aff', color: '#fff', borderRadius: '0 12px 12px 0' }}
+                />
+              </Tooltip>
+            </div>
+            <Paragraph style={{ color: '#86868b', margin: 0 }}>
+              有效期：{successOrder.validityDays} 天（从兑换激活时开始计算）
+            </Paragraph>
+          </div>
+
+          <Space size="middle">
+            <Button size="large" onClick={() => { setSuccessOrder(null); setSelectedPlan(null) }}>
+              继续购买
+            </Button>
+            <Button type="primary" size="large" icon={<ArrowRightOutlined />} onClick={() => navigate('/invite')}
+              style={{ background: '#007aff', borderColor: '#007aff' }}>
+              前往兑换
+            </Button>
+          </Space>
         </div>
       </div>
     )
   }
 
-  // 支付中
-  if (status === 'PAYING') {
+  // 支付中页面
+  if (payingOrder) {
     return (
       <div style={{ minHeight: '100vh', background: 'linear-gradient(180deg, #fafafa 0%, #f5f5f7 100%)', padding: '60px 20px' }}>
         <div style={{ maxWidth: 500, margin: '0 auto', textAlign: 'center' }}>
           <div style={{
-            background: 'rgba(255, 255, 255, 0.8)',
+            background: 'rgba(255, 255, 255, 0.9)',
             backdropFilter: 'blur(20px)',
             borderRadius: 24,
             padding: 48,
           }}>
-            <Title level={5} style={{ color: '#86868b', marginBottom: 4 }}>订单号: {orderNo}</Title>
-            <div style={{ margin: '32px 0' }}>
-              <Spin indicator={<LoadingOutlined style={{ fontSize: 56 }} spin />} />
-            </div>
-            <Paragraph style={{ fontSize: 18 }}>支付页面已在新窗口打开</Paragraph>
-            <Paragraph style={{ color: '#86868b' }}>请完成支付后等待自动确认...</Paragraph>
+            <Spin indicator={<LoadingOutlined style={{ fontSize: 56 }} spin />} />
+            <Title level={3} style={{ color: '#1d1d1f', marginTop: 24 }}>等待支付确认</Title>
+            <Paragraph type="secondary">订单号：{payingOrder.orderNo}</Paragraph>
+            <Paragraph type="secondary">支付页面已在新窗口打开，请完成支付</Paragraph>
+
             <div style={{
               margin: '24px 0',
               padding: '12px 32px',
@@ -326,13 +322,14 @@ export default function Purchase() {
               borderRadius: 12,
               display: 'inline-block',
             }}>
-              <Text style={{ color: '#1d1d1f' }}>金额：</Text>
+              <Text>金额：</Text>
               <Text style={{ fontSize: 28, fontWeight: 700, color: '#ff9500' }}>
-                ¥{selectedPlan ? (selectedPlan.price / 100).toFixed(2) : '0.00'}
+                ¥{(payingOrder.amount / 100).toFixed(2)}
               </Text>
             </div>
+
             <div style={{ marginTop: 24 }}>
-              <Button size="large" onClick={() => window.open(payUrl, '_blank')}>
+              <Button onClick={() => window.open(payingOrder.payUrl, '_blank')}>
                 重新打开支付页面
               </Button>
             </div>
@@ -345,117 +342,270 @@ export default function Purchase() {
   return (
     <div style={{ minHeight: '100vh', background: 'linear-gradient(180deg, #fafafa 0%, #f5f5f7 100%)' }}>
       {/* 装饰 */}
-      <div style={{ position: 'fixed', top: '-20%', right: '-10%', width: 600, height: 600, background: 'radial-gradient(circle, rgba(255, 149, 0, 0.1) 0%, transparent 70%)', borderRadius: '50%', zIndex: 0 }} />
-      <div style={{ position: 'fixed', bottom: '-15%', left: '-5%', width: 500, height: 500, background: 'radial-gradient(circle, rgba(0, 122, 255, 0.08) 0%, transparent 70%)', borderRadius: '50%', zIndex: 0 }} />
+      <div style={{ position: 'fixed', top: '-20%', right: '-10%', width: 600, height: 600, background: 'radial-gradient(circle, rgba(255, 149, 0, 0.08) 0%, transparent 70%)', borderRadius: '50%', zIndex: 0 }} />
+      <div style={{ position: 'fixed', bottom: '-15%', left: '-5%', width: 500, height: 500, background: 'radial-gradient(circle, rgba(0, 122, 255, 0.06) 0%, transparent 70%)', borderRadius: '50%', zIndex: 0 }} />
 
-      <div style={{ maxWidth: 1000, margin: '0 auto', padding: '40px 20px', position: 'relative', zIndex: 1 }}>
-        {/* 返回按钮 */}
-        <Button
-          type="text"
-          icon={<ArrowLeftOutlined />}
-          onClick={() => navigate('/')}
-          style={{ marginBottom: 24, color: '#86868b' }}
-        >
-          返回首页
-        </Button>
+      <div style={{ maxWidth: 900, margin: '0 auto', padding: '40px 20px', position: 'relative', zIndex: 1 }}>
+        {/* 顶部栏 */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
+          <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/')} style={{ color: '#86868b' }}>
+            返回首页
+          </Button>
+          <Button icon={<SearchOutlined />} onClick={() => setQueryModalVisible(true)}>
+            查询订单
+          </Button>
+        </div>
 
-        <div style={{ textAlign: 'center', marginBottom: 48 }}>
-          <Title level={1} style={{ color: '#1d1d1f', fontWeight: 700, marginBottom: 12 }}>
+        {/* 标题 */}
+        <div style={{ textAlign: 'center', marginBottom: 40 }}>
+          <Title level={2} style={{ color: '#1d1d1f', fontWeight: 700, marginBottom: 8 }}>
             选择套餐
           </Title>
-          <Paragraph style={{ color: '#86868b', fontSize: 18 }}>
+          <Paragraph type="secondary" style={{ fontSize: 16 }}>
             选择适合您的套餐，支付后即可获得兑换码
           </Paragraph>
         </div>
 
         {/* 套餐列表 */}
-        <Row gutter={[24, 24]} style={{ marginBottom: 48 }}>
+        <Row gutter={[16, 16]} style={{ marginBottom: 32 }}>
           {plans.map(plan => (
-            <Col key={plan.id} xs={24} sm={12} md={8}>
-              <PricingCard
+            <Col key={plan.id} xs={12} sm={8} md={6}>
+              <PlanCard
                 plan={plan}
                 selected={selectedPlan?.id === plan.id}
-                onSelect={setSelectedPlan}
+                onSelect={() => setSelectedPlan(plan)}
               />
             </Col>
           ))}
         </Row>
 
-        {/* 支付区域 */}
-        <div style={{
-          background: 'rgba(255, 255, 255, 0.8)',
-          backdropFilter: 'blur(20px)',
-          borderRadius: 24,
-          padding: 32,
-          maxWidth: 500,
-          margin: '0 auto',
-        }}>
-          <Title level={4} style={{ textAlign: 'center', marginBottom: 24 }}>选择支付方式</Title>
+        {/* 选中套餐详情 */}
+        {selectedPlan && (
+          <Card style={{ borderRadius: 16, marginBottom: 32 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 8 }}>
+                  <Title level={4} style={{ margin: 0 }}>{selectedPlan.name}</Title>
+                  {selectedPlan.is_recommended && <Tag color="orange">推荐</Tag>}
+                </div>
+                <Space split={<Divider type="vertical" />}>
+                  <Text type="secondary"><ClockCircleOutlined /> 有效期 {selectedPlan.validity_days} 天</Text>
+                  {selectedPlan.description && <Text type="secondary">{selectedPlan.description}</Text>}
+                </Space>
+              </div>
+              <div style={{ textAlign: 'right' }}>
+                {selectedPlan.original_price && (
+                  <Text delete type="secondary" style={{ marginRight: 8 }}>
+                    ¥{(selectedPlan.original_price / 100).toFixed(2)}
+                  </Text>
+                )}
+                <Text style={{ fontSize: 28, fontWeight: 700, color: '#ff9500' }}>
+                  ¥{(selectedPlan.price / 100).toFixed(2)}
+                </Text>
+              </div>
+            </div>
 
-          <Radio.Group
-            value={payType}
-            onChange={(e) => setPayType(e.target.value)}
-            style={{ width: '100%', marginBottom: 24 }}
-          >
-            <Space direction="vertical" size="middle" style={{ width: '100%' }}>
-              {paymentConfig?.alipay_enabled && (
-                <Radio value="alipay" style={{
-                  width: '100%',
-                  padding: '16px 20px',
-                  background: payType === 'alipay' ? 'rgba(22, 119, 255, 0.08)' : '#fff',
-                  borderRadius: 12,
-                  border: payType === 'alipay' ? '2px solid #1677ff' : '1px solid #e8e8e8',
-                }}>
-                  <Space>
-                    <AlipayCircleOutlined style={{ fontSize: 28, color: '#1677ff' }} />
-                    <span style={{ fontSize: 16, fontWeight: 500 }}>支付宝</span>
-                  </Space>
-                </Radio>
-              )}
-              {paymentConfig?.wxpay_enabled && (
-                <Radio value="wxpay" style={{
-                  width: '100%',
-                  padding: '16px 20px',
-                  background: payType === 'wxpay' ? 'rgba(7, 193, 96, 0.08)' : '#fff',
-                  borderRadius: 12,
-                  border: payType === 'wxpay' ? '2px solid #07c160' : '1px solid #e8e8e8',
-                }}>
-                  <Space>
-                    <WechatOutlined style={{ fontSize: 28, color: '#07c160' }} />
-                    <span style={{ fontSize: 16, fontWeight: 500 }}>微信支付</span>
-                  </Space>
-                </Radio>
-              )}
-            </Space>
-          </Radio.Group>
+            <Divider />
 
-          <div style={{ textAlign: 'center', marginBottom: 24 }}>
-            <Text style={{ color: '#86868b' }}>应付金额：</Text>
-            <Text style={{ fontSize: 32, fontWeight: 700, color: '#ff9500' }}>
-              ¥{selectedPlan ? (selectedPlan.price / 100).toFixed(2) : '0.00'}
+            <div style={{ textAlign: 'center' }}>
+              <Button
+                type="primary"
+                size="large"
+                icon={<ShoppingCartOutlined />}
+                onClick={handleBuyClick}
+                style={{
+                  height: 50,
+                  padding: '0 48px',
+                  fontSize: 16,
+                  fontWeight: 600,
+                  borderRadius: 25,
+                  background: 'linear-gradient(135deg, #ff9500 0%, #ff5e3a 100%)',
+                  border: 'none',
+                }}
+              >
+                立即购买
+              </Button>
+            </div>
+          </Card>
+        )}
+
+        {/* 未选择套餐提示 */}
+        {!selectedPlan && (
+          <div style={{ textAlign: 'center', padding: '40px 0', color: '#86868b' }}>
+            <GiftOutlined style={{ fontSize: 48, marginBottom: 16, opacity: 0.5 }} />
+            <Paragraph type="secondary">请点击上方套餐卡片进行选择</Paragraph>
+          </div>
+        )}
+      </div>
+
+      {/* 支付弹窗 */}
+      <Modal
+        title="确认订单"
+        open={payModalVisible}
+        onCancel={() => setPayModalVisible(false)}
+        footer={null}
+        centered
+        width={420}
+      >
+        <div style={{ padding: '16px 0' }}>
+          {/* 订单信息 */}
+          <div style={{ background: '#f5f5f7', borderRadius: 12, padding: 16, marginBottom: 24 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+              <Text type="secondary">套餐</Text>
+              <Text strong>{selectedPlan?.name}</Text>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+              <Text type="secondary">有效期</Text>
+              <Text>{selectedPlan?.validity_days} 天</Text>
+            </div>
+            <Divider style={{ margin: '12px 0' }} />
+            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+              <Text type="secondary">应付金额</Text>
+              <Text style={{ fontSize: 20, fontWeight: 700, color: '#ff9500' }}>
+                ¥{selectedPlan ? (selectedPlan.price / 100).toFixed(2) : '0.00'}
+              </Text>
+            </div>
+          </div>
+
+          {/* 邮箱输入 */}
+          <div style={{ marginBottom: 24 }}>
+            <Text strong style={{ display: 'block', marginBottom: 8 }}>联系邮箱</Text>
+            <Input
+              placeholder="请输入邮箱，用于查询订单"
+              value={email}
+              onChange={e => setEmail(e.target.value)}
+              size="large"
+              style={{ borderRadius: 8 }}
+            />
+            <Text type="secondary" style={{ fontSize: 12, marginTop: 4, display: 'block' }}>
+              支付成功后可通过邮箱查询订单和兑换码
             </Text>
+          </div>
+
+          {/* 支付方式 */}
+          <div style={{ marginBottom: 24 }}>
+            <Text strong style={{ display: 'block', marginBottom: 12 }}>支付方式</Text>
+            <Radio.Group value={payType} onChange={e => setPayType(e.target.value)} style={{ width: '100%' }}>
+              <Space direction="vertical" style={{ width: '100%' }}>
+                {paymentConfig?.alipay_enabled && (
+                  <Radio value="alipay" style={{
+                    width: '100%',
+                    padding: '12px 16px',
+                    background: payType === 'alipay' ? 'rgba(22, 119, 255, 0.08)' : '#fafafa',
+                    borderRadius: 8,
+                    border: payType === 'alipay' ? '1px solid #1677ff' : '1px solid #e8e8e8',
+                  }}>
+                    <Space>
+                      <AlipayCircleOutlined style={{ fontSize: 24, color: '#1677ff' }} />
+                      <span>支付宝</span>
+                    </Space>
+                  </Radio>
+                )}
+                {paymentConfig?.wxpay_enabled && (
+                  <Radio value="wxpay" style={{
+                    width: '100%',
+                    padding: '12px 16px',
+                    background: payType === 'wxpay' ? 'rgba(7, 193, 96, 0.08)' : '#fafafa',
+                    borderRadius: 8,
+                    border: payType === 'wxpay' ? '1px solid #07c160' : '1px solid #e8e8e8',
+                  }}>
+                    <Space>
+                      <WechatOutlined style={{ fontSize: 24, color: '#07c160' }} />
+                      <span>微信支付</span>
+                    </Space>
+                  </Radio>
+                )}
+              </Space>
+            </Radio.Group>
           </div>
 
           <Button
             type="primary"
             size="large"
             block
-            icon={<ShoppingCartOutlined />}
+            loading={submitting}
             onClick={handleCreateOrder}
-            loading={status === 'LOADING'}
             style={{
-              height: 56,
-              fontSize: 18,
-              fontWeight: 600,
-              borderRadius: 28,
+              height: 48,
+              borderRadius: 24,
               background: 'linear-gradient(135deg, #ff9500 0%, #ff5e3a 100%)',
               border: 'none',
+              fontWeight: 600,
             }}
           >
-            立即支付
+            确认支付
           </Button>
         </div>
-      </div>
+      </Modal>
+
+      {/* 订单查询弹窗 */}
+      <Modal
+        title="查询订单"
+        open={queryModalVisible}
+        onCancel={() => { setQueryModalVisible(false); setQueryOrders([]) }}
+        footer={null}
+        width={600}
+      >
+        <div style={{ padding: '16px 0' }}>
+          <div style={{ display: 'flex', gap: 12, marginBottom: 24 }}>
+            <Input
+              placeholder="请输入购买时填写的邮箱"
+              value={queryEmail}
+              onChange={e => setQueryEmail(e.target.value)}
+              onPressEnter={handleQueryOrders}
+              size="large"
+              style={{ flex: 1 }}
+            />
+            <Button type="primary" size="large" icon={<SearchOutlined />} loading={queryLoading} onClick={handleQueryOrders}>
+              查询
+            </Button>
+          </div>
+
+          {queryOrders.length > 0 ? (
+            <Table
+              dataSource={queryOrders}
+              rowKey="order_no"
+              pagination={false}
+              size="small"
+              columns={[
+                {
+                  title: '套餐',
+                  dataIndex: 'plan_name',
+                  width: 100,
+                },
+                {
+                  title: '金额',
+                  dataIndex: 'amount',
+                  width: 80,
+                  render: (v: number) => <Text type="danger">¥{(v / 100).toFixed(2)}</Text>
+                },
+                {
+                  title: '状态',
+                  dataIndex: 'status',
+                  width: 80,
+                  render: (v: string) => (
+                    <Tag color={v === 'paid' ? 'green' : v === 'pending' ? 'blue' : 'default'}>
+                      {v === 'paid' ? '已支付' : v === 'pending' ? '待支付' : '已过期'}
+                    </Tag>
+                  )
+                },
+                {
+                  title: '兑换码',
+                  dataIndex: 'redeem_code',
+                  render: (v: string) => v ? (
+                    <Space>
+                      <Text code style={{ color: '#007aff' }}>{v}</Text>
+                      <Button type="link" size="small" icon={<CopyOutlined />} onClick={() => handleCopy(v)} />
+                    </Space>
+                  ) : <Text type="secondary">-</Text>
+                },
+              ]}
+            />
+          ) : (
+            <Empty image={Empty.PRESENTED_IMAGE_SIMPLE} description="输入邮箱查询订单" />
+          )}
+        </div>
+      </Modal>
     </div>
   )
 }

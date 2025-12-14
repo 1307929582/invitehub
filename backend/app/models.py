@@ -377,6 +377,7 @@ class Order(Base):
     id = Column(Integer, primary_key=True, index=True)
     order_no = Column(String(32), unique=True, nullable=False, index=True)  # 订单号
     plan_id = Column(Integer, ForeignKey("plans.id"), nullable=False)       # 套餐ID
+    email = Column(String(100), nullable=False, index=True)                 # 联系邮箱（用于查询订单）
     amount = Column(Integer, nullable=False)                                 # 支付金额（分）
     status = Column(
         Enum(OrderStatus, values_callable=lambda x: [e.value for e in x]),
