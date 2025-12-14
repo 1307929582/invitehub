@@ -1,6 +1,6 @@
 // 购买套餐页面
 import { useState, useEffect } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { Button, Typography, Spin, Result, Input, Tooltip, message, Modal, Radio, Space, Row, Col, Card, Tag, Divider, Table, Empty } from 'antd'
 import { ShoppingCartOutlined, CheckCircleFilled, CopyOutlined, ArrowRightOutlined, LoadingOutlined, AlipayCircleOutlined, WechatOutlined, ArrowLeftOutlined, SearchOutlined, GiftOutlined, ClockCircleOutlined } from '@ant-design/icons'
 import { publicApi } from '../api'
@@ -75,6 +75,9 @@ const PlanCard: React.FC<{ plan: Plan; selected: boolean; onSelect: () => void }
 
 export default function Purchase() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const urlCoupon = searchParams.get('coupon')?.toUpperCase() || ''
+
   const [loading, setLoading] = useState(true)
   const [plans, setPlans] = useState<Plan[]>([])
   const [paymentConfig, setPaymentConfig] = useState<PaymentConfig | null>(null)
@@ -124,16 +127,46 @@ export default function Purchase() {
   }, [])
 
   // 打开支付弹窗
-  const handleBuyClick = () => {
+  const handleBuyClick = async () => {
     if (!selectedPlan) {
       message.warning('请先选择套餐')
       return
     }
     // 重置优惠码状态
-    setCouponCode('')
     setCouponError(null)
     setAppliedCoupon(null)
-    setPayModalVisible(true)
+
+    // 如果 URL 有优惠码参数，自动填入并验证
+    if (urlCoupon) {
+      setCouponCode(urlCoupon)
+      setPayModalVisible(true)
+      // 自动验证优惠码
+      setCouponLoading(true)
+      try {
+        const response = await publicApi.checkCoupon({
+          code: urlCoupon,
+          plan_id: selectedPlan.id,
+          amount: selectedPlan.price,
+        }) as unknown as { valid: boolean; discount_amount: number; final_amount: number; message: string }
+
+        if (response.valid && response.discount_amount > 0) {
+          setAppliedCoupon({
+            code: urlCoupon,
+            discountAmount: response.discount_amount,
+          })
+          message.success(`优惠码已生效，优惠 ¥${(response.discount_amount / 100).toFixed(2)}`)
+        } else {
+          setCouponError(response.message || '优惠码无效')
+        }
+      } catch (error: any) {
+        setCouponError(error.response?.data?.detail || '优惠码验证失败')
+      } finally {
+        setCouponLoading(false)
+      }
+    } else {
+      setCouponCode('')
+      setPayModalVisible(true)
+    }
   }
 
   // 验证优惠码
