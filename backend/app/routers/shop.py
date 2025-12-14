@@ -281,13 +281,12 @@ async def create_order(
 
     if data.coupon_code:
         try:
-            # 使用行锁验证优惠码，防止并发超用
+            # 验证优惠码（不加锁，仅验证）
+            # 实际扣减在支付成功回调时进行
             coupon, discount_amount = _validate_coupon(
-                db, data.coupon_code, data.plan_id, original_amount, lock=True
+                db, data.coupon_code, data.plan_id, original_amount, lock=False
             )
             coupon_code_used = coupon.code
-            # 增加使用次数
-            coupon.used_count = (coupon.used_count or 0) + 1
         except HTTPException as e:
             raise HTTPException(status_code=400, detail=f"优惠码错误：{e.detail}")
 
@@ -523,6 +522,13 @@ async def payment_notify(request: Request, db: Session = Depends(get_db)):
 
     # 生成兑换码
     redeem_code = _generate_redeem_code(db, plan.validity_days, order_no)
+
+    # 优惠码使用次数 +1（支付成功后才扣减）
+    if order.coupon_code:
+        coupon = db.query(Coupon).filter(Coupon.code == order.coupon_code).with_for_update().first()
+        if coupon:
+            coupon.used_count = (coupon.used_count or 0) + 1
+            logger.info(f"Coupon used: {coupon.code}, new count: {coupon.used_count}")
 
     # 更新订单状态
     order.status = OrderStatus.PAID
