@@ -24,9 +24,16 @@ def upgrade() -> None:
     bind = op.get_bind()
     dialect = bind.dialect.name
 
-    # 创建 OrderStatus 枚举类型（PostgreSQL）
+    # 创建 OrderStatus 枚举类型（PostgreSQL，仅当不存在时）
     if dialect == 'postgresql':
-        op.execute("CREATE TYPE orderstatus AS ENUM ('pending', 'paid', 'expired', 'refunded')")
+        op.execute("""
+            DO $$
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'orderstatus') THEN
+                    CREATE TYPE orderstatus AS ENUM ('pending', 'paid', 'expired', 'refunded');
+                END IF;
+            END$$;
+        """)
 
     # 创建 plans 表
     op.create_table(
