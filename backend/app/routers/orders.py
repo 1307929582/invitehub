@@ -20,7 +20,10 @@ class OrderResponse(BaseModel):
     order_no: str
     plan_id: int
     plan_name: Optional[str] = None
-    amount: int
+    amount: int                                    # 原价（分）
+    coupon_code: Optional[str] = None              # 优惠码
+    discount_amount: int = 0                       # 优惠金额（分）
+    final_amount: Optional[int] = None             # 实付金额（分）
     status: str
     redeem_code: Optional[str]
     trade_no: Optional[str]
@@ -85,6 +88,9 @@ async def list_orders(
             plan_id=order.plan_id,
             plan_name=order.plan.name if order.plan else None,
             amount=order.amount,
+            coupon_code=order.coupon_code,
+            discount_amount=order.discount_amount or 0,
+            final_amount=order.final_amount,
             status=order.status.value if isinstance(order.status, OrderStatus) else order.status,
             redeem_code=order.redeem_code,
             trade_no=order.trade_no,
@@ -169,6 +175,9 @@ async def get_order(
         plan_id=order.plan_id,
         plan_name=order.plan.name if order.plan else None,
         amount=order.amount,
+        coupon_code=order.coupon_code,
+        discount_amount=order.discount_amount or 0,
+        final_amount=order.final_amount,
         status=order.status.value if isinstance(order.status, OrderStatus) else order.status,
         redeem_code=order.redeem_code,
         trade_no=order.trade_no,

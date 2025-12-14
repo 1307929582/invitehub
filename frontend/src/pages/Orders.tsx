@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
-import { Card, Table, Tag, Statistic, Row, Col, Radio } from 'antd'
-import { ShoppingCartOutlined, DollarOutlined, CheckCircleOutlined, ClockCircleOutlined } from '@ant-design/icons'
+import { Card, Table, Tag, Statistic, Row, Col, Radio, Tooltip, Space, Typography } from 'antd'
+import { ShoppingCartOutlined, DollarOutlined, CheckCircleOutlined, ClockCircleOutlined, GiftOutlined } from '@ant-design/icons'
 import { orderApi } from '../api'
 import { formatDate } from '../utils/date'
+
+const { Text } = Typography
 
 interface Order {
   id: number
@@ -10,6 +12,9 @@ interface Order {
   plan_id: number
   plan_name?: string
   amount: number
+  coupon_code?: string
+  discount_amount: number
+  final_amount?: number
   status: string
   redeem_code?: string
   trade_no?: string
@@ -107,9 +112,41 @@ export default function Orders() {
     },
     {
       title: '金额',
-      dataIndex: 'amount',
+      width: 130,
+      render: (_: any, r: Order) => {
+        const finalAmt = r.final_amount ?? r.amount
+        const hasDiscount = r.discount_amount > 0
+        return (
+          <Space direction="vertical" size={0}>
+            <Text style={{ fontSize: 15, fontWeight: 600, color: '#f5222d' }}>
+              ¥{(finalAmt / 100).toFixed(2)}
+            </Text>
+            {hasDiscount && (
+              <Tooltip title={`优惠码: ${r.coupon_code}`}>
+                <Text type="secondary" delete style={{ fontSize: 12 }}>
+                  ¥{(r.amount / 100).toFixed(2)}
+                </Text>
+              </Tooltip>
+            )}
+          </Space>
+        )
+      }
+    },
+    {
+      title: '优惠',
       width: 100,
-      render: (v: number) => <span style={{ fontSize: 15, fontWeight: 600, color: '#f5222d' }}>¥{(v / 100).toFixed(2)}</span>
+      render: (_: any, r: Order) => {
+        if (!r.discount_amount || r.discount_amount === 0) {
+          return <Text type="secondary">-</Text>
+        }
+        return (
+          <Tooltip title={r.coupon_code}>
+            <Tag icon={<GiftOutlined />} color="green">
+              -¥{(r.discount_amount / 100).toFixed(2)}
+            </Tag>
+          </Tooltip>
+        )
+      }
     },
     {
       title: '支付方式',
