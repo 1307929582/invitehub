@@ -26,6 +26,7 @@ import WhitelistSettings from './pages/settings/WhitelistSettings'
 import PaymentSettings from './pages/settings/PaymentSettings'
 import Plans from './pages/Plans'
 import Orders from './pages/Orders'
+import Coupons from './pages/Coupons'
 import Purchase from './pages/Purchase'
 import PayResult from './pages/PayResult'
 import UnauthorizedMembers from './pages/UnauthorizedMembers'
@@ -208,6 +209,7 @@ function App() {
           <Route path="settings/payment" element={<PaymentSettings />} />
           <Route path="plans" element={<Plans />} />
           <Route path="orders" element={<Orders />} />
+          <Route path="coupons" element={<Coupons />} />
           <Route path="unauthorized" element={<UnauthorizedMembers />} />
           <Route path="admins" element={<Admins />} />
           {/* 分销商管理（管理员） */}

@@ -1,4 +1,5 @@
 # 商店公开 API（购买、查询订单、支付回调）
+import json
 import re
 import secrets
 import string
@@ -13,7 +14,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app.database import get_db
 from app.limiter import limiter
-from app.models import Plan, Order, OrderStatus, RedeemCode, RedeemCodeType, SystemConfig
+from app.models import Plan, Order, OrderStatus, RedeemCode, RedeemCodeType, SystemConfig, Coupon, DiscountType
 from app.services.epay import (
     get_epay_config,
     create_payment_url,
@@ -48,6 +49,7 @@ class CreateOrderRequest(BaseModel):
     plan_id: int = Field(..., ge=1)
     email: str = Field(..., min_length=5, max_length=100)
     pay_type: Literal["alipay", "wxpay"] = "alipay"
+    coupon_code: Optional[str] = Field(None, max_length=30, description="优惠码")
 
     @field_validator('email')
     @classmethod
@@ -55,6 +57,13 @@ class CreateOrderRequest(BaseModel):
         v = v.strip().lower()
         if not EMAIL_REGEX.match(v):
             raise ValueError('邮箱格式不正确')
+        return v
+
+    @field_validator('coupon_code')
+    @classmethod
+    def validate_coupon_code(cls, v: Optional[str]) -> Optional[str]:
+        if v:
+            return v.strip().upper()
         return v
 
 
@@ -86,6 +95,83 @@ class PaymentConfigResponse(BaseModel):
     enabled: bool
     alipay_enabled: bool
     wxpay_enabled: bool
+
+
+class CouponCheckRequest(BaseModel):
+    """优惠码验证请求"""
+    code: str = Field(..., min_length=1, max_length=30)
+    plan_id: int = Field(..., ge=1)
+    amount: int = Field(..., ge=1, description="订单金额（分）")
+
+
+class CouponCheckResponse(BaseModel):
+    """优惠码验证响应"""
+    valid: bool
+    code: str
+    discount_type: Optional[str] = None
+    discount_value: Optional[int] = None
+    discount_amount: int = 0       # 优惠金额（分）
+    final_amount: int              # 最终金额（分）
+    message: str
+
+
+# ============ 优惠码验证逻辑 ============
+
+def _calculate_discount(coupon: Coupon, amount: int) -> int:
+    """计算优惠金额（分）"""
+    if coupon.discount_type == DiscountType.FIXED:
+        return min(coupon.discount_value, amount)
+    elif coupon.discount_type == DiscountType.PERCENTAGE:
+        discount = amount * coupon.discount_value // 100
+        if coupon.max_discount is not None:
+            return min(discount, coupon.max_discount)
+        return discount
+    return 0
+
+
+def _validate_coupon(
+    db: Session,
+    code: str,
+    plan_id: int,
+    amount: int,
+    lock: bool = False
+) -> tuple[Coupon, int]:
+    """
+    验证优惠码并返回 (coupon, discount_amount)
+    如果 lock=True，会对优惠码行加锁（用于下单时）
+    """
+    query = db.query(Coupon).filter(Coupon.code == code.upper())
+    if lock:
+        query = query.with_for_update()
+
+    coupon = query.first()
+
+    if not coupon or not coupon.is_active:
+        raise HTTPException(status_code=400, detail="优惠码不存在或已失效")
+
+    now = datetime.utcnow()
+    if coupon.valid_from and now < coupon.valid_from:
+        raise HTTPException(status_code=400, detail="优惠码尚未生效")
+    if coupon.valid_until and now > coupon.valid_until:
+        raise HTTPException(status_code=400, detail="优惠码已过期")
+
+    if coupon.max_uses > 0 and coupon.used_count >= coupon.max_uses:
+        raise HTTPException(status_code=400, detail="优惠码使用次数已达上限")
+
+    if amount < coupon.min_amount:
+        min_yuan = coupon.min_amount / 100
+        raise HTTPException(status_code=400, detail=f"订单金额需满 {min_yuan:.2f} 元才能使用")
+
+    if coupon.applicable_plan_ids:
+        try:
+            applicable_ids = json.loads(coupon.applicable_plan_ids)
+            if plan_id not in applicable_ids:
+                raise HTTPException(status_code=400, detail="该优惠码不适用于此套餐")
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    discount = _calculate_discount(coupon, amount)
+    return coupon, discount
 
 
 # ============ 公开 API ============
@@ -123,6 +209,39 @@ async def get_public_plans(db: Session = Depends(get_db)):
     ]
 
 
+@router.get("/coupon/check", response_model=CouponCheckResponse)
+@limiter.limit("30/minute")
+async def check_coupon(
+    request: Request,
+    code: str = Query(..., min_length=1, max_length=30),
+    plan_id: int = Query(..., ge=1),
+    amount: int = Query(..., ge=1, description="订单金额（分）"),
+    db: Session = Depends(get_db),
+):
+    """验证优惠码"""
+    code = code.strip().upper()
+
+    try:
+        coupon, discount_amount = _validate_coupon(db, code, plan_id, amount)
+        return CouponCheckResponse(
+            valid=True,
+            code=coupon.code,
+            discount_type=coupon.discount_type.value if isinstance(coupon.discount_type, DiscountType) else coupon.discount_type,
+            discount_value=coupon.discount_value,
+            discount_amount=discount_amount,
+            final_amount=amount - discount_amount,
+            message="优惠码有效",
+        )
+    except HTTPException as e:
+        return CouponCheckResponse(
+            valid=False,
+            code=code,
+            discount_amount=0,
+            final_amount=amount,
+            message=e.detail,
+        )
+
+
 @router.post("/buy", response_model=CreateOrderResponse)
 @limiter.limit("10/minute")
 async def create_order(
@@ -155,6 +274,25 @@ async def create_order(
     if not plan:
         raise HTTPException(status_code=404, detail="套餐不存在或已下架")
 
+    # 计算金额（处理优惠码）
+    original_amount = plan.price
+    discount_amount = 0
+    coupon_code_used = None
+
+    if data.coupon_code:
+        try:
+            # 使用行锁验证优惠码，防止并发超用
+            coupon, discount_amount = _validate_coupon(
+                db, data.coupon_code, data.plan_id, original_amount, lock=True
+            )
+            coupon_code_used = coupon.code
+            # 增加使用次数
+            coupon.used_count = (coupon.used_count or 0) + 1
+        except HTTPException as e:
+            raise HTTPException(status_code=400, detail=f"优惠码错误：{e.detail}")
+
+    final_amount = original_amount - discount_amount
+
     # 订单过期时间（15分钟）
     expire_at = datetime.utcnow() + timedelta(minutes=15)
     notify_url = f"{base_url}/api/v1/public/shop/notify"
@@ -167,7 +305,7 @@ async def create_order(
         pay_url = create_payment_url(
             config=config,
             order_no=order_no,
-            amount=plan.price,
+            amount=final_amount,  # 使用最终金额
             name=f"{plan.name} - {plan.validity_days}天",
             pay_type=data.pay_type,
             notify_url=notify_url,
@@ -180,7 +318,10 @@ async def create_order(
             order_no=order_no,
             plan_id=plan.id,
             email=data.email,
-            amount=plan.price,
+            amount=original_amount,      # 原始金额
+            coupon_code=coupon_code_used,
+            discount_amount=discount_amount,
+            final_amount=final_amount,   # 实付金额
             status=OrderStatus.PENDING,
             pay_type=data.pay_type,
             expire_at=expire_at,
@@ -188,10 +329,10 @@ async def create_order(
         db.add(order)
         try:
             db.commit()
-            logger.info(f"Created order: {order_no}, plan: {plan.name}, amount: {plan.price}")
+            logger.info(f"Created order: {order_no}, plan: {plan.name}, amount: {original_amount}, discount: {discount_amount}, final: {final_amount}")
             return CreateOrderResponse(
                 order_no=order_no,
-                amount=plan.price,
+                amount=final_amount,  # 返回实付金额
                 pay_url=pay_url,
                 expire_at=expire_at,
             )

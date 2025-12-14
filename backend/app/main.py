@@ -8,7 +8,7 @@ from slowapi.errors import RateLimitExceeded
 
 from app.config import settings
 from app.database import init_db, SessionLocal
-from app.routers import auth, teams, invites, dashboard, public, redeem, config, setup, groups, invite_records, admins, notifications, telegram_bot, distributors, plans, orders, shop
+from app.routers import auth, teams, invites, dashboard, public, redeem, config, setup, groups, invite_records, admins, notifications, telegram_bot, distributors, plans, orders, shop, coupons
 from app.logger import setup_logging, get_logger
 from app.limiter import limiter, rate_limit_exceeded_handler
 
@@ -393,6 +393,7 @@ app.include_router(distributors.router, prefix=settings.API_PREFIX)
 app.include_router(notifications.router, prefix=settings.API_PREFIX)
 app.include_router(plans.router, prefix=settings.API_PREFIX)    # 套餐管理
 app.include_router(orders.router, prefix=settings.API_PREFIX)   # 订单管理
+app.include_router(coupons.router, prefix=settings.API_PREFIX)  # 优惠码管理
 
 # Telegram Bot Webhook（公开，但有权限验证）
 app.include_router(telegram_bot.router, prefix=settings.API_PREFIX)

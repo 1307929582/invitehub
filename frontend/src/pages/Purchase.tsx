@@ -98,6 +98,15 @@ export default function Purchase() {
   const [queryLoading, setQueryLoading] = useState(false)
   const [queryOrders, setQueryOrders] = useState<OrderStatus[]>([])
 
+  // 优惠码状态
+  const [couponCode, setCouponCode] = useState('')
+  const [couponLoading, setCouponLoading] = useState(false)
+  const [couponError, setCouponError] = useState<string | null>(null)
+  const [appliedCoupon, setAppliedCoupon] = useState<{
+    code: string
+    discountAmount: number
+  } | null>(null)
+
   useEffect(() => {
     Promise.all([
       publicApi.getPaymentConfig().catch(() => null),
@@ -120,8 +129,59 @@ export default function Purchase() {
       message.warning('请先选择套餐')
       return
     }
+    // 重置优惠码状态
+    setCouponCode('')
+    setCouponError(null)
+    setAppliedCoupon(null)
     setPayModalVisible(true)
   }
+
+  // 验证优惠码
+  const handleCheckCoupon = async () => {
+    if (!selectedPlan || !couponCode.trim()) {
+      setCouponError('请输入优惠码')
+      return
+    }
+
+    setCouponLoading(true)
+    setCouponError(null)
+
+    try {
+      const response = await publicApi.checkCoupon({
+        code: couponCode.trim().toUpperCase(),
+        plan_id: selectedPlan.id,
+        amount: selectedPlan.price,
+      }) as unknown as { valid: boolean; discount_amount: number; final_amount: number; message: string }
+
+      if (response.valid && response.discount_amount > 0) {
+        setAppliedCoupon({
+          code: couponCode.trim().toUpperCase(),
+          discountAmount: response.discount_amount,
+        })
+        message.success(`优惠码已生效，优惠 ¥${(response.discount_amount / 100).toFixed(2)}`)
+      } else {
+        setCouponError(response.message || '优惠码无效')
+        setAppliedCoupon(null)
+      }
+    } catch (error: any) {
+      const errorMsg = error.response?.data?.detail || '验证失败'
+      setCouponError(errorMsg)
+      setAppliedCoupon(null)
+    } finally {
+      setCouponLoading(false)
+    }
+  }
+
+  // 移除优惠码
+  const handleRemoveCoupon = () => {
+    setCouponCode('')
+    setAppliedCoupon(null)
+    setCouponError(null)
+    message.info('优惠码已移除')
+  }
+
+  // 计算最终金额
+  const finalAmount = selectedPlan ? selectedPlan.price - (appliedCoupon?.discountAmount || 0) : 0
 
   // 创建订单
   const handleCreateOrder = async () => {
@@ -143,6 +203,7 @@ export default function Purchase() {
         plan_id: selectedPlan.id,
         email: email.trim().toLowerCase(),
         pay_type: payType,
+        coupon_code: appliedCoupon?.code,
       }) as unknown as OrderResponse
 
       setPayModalVisible(false)
@@ -459,12 +520,75 @@ export default function Purchase() {
               <Text>{selectedPlan?.validity_days} 天</Text>
             </div>
             <Divider style={{ margin: '12px 0' }} />
-            <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-              <Text type="secondary">应付金额</Text>
-              <Text style={{ fontSize: 20, fontWeight: 700, color: '#ff9500' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: appliedCoupon ? 8 : 0 }}>
+              <Text type="secondary">套餐价格</Text>
+              <Text style={{ fontSize: appliedCoupon ? 14 : 20, fontWeight: appliedCoupon ? 400 : 700, color: appliedCoupon ? '#86868b' : '#ff9500', textDecoration: appliedCoupon ? 'line-through' : 'none' }}>
                 ¥{selectedPlan ? (selectedPlan.price / 100).toFixed(2) : '0.00'}
               </Text>
             </div>
+            {appliedCoupon && (
+              <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
+                  <Text type="secondary">优惠</Text>
+                  <Text style={{ color: '#34c759', fontWeight: 500 }}>
+                    -¥{(appliedCoupon.discountAmount / 100).toFixed(2)}
+                  </Text>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <Text type="secondary">应付金额</Text>
+                  <Text style={{ fontSize: 20, fontWeight: 700, color: '#ff9500' }}>
+                    ¥{(finalAmount / 100).toFixed(2)}
+                  </Text>
+                </div>
+              </>
+            )}
+          </div>
+
+          {/* 优惠码 */}
+          <div style={{ marginBottom: 24 }}>
+            <Text strong style={{ display: 'block', marginBottom: 8 }}>优惠码</Text>
+            {appliedCoupon ? (
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '12px 16px',
+                background: 'rgba(52, 199, 89, 0.1)',
+                borderRadius: 8,
+                border: '1px solid #34c759',
+              }}>
+                <Space>
+                  <GiftOutlined style={{ color: '#34c759' }} />
+                  <Text style={{ color: '#34c759', fontWeight: 500 }}>{appliedCoupon.code}</Text>
+                  <Text type="secondary">已优惠 ¥{(appliedCoupon.discountAmount / 100).toFixed(2)}</Text>
+                </Space>
+                <Button type="link" size="small" danger onClick={handleRemoveCoupon}>移除</Button>
+              </div>
+            ) : (
+              <div style={{ display: 'flex', gap: 8 }}>
+                <Input
+                  placeholder="输入优惠码"
+                  value={couponCode}
+                  onChange={e => { setCouponCode(e.target.value.toUpperCase()); setCouponError(null) }}
+                  onPressEnter={handleCheckCoupon}
+                  size="large"
+                  style={{ flex: 1, borderRadius: 8 }}
+                  status={couponError ? 'error' : undefined}
+                />
+                <Button
+                  size="large"
+                  loading={couponLoading}
+                  onClick={handleCheckCoupon}
+                  disabled={!couponCode.trim()}
+                  style={{ borderRadius: 8 }}
+                >
+                  使用
+                </Button>
+              </div>
+            )}
+            {couponError && (
+              <Text type="danger" style={{ fontSize: 12, marginTop: 4, display: 'block' }}>{couponError}</Text>
+            )}
           </div>
 
           {/* 邮箱输入 */}

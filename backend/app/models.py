@@ -378,7 +378,10 @@ class Order(Base):
     order_no = Column(String(32), unique=True, nullable=False, index=True)  # 订单号
     plan_id = Column(Integer, ForeignKey("plans.id"), nullable=False)       # 套餐ID
     email = Column(String(100), nullable=False, index=True)                 # 联系邮箱（用于查询订单）
-    amount = Column(Integer, nullable=False)                                 # 支付金额（分）
+    amount = Column(Integer, nullable=False)                                 # 原始金额（分）
+    coupon_code = Column(String(30), nullable=True)                         # 使用的优惠码
+    discount_amount = Column(Integer, default=0)                            # 优惠金额（分）
+    final_amount = Column(Integer, nullable=True)                           # 实付金额（分），为空则等于 amount
     status = Column(
         Enum(OrderStatus, values_callable=lambda x: [e.value for e in x]),
         default=OrderStatus.PENDING, index=True
@@ -391,5 +394,39 @@ class Order(Base):
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
     plan = relationship("Plan", back_populates="orders")
+
+
+# ============ 优惠码功能 ============
+
+class DiscountType(str, enum.Enum):
+    """折扣类型"""
+    FIXED = "fixed"           # 固定金额（分）
+    PERCENTAGE = "percentage"  # 百分比（如 20 表示 20%）
+
+
+class Coupon(Base):
+    """优惠码"""
+    __tablename__ = "coupons"
+
+    id = Column(Integer, primary_key=True, index=True)
+    code = Column(String(30), unique=True, nullable=False, index=True)  # 优惠码
+    discount_type = Column(
+        Enum(DiscountType, values_callable=lambda x: [e.value for e in x]),
+        nullable=False
+    )
+    discount_value = Column(Integer, nullable=False)      # 折扣值：分（固定）或百分比数值
+    min_amount = Column(Integer, default=0)               # 最低消费（分），0=无门槛
+    max_discount = Column(Integer, nullable=True)         # 最大优惠（分），用于百分比封顶
+    max_uses = Column(Integer, default=0)                 # 最大使用次数，0=无限
+    used_count = Column(Integer, default=0)               # 已使用次数
+    valid_from = Column(DateTime, nullable=True)          # 生效开始时间
+    valid_until = Column(DateTime, nullable=True)         # 生效结束时间
+    applicable_plan_ids = Column(Text, nullable=True)     # 适用套餐ID（JSON数组），null=全部
+    is_active = Column(Boolean, default=True, index=True)
+    note = Column(String(255), nullable=True)             # 备注
+    created_by = Column(Integer, ForeignKey("users.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    creator = relationship("User")
 
 

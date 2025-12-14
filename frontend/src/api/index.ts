@@ -247,7 +247,9 @@ export const publicApi = {
   // 商店 API
   getPaymentConfig: () => publicApiClient.get('/shop/config'),
   getPlans: () => publicApiClient.get('/shop/plans'),
-  createOrder: (data: { plan_id: number; email: string; pay_type: string }) =>
+  checkCoupon: (params: { code: string; plan_id: number; amount: number }) =>
+    publicApiClient.get('/shop/coupon/check', { params }),
+  createOrder: (data: { plan_id: number; email: string; pay_type: string; coupon_code?: string }) =>
     publicApiClient.post('/shop/buy', data),
   getOrderStatus: (orderNo: string) => publicApiClient.get(`/shop/order/${orderNo}`),
   queryOrdersByEmail: (email: string) => publicApiClient.get('/shop/orders', { params: { email } }),
@@ -271,6 +273,41 @@ export const orderApi = {
     api.get('/orders', { params }),
   get: (orderNo: string) => api.get(`/orders/${orderNo}`),
   getStats: () => api.get('/orders/stats'),
+}
+
+// 优惠码管理 API (管理后台)
+export const couponApi = {
+  list: (params?: { is_active?: boolean; page?: number; page_size?: number }) =>
+    api.get('/coupons', { params }),
+  get: (id: number) => api.get(`/coupons/${id}`),
+  create: (data: {
+    code?: string;
+    prefix?: string;
+    count?: number;
+    discount_type: 'fixed' | 'percentage';
+    discount_value: number;
+    min_amount?: number;
+    max_discount?: number;
+    max_uses?: number;
+    valid_from?: string;
+    valid_until?: string;
+    applicable_plan_ids?: number[];
+    note?: string;
+  }) => api.post('/coupons', data),
+  update: (id: number, data: Partial<{
+    discount_type: 'fixed' | 'percentage';
+    discount_value: number;
+    min_amount: number;
+    max_discount: number;
+    max_uses: number;
+    valid_from: string;
+    valid_until: string;
+    applicable_plan_ids: number[];
+    is_active: boolean;
+    note: string;
+  }>) => api.put(`/coupons/${id}`, data),
+  delete: (id: number) => api.delete(`/coupons/${id}`),
+  toggle: (id: number) => api.put(`/coupons/${id}/toggle`),
 }
 
 export default api

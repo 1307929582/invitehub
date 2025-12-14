@@ -52,6 +52,7 @@ const menuItems = [
   { type: 'divider' as const },
   { key: '/admin/plans', icon: <ShoppingOutlined />, label: '套餐管理' },
   { key: '/admin/orders', icon: <DollarOutlined />, label: '订单管理' },
+  { key: '/admin/coupons', icon: <GiftOutlined />, label: '优惠码' },
   { type: 'divider' as const },
   { key: '/admin/pending-distributors', icon: <AuditOutlined />, label: '待审核分销商' },
   { key: '/admin/distributors', icon: <ShopOutlined />, label: '分销商管理' },
