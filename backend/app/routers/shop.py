@@ -266,10 +266,11 @@ async def query_orders_by_email(
     return OrderListResponse(orders=result, total=len(result))
 
 
+@router.get("/notify", response_class=PlainTextResponse)
 @router.post("/notify", response_class=PlainTextResponse)
 async def payment_notify(request: Request, db: Session = Depends(get_db)):
     """
-    易支付异步回调
+    易支付异步回调（支持 GET 和 POST）
 
     回调参数示例：
     - pid: 商户ID
@@ -282,9 +283,12 @@ async def payment_notify(request: Request, db: Session = Depends(get_db)):
     - sign: 签名
     - sign_type: 签名类型
     """
-    # 获取回调参数
-    form_data = await request.form()
-    params = {k: str(v) for k, v in dict(form_data).items()}
+    # 获取回调参数（支持 GET query 和 POST form）
+    if request.method == "GET":
+        params = {k: str(v) for k, v in request.query_params.items()}
+    else:
+        form_data = await request.form()
+        params = {k: str(v) for k, v in dict(form_data).items()}
 
     logger.info(
         "Payment notify received: out_trade_no=%s trade_no=%s trade_status=%s money=%s",
