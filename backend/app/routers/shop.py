@@ -77,7 +77,9 @@ class CreateOrderResponse(BaseModel):
 class OrderStatusResponse(BaseModel):
     order_no: str
     status: str
-    amount: int
+    amount: int                                    # 原价（分）
+    discount_amount: int = 0                       # 优惠金额（分）
+    final_amount: Optional[int] = None             # 实付金额（分）
     email: Optional[str] = None
     redeem_code: Optional[str] = None
     plan_name: Optional[str] = None
@@ -361,6 +363,8 @@ async def get_order_status(
         order_no=order.order_no,
         status=order.status.value if isinstance(order.status, OrderStatus) else order.status,
         amount=order.amount,
+        discount_amount=order.discount_amount or 0,
+        final_amount=order.final_amount,
         email=order.email if hasattr(order, 'email') else None,
         redeem_code=order.redeem_code if order.status == OrderStatus.PAID else None,
         plan_name=plan.name if plan else None,
@@ -395,6 +399,8 @@ async def query_orders_by_email(
             order_no=order.order_no,
             status=order.status.value if isinstance(order.status, OrderStatus) else order.status,
             amount=order.amount,
+            discount_amount=order.discount_amount or 0,
+            final_amount=order.final_amount,
             email=order.email,
             redeem_code=order.redeem_code if order.status == OrderStatus.PAID else None,
             plan_name=plan.name if plan else None,

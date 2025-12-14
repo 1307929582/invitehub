@@ -35,6 +35,8 @@ interface OrderStatus {
   order_no: string
   status: string
   amount: number
+  discount_amount: number
+  final_amount?: number
   email?: string
   redeem_code?: string
   plan_name?: string
@@ -735,9 +737,19 @@ export default function Purchase() {
                 },
                 {
                   title: '金额',
-                  dataIndex: 'amount',
-                  width: 80,
-                  render: (v: number) => <Text type="danger">¥{(v / 100).toFixed(2)}</Text>
+                  width: 100,
+                  render: (_: any, r: OrderStatus) => {
+                    const finalAmt = r.final_amount ?? r.amount
+                    const hasDiscount = r.discount_amount > 0
+                    return (
+                      <Space direction="vertical" size={0}>
+                        <Text type="danger" style={{ fontWeight: 500 }}>¥{(finalAmt / 100).toFixed(2)}</Text>
+                        {hasDiscount && (
+                          <Text type="secondary" delete style={{ fontSize: 11 }}>¥{(r.amount / 100).toFixed(2)}</Text>
+                        )}
+                      </Space>
+                    )
+                  }
                 },
                 {
                   title: '状态',
