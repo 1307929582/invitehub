@@ -1,9 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button, Spin } from 'antd'
-import { RocketOutlined, CheckCircleOutlined, SafetyOutlined, ThunderboltOutlined } from '@ant-design/icons'
+import { RocketOutlined, CheckCircleOutlined, SafetyOutlined, ThunderboltOutlined, ShoppingCartOutlined } from '@ant-design/icons'
 import { publicApi } from '../api'
-import { PurchaseSection } from '../components/PurchaseSection'
 
 interface SiteConfig {
   site_title: string
@@ -22,18 +21,21 @@ export default function Home() {
   const [loading, setLoading] = useState(true)
   const [siteConfig, setSiteConfig] = useState<SiteConfig | null>(null)
   const [seats, setSeats] = useState<SeatStats | null>(null)
+  const [paymentEnabled, setPaymentEnabled] = useState(false)
   const navigate = useNavigate()
 
   useEffect(() => {
     Promise.all([
       publicApi.getSiteConfig().catch(() => null),
-      publicApi.getSeats().catch(() => null)
-    ]).then(([config, seatsData]: any[]) => {
+      publicApi.getSeats().catch(() => null),
+      publicApi.getPaymentConfig().catch(() => null),
+    ]).then(([config, seatsData, paymentConfig]: any[]) => {
       if (config) {
         setSiteConfig(config)
         if (config.site_title) document.title = config.site_title
       }
       if (seatsData) setSeats(seatsData)
+      if (paymentConfig?.enabled) setPaymentEnabled(true)
     }).finally(() => setLoading(false))
   }, [])
 
@@ -119,7 +121,7 @@ export default function Home() {
           </div>
         )}
 
-        <div style={{ marginBottom: 60 }}>
+        <div style={{ marginBottom: 60, display: 'flex', gap: 16, justifyContent: 'center', flexWrap: 'wrap' }}>
           <Button
             type="primary"
             size="large"
@@ -137,6 +139,25 @@ export default function Home() {
           >
             立即上车
           </Button>
+          {paymentEnabled && (
+            <Button
+              size="large"
+              icon={<ShoppingCartOutlined />}
+              onClick={() => navigate('/purchase')}
+              style={{
+                height: 56,
+                padding: '0 48px',
+                fontSize: 18,
+                fontWeight: 500,
+                borderRadius: 28,
+                background: 'linear-gradient(135deg, #ff9500 0%, #ff5e3a 100%)',
+                border: 'none',
+                color: '#fff',
+              }}
+            >
+              购买套餐
+            </Button>
+          )}
         </div>
 
         {/* 公告 */}
@@ -198,9 +219,6 @@ export default function Home() {
             <p style={{ fontSize: 14, color: '#86868b', margin: 0 }}>兑换码自助上车，邮箱收到邀请即可使用</p>
           </div>
         </div>
-
-        {/* 套餐购买区域 */}
-        <PurchaseSection />
 
         {/* 页脚 */}
         {siteConfig?.footer_text && (
