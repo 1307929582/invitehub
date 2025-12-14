@@ -133,7 +133,7 @@ async def handle_command(text: str, user_id: str, chat_id: str, db: Session, bot
         msg = "<b>🤖 ChatGPT Team 管理助手</b>\n\n<i>━━━━━ 查询命令 ━━━━━</i>\n\n"
         msg += "📊 /status - 系统概览\n💺 /seats - 座位统计\n👥 /teams - Team 列表\n"
         msg += "⚠️ /alerts - 查看预警\n📈 /stats - 今日统计\n🔍 /search - 搜索用户\n"
-        msg += "📋 /pending - 待处理邀请\n🕐 /recent - 最近加入\n"
+        msg += "📋 /pending - 待处理邀请\n🕐 /recent - 最近加入\n🚨 /unauthorized - 未授权成员\n"
         if is_admin:
             msg += "\n<i>━━━━━ 管理命令 ━━━━━</i>\n\n"
             msg += "📨 /invite - 邀请用户 (自动分配)\n"
@@ -264,6 +264,40 @@ async def handle_command(text: str, user_id: str, chat_id: str, db: Session, bot
                 msg += f"✅ {inv.email} → {team.name if team else '?'}\n"
         else:
             msg += "无"
+        await send_telegram_message(bot_token, chat_id, msg)
+        return
+
+    if text == "/unauthorized":
+        # 查找所有未授权成员
+        unauthorized_members = db.query(TeamMember).filter(
+            TeamMember.is_unauthorized == True
+        ).all()
+
+        if not unauthorized_members:
+            await send_telegram_message(bot_token, chat_id, "✅ <b>无未授权成员</b>\n\n所有成员均已授权")
+            return
+
+        # 按 Team 分组
+        team_groups = {}
+        for m in unauthorized_members:
+            if m.team_id not in team_groups:
+                team = db.query(Team).filter(Team.id == m.team_id).first()
+                team_groups[m.team_id] = {
+                    "name": team.name if team else f"Team {m.team_id}",
+                    "members": []
+                }
+            team_groups[m.team_id]["members"].append(m.email)
+
+        msg = f"🚨 <b>未授权成员 ({len(unauthorized_members)})</b>\n\n"
+        for team_id, group in team_groups.items():
+            msg += f"<b>{group['name']}</b> ({len(group['members'])}人):\n"
+            for email in group["members"][:10]:  # 每个 Team 最多显示 10 个
+                msg += f"  • <code>{email}</code>\n"
+            if len(group["members"]) > 10:
+                msg += f"  ... 还有 {len(group['members']) - 10} 人\n"
+            msg += "\n"
+
+        msg += "<i>💡 使用 /remove 邮箱 移除成员</i>"
         await send_telegram_message(bot_token, chat_id, msg)
         return
 
