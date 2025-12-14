@@ -131,18 +131,8 @@ async def batch_create_codes(
     # 确定兑换码类型
     code_type = RedeemCodeType.DIRECT if data.code_type == "direct" else RedeemCodeType.LINUXDO
 
-    # 分销商自动分配默认分组
+    # 分销商可以指定分组，也可以不指定（使用所有分组的 Team）
     group_id = data.group_id
-    if current_user.role == UserRole.DISTRIBUTOR and not group_id:
-        # 从系统配置获取分销商默认分组
-        config = db.query(SystemConfig).filter(
-            SystemConfig.key == "distributor_default_group_id"
-        ).first()
-        if config and config.value:
-            try:
-                group_id = int(config.value)
-            except ValueError:
-                pass  # 如果配置值无效，保持 None
 
     # 分销商兑换码自动添加 ID 前缀，格式：D{id}_
     # 管理员创建的兑换码使用用户指定的前缀（或无前缀）
