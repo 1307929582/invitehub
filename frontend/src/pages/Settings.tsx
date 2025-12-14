@@ -6,6 +6,7 @@ import {
   BellOutlined,
   SettingOutlined,
   DollarOutlined,
+  CreditCardOutlined,
 } from '@ant-design/icons'
 
 const settingModules = [
@@ -15,6 +16,13 @@ const settingModules = [
     description: '自定义站点标题、描述、公告等',
     icon: <GlobalOutlined style={{ fontSize: 28, color: '#10b981' }} />,
     path: '/admin/settings/site',
+  },
+  {
+    key: 'payment',
+    title: '支付配置',
+    description: '配置易支付接口，启用在线购买',
+    icon: <CreditCardOutlined style={{ fontSize: 28, color: '#007aff' }} />,
+    path: '/admin/settings/payment',
   },
   {
     key: 'email',

@@ -1,0 +1,361 @@
+# 商店公开 API（购买、查询订单、支付回调）
+import secrets
+import string
+from datetime import datetime, timedelta
+from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
+from typing import Optional, List, Literal
+from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import PlainTextResponse
+from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
+from pydantic import BaseModel, Field
+
+from app.database import get_db
+from app.limiter import limiter
+from app.models import Plan, Order, OrderStatus, RedeemCode, RedeemCodeType, SystemConfig
+from app.services.epay import (
+    get_epay_config,
+    create_payment_url,
+    verify_sign,
+    generate_order_no,
+)
+from app.logger import get_logger
+
+logger = get_logger(__name__)
+
+router = APIRouter(prefix="/shop", tags=["商店"])
+
+
+# ============ 请求/响应模型 ============
+
+class PublicPlanResponse(BaseModel):
+    """公开套餐信息"""
+    id: int
+    name: str
+    price: int  # 分
+    original_price: Optional[int]
+    validity_days: int
+    description: Optional[str]
+    features: Optional[str]
+    is_recommended: bool
+
+
+class CreateOrderRequest(BaseModel):
+    plan_id: int = Field(..., ge=1)
+    pay_type: Literal["alipay", "wxpay"] = "alipay"
+
+
+class CreateOrderResponse(BaseModel):
+    order_no: str
+    amount: int
+    pay_url: str
+    expire_at: datetime
+
+
+class OrderStatusResponse(BaseModel):
+    order_no: str
+    status: str
+    amount: int
+    redeem_code: Optional[str] = None
+    plan_name: Optional[str] = None
+    validity_days: Optional[int] = None
+
+
+class PaymentConfigResponse(BaseModel):
+    enabled: bool
+    alipay_enabled: bool
+    wxpay_enabled: bool
+
+
+# ============ 公开 API ============
+
+@router.get("/config", response_model=PaymentConfigResponse)
+async def get_payment_config(db: Session = Depends(get_db)):
+    """获取支付配置（是否启用）"""
+    config = get_epay_config(db)
+    return PaymentConfigResponse(
+        enabled=config.get("enabled", False),
+        alipay_enabled=config.get("alipay_enabled", False),
+        wxpay_enabled=config.get("wxpay_enabled", False),
+    )
+
+
+@router.get("/plans", response_model=List[PublicPlanResponse])
+async def get_public_plans(db: Session = Depends(get_db)):
+    """获取上架的套餐列表"""
+    plans = db.query(Plan).filter(
+        Plan.is_active == True
+    ).order_by(Plan.sort_order.asc(), Plan.id.asc()).all()
+
+    return [
+        PublicPlanResponse(
+            id=p.id,
+            name=p.name,
+            price=p.price,
+            original_price=p.original_price,
+            validity_days=p.validity_days,
+            description=p.description,
+            features=p.features,
+            is_recommended=p.is_recommended,
+        )
+        for p in plans
+    ]
+
+
+@router.post("/buy", response_model=CreateOrderResponse)
+@limiter.limit("10/minute")
+async def create_order(
+    data: CreateOrderRequest,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """创建订单"""
+    # 检查支付配置
+    config = get_epay_config(db)
+    if not config.get("enabled"):
+        raise HTTPException(status_code=400, detail="在线购买功能未启用")
+
+    # 检查支付方式
+    if data.pay_type == "alipay" and not config.get("alipay_enabled"):
+        raise HTTPException(status_code=400, detail="支付宝支付未启用")
+    if data.pay_type == "wxpay" and not config.get("wxpay_enabled"):
+        raise HTTPException(status_code=400, detail="微信支付未启用")
+
+    # 构建回调地址：优先使用 site_url 配置，避免 Host Header 注入
+    site_url_cfg = db.query(SystemConfig).filter(SystemConfig.key == "site_url").first()
+    site_url = (site_url_cfg.value or "").strip() if site_url_cfg else ""
+    if site_url.startswith(("http://", "https://")):
+        base_url = site_url.rstrip("/")
+    else:
+        base_url = str(request.base_url).rstrip("/")
+
+    # 获取套餐
+    plan = db.query(Plan).filter(Plan.id == data.plan_id, Plan.is_active == True).first()
+    if not plan:
+        raise HTTPException(status_code=404, detail="套餐不存在或已下架")
+
+    # 订单过期时间（15分钟）
+    expire_at = datetime.utcnow() + timedelta(minutes=15)
+    notify_url = f"{base_url}/api/v1/public/shop/notify"
+
+    # 生成订单号可能极小概率冲突，做重试
+    for _ in range(5):
+        order_no = generate_order_no()
+        return_url = f"{base_url}/pay/result?order_no={order_no}"
+
+        pay_url = create_payment_url(
+            config=config,
+            order_no=order_no,
+            amount=plan.price,
+            name=f"{plan.name} - {plan.validity_days}天",
+            pay_type=data.pay_type,
+            notify_url=notify_url,
+            return_url=return_url,
+        )
+        if not pay_url:
+            raise HTTPException(status_code=500, detail="创建支付链接失败")
+
+        order = Order(
+            order_no=order_no,
+            plan_id=plan.id,
+            amount=plan.price,
+            status=OrderStatus.PENDING,
+            pay_type=data.pay_type,
+            expire_at=expire_at,
+        )
+        db.add(order)
+        try:
+            db.commit()
+            logger.info(f"Created order: {order_no}, plan: {plan.name}, amount: {plan.price}")
+            return CreateOrderResponse(
+                order_no=order_no,
+                amount=plan.price,
+                pay_url=pay_url,
+                expire_at=expire_at,
+            )
+        except IntegrityError:
+            db.rollback()
+            continue
+
+    raise HTTPException(status_code=500, detail="创建订单失败，请重试")
+
+
+@router.get("/order/{order_no}", response_model=OrderStatusResponse)
+@limiter.limit("60/minute")
+async def get_order_status(
+    order_no: str,
+    request: Request,
+    db: Session = Depends(get_db)
+):
+    """查询订单状态"""
+    order = db.query(Order).filter(Order.order_no == order_no).first()
+    if not order:
+        raise HTTPException(status_code=404, detail="订单不存在")
+
+    # 获取套餐信息
+    plan = db.query(Plan).filter(Plan.id == order.plan_id).first()
+
+    return OrderStatusResponse(
+        order_no=order.order_no,
+        status=order.status.value if isinstance(order.status, OrderStatus) else order.status,
+        amount=order.amount,
+        redeem_code=order.redeem_code if order.status == OrderStatus.PAID else None,
+        plan_name=plan.name if plan else None,
+        validity_days=plan.validity_days if plan else None,
+    )
+
+
+@router.post("/notify", response_class=PlainTextResponse)
+async def payment_notify(request: Request, db: Session = Depends(get_db)):
+    """
+    易支付异步回调
+
+    回调参数示例：
+    - pid: 商户ID
+    - trade_no: 易支付订单号
+    - out_trade_no: 商户订单号
+    - type: 支付方式
+    - name: 商品名称
+    - money: 金额
+    - trade_status: 交易状态 (TRADE_SUCCESS)
+    - sign: 签名
+    - sign_type: 签名类型
+    """
+    # 获取回调参数
+    form_data = await request.form()
+    params = {k: str(v) for k, v in dict(form_data).items()}
+
+    logger.info(
+        "Payment notify received: out_trade_no=%s trade_no=%s trade_status=%s money=%s",
+        params.get("out_trade_no"),
+        params.get("trade_no"),
+        params.get("trade_status"),
+        params.get("money"),
+    )
+
+    # 获取配置
+    config = get_epay_config(db)
+    if not config.get("enabled"):
+        logger.warning("Payment notify received but epay is disabled")
+        return "fail"
+
+    # 验证签名（必须先验签再做任何业务处理）
+    if not verify_sign(params, config.get("key", "")):
+        logger.warning("Payment notify sign verification failed: out_trade_no=%s", params.get("out_trade_no"))
+        return "fail"
+
+    # 获取订单号
+    order_no = params.get("out_trade_no", "")
+    trade_no = params.get("trade_no", "")
+    trade_status = params.get("trade_status", "")
+    pid = params.get("pid", "")
+    pay_type = params.get("type", "")
+    money = params.get("money", "")
+
+    if not order_no:
+        logger.warning("Payment notify missing out_trade_no")
+        return "fail"
+
+    # 校验 pid，避免配置串用
+    if pid and config.get("pid") and pid != config.get("pid"):
+        logger.warning("Payment notify pid mismatch: out_trade_no=%s", order_no)
+        return "fail"
+
+    # 只处理成功的交易
+    if trade_status != "TRADE_SUCCESS":
+        logger.info(f"Payment notify trade_status is not SUCCESS: {trade_status}")
+        return "success"  # 返回 success 避免重复通知
+
+    # 查询订单（使用行锁防止并发）
+    order_query = db.query(Order).filter(Order.order_no == order_no)
+    try:
+        if db.bind and db.bind.dialect.name in ("postgresql", "mysql"):
+            order_query = order_query.with_for_update()
+    except Exception:
+        pass
+
+    order = order_query.first()
+    if not order:
+        logger.warning(f"Payment notify order not found: {order_no}")
+        return "fail"
+
+    # 幂等处理：已支付的订单不再处理
+    if order.status == OrderStatus.PAID:
+        logger.info(f"Order already paid, skipping: {order_no}")
+        return "success"
+
+    # 校验金额（易支付回调 money 是"元"）
+    try:
+        paid_money = Decimal(money).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+        expected_money = (Decimal(order.amount) / Decimal(100)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    except (InvalidOperation, TypeError):
+        logger.warning("Payment notify money invalid: out_trade_no=%s money=%s", order_no, money)
+        return "fail"
+
+    if paid_money != expected_money:
+        logger.warning(
+            "Payment notify money mismatch: out_trade_no=%s paid=%s expected=%s",
+            order_no, str(paid_money), str(expected_money)
+        )
+        return "fail"
+
+    # 校验支付方式
+    if order.pay_type and pay_type and order.pay_type != pay_type:
+        logger.warning("Payment notify pay_type mismatch: out_trade_no=%s", order_no)
+        return "fail"
+
+    # 防止回调复用/串单
+    if order.trade_no and trade_no and order.trade_no != trade_no:
+        logger.warning("Payment notify trade_no mismatch: out_trade_no=%s", order_no)
+        return "fail"
+
+    # 获取套餐信息
+    plan = db.query(Plan).filter(Plan.id == order.plan_id).first()
+    if not plan:
+        logger.error(f"Plan not found for order: {order_no}")
+        return "fail"
+
+    # 生成兑换码
+    redeem_code = _generate_redeem_code(db, plan.validity_days, order_no)
+
+    # 更新订单状态
+    order.status = OrderStatus.PAID
+    order.trade_no = trade_no
+    order.redeem_code = redeem_code
+    order.paid_at = datetime.utcnow()
+
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        logger.error("Payment notify commit failed: out_trade_no=%s err=%s", order_no, str(e))
+        return "fail"
+
+    logger.info(f"Order paid successfully: {order_no}, redeem_code: {redeem_code}")
+
+    return "success"
+
+
+def _generate_redeem_code(db: Session, validity_days: int, order_no: str) -> str:
+    """生成兑换码"""
+    # 生成唯一兑换码（12位增强唯一性）
+    while True:
+        chars = string.ascii_uppercase + string.digits
+        code_str = "BUY_" + "".join(secrets.choice(chars) for _ in range(12))
+
+        redeem_code = RedeemCode(
+            code=code_str,
+            code_type=RedeemCodeType.DIRECT,
+            max_uses=1,
+            validity_days=validity_days,
+            note=f"在线购买-订单:{order_no}",
+            group_id=None,  # 不限分组
+            is_active=True,
+        )
+        db.add(redeem_code)
+        try:
+            db.flush()
+            return code_str
+        except IntegrityError:
+            db.rollback()
+            continue

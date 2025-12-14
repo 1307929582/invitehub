@@ -340,3 +340,55 @@ class VerificationCode(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
 
+# ============ 商业化功能：套餐和订单 ============
+
+class OrderStatus(str, enum.Enum):
+    """订单状态"""
+    PENDING = "pending"      # 待支付
+    PAID = "paid"            # 已支付
+    EXPIRED = "expired"      # 已过期（超时未支付）
+    REFUNDED = "refunded"    # 已退款
+
+
+class Plan(Base):
+    """套餐配置"""
+    __tablename__ = "plans"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(100), nullable=False)              # 套餐名称
+    price = Column(Integer, nullable=False)                 # 价格（分）
+    original_price = Column(Integer, nullable=True)         # 原价（分），用于显示划线价
+    validity_days = Column(Integer, nullable=False)         # 有效天数
+    description = Column(String(255), nullable=True)        # 描述
+    features = Column(Text, nullable=True)                  # 特性列表（JSON格式）
+    is_active = Column(Boolean, default=True, index=True)   # 是否上架
+    is_recommended = Column(Boolean, default=False)         # 是否推荐
+    sort_order = Column(Integer, default=0)                 # 排序权重
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    orders = relationship("Order", back_populates="plan")
+
+
+class Order(Base):
+    """订单"""
+    __tablename__ = "orders"
+
+    id = Column(Integer, primary_key=True, index=True)
+    order_no = Column(String(32), unique=True, nullable=False, index=True)  # 订单号
+    plan_id = Column(Integer, ForeignKey("plans.id"), nullable=False)       # 套餐ID
+    amount = Column(Integer, nullable=False)                                 # 支付金额（分）
+    status = Column(
+        Enum(OrderStatus, values_callable=lambda x: [e.value for e in x]),
+        default=OrderStatus.PENDING, index=True
+    )
+    redeem_code = Column(String(50), nullable=True, index=True)             # 生成的兑换码
+    trade_no = Column(String(64), nullable=True)                            # 支付平台交易号
+    pay_type = Column(String(20), nullable=True)                            # 支付方式 alipay/wxpay
+    paid_at = Column(DateTime, nullable=True)                               # 支付时间
+    expire_at = Column(DateTime, nullable=True)                             # 订单过期时间
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+
+    plan = relationship("Plan", back_populates="orders")
+
+

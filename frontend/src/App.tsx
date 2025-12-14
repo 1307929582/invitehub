@@ -23,6 +23,9 @@ import AlertSettings from './pages/settings/AlertSettings'
 import TelegramSettings from './pages/settings/TelegramSettings'
 import PriceSettings from './pages/settings/PriceSettings'
 import WhitelistSettings from './pages/settings/WhitelistSettings'
+import PaymentSettings from './pages/settings/PaymentSettings'
+import Plans from './pages/Plans'
+import Orders from './pages/Orders'
 import UnauthorizedMembers from './pages/UnauthorizedMembers'
 // 分销商相关页面
 import DistributorLogin from './pages/distributor/DistributorLogin'
@@ -198,6 +201,9 @@ function App() {
           <Route path="settings/telegram" element={<TelegramSettings />} />
           <Route path="settings/price" element={<PriceSettings />} />
           <Route path="settings/whitelist" element={<WhitelistSettings />} />
+          <Route path="settings/payment" element={<PaymentSettings />} />
+          <Route path="plans" element={<Plans />} />
+          <Route path="orders" element={<Orders />} />
           <Route path="unauthorized" element={<UnauthorizedMembers />} />
           <Route path="admins" element={<Admins />} />
           {/* 分销商管理（管理员） */}

@@ -1,0 +1,232 @@
+import { useEffect, useState } from 'react'
+import { Card, Table, Tag, Statistic, Row, Col, Radio } from 'antd'
+import { ShoppingCartOutlined, DollarOutlined, CheckCircleOutlined, ClockCircleOutlined } from '@ant-design/icons'
+import { orderApi } from '../api'
+import { formatDate } from '../utils/date'
+
+interface Order {
+  id: number
+  order_no: string
+  plan_id: number
+  plan_name?: string
+  amount: number
+  status: string
+  redeem_code?: string
+  trade_no?: string
+  pay_type?: string
+  paid_at?: string
+  expire_at?: string
+  created_at: string
+}
+
+interface OrderStats {
+  total_orders: number
+  paid_orders: number
+  pending_orders: number
+  total_revenue: number
+  today_orders: number
+  today_revenue: number
+}
+
+type FilterStatus = 'all' | 'pending' | 'paid' | 'expired'
+
+export default function Orders() {
+  const [orders, setOrders] = useState<Order[]>([])
+  const [stats, setStats] = useState<OrderStats | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
+  const [status, setStatus] = useState<FilterStatus>('all')
+  const pageSize = 20
+
+  const fetchOrders = async () => {
+    setLoading(true)
+    try {
+      const params: any = { page, page_size: pageSize }
+      if (status !== 'all') params.status = status
+      const res: any = await orderApi.list(params)
+      setOrders(res.orders)
+      setTotal(res.total)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const fetchStats = async () => {
+    try {
+      const res: any = await orderApi.getStats()
+      setStats(res)
+    } catch {}
+  }
+
+  useEffect(() => {
+    fetchOrders()
+  }, [page, status])
+
+  useEffect(() => {
+    fetchStats()
+  }, [])
+
+  const getStatusTag = (s: string) => {
+    switch (s) {
+      case 'paid':
+        return <Tag color="green">已支付</Tag>
+      case 'pending':
+        return <Tag color="blue">待支付</Tag>
+      case 'expired':
+        return <Tag color="default">已过期</Tag>
+      case 'refunded':
+        return <Tag color="orange">已退款</Tag>
+      default:
+        return <Tag>{s}</Tag>
+    }
+  }
+
+  const getPayTypeText = (t?: string) => {
+    switch (t) {
+      case 'alipay':
+        return <span style={{ color: '#1677ff' }}>支付宝</span>
+      case 'wxpay':
+        return <span style={{ color: '#07c160' }}>微信</span>
+      default:
+        return <span style={{ color: '#86868b' }}>-</span>
+    }
+  }
+
+  const columns = [
+    {
+      title: '订单号',
+      dataIndex: 'order_no',
+      width: 180,
+      render: (v: string) => <code style={{ fontSize: 12 }}>{v}</code>
+    },
+    {
+      title: '套餐',
+      dataIndex: 'plan_name',
+      render: (v: string) => <span style={{ fontWeight: 500 }}>{v || '-'}</span>
+    },
+    {
+      title: '金额',
+      dataIndex: 'amount',
+      width: 100,
+      render: (v: number) => <span style={{ fontSize: 15, fontWeight: 600, color: '#f5222d' }}>¥{(v / 100).toFixed(2)}</span>
+    },
+    {
+      title: '支付方式',
+      dataIndex: 'pay_type',
+      width: 90,
+      render: (v: string) => getPayTypeText(v)
+    },
+    {
+      title: '状态',
+      dataIndex: 'status',
+      width: 90,
+      render: (v: string) => getStatusTag(v)
+    },
+    {
+      title: '兑换码',
+      dataIndex: 'redeem_code',
+      width: 140,
+      render: (v: string) => v ? <code style={{ fontSize: 12, color: '#007aff' }}>{v}</code> : <span style={{ color: '#86868b' }}>-</span>
+    },
+    {
+      title: '流水号',
+      dataIndex: 'trade_no',
+      width: 140,
+      ellipsis: true,
+      render: (v: string) => <span style={{ color: '#64748b', fontSize: 12 }}>{v || '-'}</span>
+    },
+    {
+      title: '支付时间',
+      dataIndex: 'paid_at',
+      width: 150,
+      render: (v: string) => v ? <span style={{ color: '#64748b', fontSize: 13 }}>{formatDate(v, 'YYYY-MM-DD HH:mm')}</span> : <span style={{ color: '#86868b' }}>-</span>
+    },
+    {
+      title: '创建时间',
+      dataIndex: 'created_at',
+      width: 150,
+      render: (v: string) => <span style={{ color: '#64748b', fontSize: 13 }}>{formatDate(v, 'YYYY-MM-DD HH:mm')}</span>
+    },
+  ]
+
+  return (
+    <div>
+      <div style={{ marginBottom: 28 }}>
+        <h2 style={{ fontSize: 26, fontWeight: 700, margin: 0, color: '#1a1a2e', letterSpacing: '-0.5px' }}>订单管理</h2>
+        <p style={{ color: '#64748b', fontSize: 14, margin: '8px 0 0' }}>查看和管理所有购买订单</p>
+      </div>
+
+      {/* 统计卡片 */}
+      {stats && (
+        <Row gutter={16} style={{ marginBottom: 24 }}>
+          <Col span={6}>
+            <Card>
+              <Statistic
+                title="总订单数"
+                value={stats.total_orders}
+                prefix={<ShoppingCartOutlined style={{ color: '#007aff' }} />}
+              />
+            </Card>
+          </Col>
+          <Col span={6}>
+            <Card>
+              <Statistic
+                title="已支付"
+                value={stats.paid_orders}
+                prefix={<CheckCircleOutlined style={{ color: '#34c759' }} />}
+              />
+            </Card>
+          </Col>
+          <Col span={6}>
+            <Card>
+              <Statistic
+                title="总收入"
+                value={(stats.total_revenue / 100).toFixed(2)}
+                prefix={<DollarOutlined style={{ color: '#f5222d' }} />}
+                suffix="元"
+              />
+            </Card>
+          </Col>
+          <Col span={6}>
+            <Card>
+              <Statistic
+                title="今日收入"
+                value={(stats.today_revenue / 100).toFixed(2)}
+                prefix={<ClockCircleOutlined style={{ color: '#ff9500' }} />}
+                suffix="元"
+              />
+              <div style={{ fontSize: 12, color: '#86868b', marginTop: 4 }}>
+                今日订单：{stats.today_orders} 笔
+              </div>
+            </Card>
+          </Col>
+        </Row>
+      )}
+
+      <Card bodyStyle={{ padding: 0 }}>
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid #f0f0f0' }}>
+          <Radio.Group value={status} onChange={e => { setStatus(e.target.value); setPage(1) }} buttonStyle="solid">
+            <Radio.Button value="all">全部</Radio.Button>
+            <Radio.Button value="pending">待支付</Radio.Button>
+            <Radio.Button value="paid">已支付</Radio.Button>
+            <Radio.Button value="expired">已过期</Radio.Button>
+          </Radio.Group>
+        </div>
+        <Table
+          dataSource={orders}
+          columns={columns}
+          rowKey="id"
+          loading={loading}
+          pagination={{
+            current: page,
+            pageSize,
+            total,
+            onChange: setPage,
+            showTotal: t => `共 ${t} 条`,
+          }}
+        />
+      </Card>
+    </div>
+  )
+}

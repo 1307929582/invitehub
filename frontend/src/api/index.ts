@@ -244,6 +244,32 @@ export const publicApi = {
   getSiteConfig: () => publicApiClient.get('/site-config'),
   // 邀请状态查询
   getInviteStatus: (email: string) => publicApiClient.get('/invite-status', { params: { email } }),
+  // 商店 API
+  getPaymentConfig: () => publicApiClient.get('/shop/config'),
+  getPlans: () => publicApiClient.get('/shop/plans'),
+  createOrder: (data: { plan_id: number; pay_type: string }) =>
+    publicApiClient.post('/shop/buy', data),
+  getOrderStatus: (orderNo: string) => publicApiClient.get(`/shop/order/${orderNo}`),
+}
+
+// 套餐管理 API (管理后台)
+export const planApi = {
+  list: () => api.get('/plans'),
+  get: (id: number) => api.get(`/plans/${id}`),
+  create: (data: { name: string; price: number; validity_days: number; description?: string; features?: string; is_active?: boolean; is_recommended?: boolean; sort_order?: number; original_price?: number }) =>
+    api.post('/plans', data),
+  update: (id: number, data: Partial<{ name: string; price: number; validity_days: number; description?: string; features?: string; is_active?: boolean; is_recommended?: boolean; sort_order?: number; original_price?: number }>) =>
+    api.put(`/plans/${id}`, data),
+  delete: (id: number) => api.delete(`/plans/${id}`),
+  toggle: (id: number) => api.put(`/plans/${id}/toggle`),
+}
+
+// 订单管理 API (管理后台)
+export const orderApi = {
+  list: (params?: { status?: string; page?: number; page_size?: number }) =>
+    api.get('/orders', { params }),
+  get: (orderNo: string) => api.get(`/orders/${orderNo}`),
+  getStats: () => api.get('/orders/stats'),
 }
 
 export default api

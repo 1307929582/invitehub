@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { Button, Spin } from 'antd'
 import { RocketOutlined, CheckCircleOutlined, SafetyOutlined, ThunderboltOutlined } from '@ant-design/icons'
 import { publicApi } from '../api'
+import { PurchaseSection } from '../components/PurchaseSection'
 
 interface SiteConfig {
   site_title: string
@@ -154,17 +155,17 @@ export default function Home() {
         )}
 
         {/* 特性介绍 */}
-        <div style={{ 
-          display: 'grid', 
-          gridTemplateColumns: 'repeat(3, 1fr)', 
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(3, 1fr)',
           gap: 24,
           maxWidth: 900,
           margin: '0 auto',
         }}>
-          <div style={{ 
-            background: 'rgba(255,255,255,0.8)', 
+          <div style={{
+            background: 'rgba(255,255,255,0.8)',
             backdropFilter: 'blur(20px)',
-            padding: 32, 
+            padding: 32,
             borderRadius: 20,
             textAlign: 'left',
           }}>
@@ -172,11 +173,11 @@ export default function Home() {
             <h3 style={{ fontSize: 18, fontWeight: 600, margin: '0 0 8px', color: '#1d1d1f' }}>GPT-5.1 无限制</h3>
             <p style={{ fontSize: 14, color: '#86868b', margin: 0 }}>Team 版本无消息限制，畅享 GPT-5.1 强大能力</p>
           </div>
-          
-          <div style={{ 
-            background: 'rgba(255,255,255,0.8)', 
+
+          <div style={{
+            background: 'rgba(255,255,255,0.8)',
             backdropFilter: 'blur(20px)',
-            padding: 32, 
+            padding: 32,
             borderRadius: 20,
             textAlign: 'left',
           }}>
@@ -184,11 +185,11 @@ export default function Home() {
             <h3 style={{ fontSize: 18, fontWeight: 600, margin: '0 0 8px', color: '#1d1d1f' }}>安全稳定</h3>
             <p style={{ fontSize: 14, color: '#86868b', margin: 0 }}>官方 Team 账号，稳定可靠，支持换车保障</p>
           </div>
-          
-          <div style={{ 
-            background: 'rgba(255,255,255,0.8)', 
+
+          <div style={{
+            background: 'rgba(255,255,255,0.8)',
             backdropFilter: 'blur(20px)',
-            padding: 32, 
+            padding: 32,
             borderRadius: 20,
             textAlign: 'left',
           }}>
@@ -197,6 +198,9 @@ export default function Home() {
             <p style={{ fontSize: 14, color: '#86868b', margin: 0 }}>兑换码自助上车，邮箱收到邀请即可使用</p>
           </div>
         </div>
+
+        {/* 套餐购买区域 */}
+        <PurchaseSection />
 
         {/* 页脚 */}
         {siteConfig?.footer_text && (

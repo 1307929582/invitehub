@@ -8,7 +8,7 @@ from slowapi.errors import RateLimitExceeded
 
 from app.config import settings
 from app.database import init_db, SessionLocal
-from app.routers import auth, teams, invites, dashboard, public, redeem, config, setup, groups, invite_records, admins, notifications, telegram_bot, distributors
+from app.routers import auth, teams, invites, dashboard, public, redeem, config, setup, groups, invite_records, admins, notifications, telegram_bot, distributors, plans, orders, shop
 from app.logger import setup_logging, get_logger
 from app.limiter import limiter, rate_limit_exceeded_handler
 
@@ -377,6 +377,7 @@ async def log_requests(request: Request, call_next):
 # 公开 API（无需认证）
 app.include_router(setup.router, prefix=settings.API_PREFIX)
 app.include_router(public.router, prefix=settings.API_PREFIX)
+app.include_router(shop.router, prefix=f"{settings.API_PREFIX}/public")  # 商店公开 API
 
 # 管理员 API（需要认证）
 app.include_router(auth.router, prefix=settings.API_PREFIX)
@@ -390,6 +391,8 @@ app.include_router(invite_records.router, prefix=settings.API_PREFIX)
 app.include_router(admins.router, prefix=settings.API_PREFIX)
 app.include_router(distributors.router, prefix=settings.API_PREFIX)
 app.include_router(notifications.router, prefix=settings.API_PREFIX)
+app.include_router(plans.router, prefix=settings.API_PREFIX)    # 套餐管理
+app.include_router(orders.router, prefix=settings.API_PREFIX)   # 订单管理
 
 # Telegram Bot Webhook（公开，但有权限验证）
 app.include_router(telegram_bot.router, prefix=settings.API_PREFIX)
