@@ -27,6 +27,7 @@ import PaymentSettings from './pages/settings/PaymentSettings'
 import Plans from './pages/Plans'
 import Orders from './pages/Orders'
 import Purchase from './pages/Purchase'
+import PayResult from './pages/PayResult'
 import UnauthorizedMembers from './pages/UnauthorizedMembers'
 // 分销商相关页面
 import DistributorLogin from './pages/distributor/DistributorLogin'
@@ -150,6 +151,7 @@ function App() {
         <Route path="/invite" element={<DirectInvite />} />
         <Route path="/invite/:code" element={<DirectInvite />} />
         <Route path="/purchase" element={<Purchase />} />
+        <Route path="/pay/result" element={<PayResult />} />
         <Route path="/rebind" element={<Navigate to="/invite" replace />} />
 
         {/* 分销商注册页面（公开）- 旧路径重定向 */}
