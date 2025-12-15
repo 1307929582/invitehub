@@ -350,6 +350,35 @@ def cleanup_expired_users(self):
                 if not email:
                     continue
 
+                # ✅ 核心修复：检查用户是否还有其他有效兑换码（防止误踢续费用户）
+                all_user_codes = self.db.query(RedeemCode).filter(
+                    RedeemCode.bound_email == email,
+                    RedeemCode.is_active == True,
+                    RedeemCode.activated_at != None,
+                    RedeemCode.id != code.id  # 排除当前兑换码
+                ).all()
+
+                # 过滤出真正有效的（未过期）
+                valid_codes = [c for c in all_user_codes if not c.is_user_expired]
+
+                if len(valid_codes) > 0:
+                    # 用户还有其他有效兑换码，仅标记当前码为 REMOVED，不踢出用户
+                    code.status = RedeemCodeStatus.REMOVED.value
+                    code.removed_at = datetime.utcnow()
+                    self.db.commit()
+                    removed_count += 1
+                    logger.info(f"Marked {code.code} as removed (user has {len(valid_codes)} other valid codes)", extra={
+                        "email": email,
+                        "code": code.code,
+                        "valid_codes_count": len(valid_codes)
+                    })
+
+                    # 记录监控指标
+                    from app.metrics import record_expired_user_cleanup
+                    record_expired_user_cleanup(success=True, reason="has_valid_codes")
+                    continue
+
+                # 用户没有其他有效兑换码，执行踢出逻辑
                 # 查找用户所在的 Team
                 invite_record = self.db.query(InviteRecord).filter(
                     InviteRecord.email == email,
@@ -442,23 +471,50 @@ def cleanup_expired_users(self):
 
             except ChatGPTAPIError as e:
                 failed_count += 1
-                # API 错误，回滚状态
-                code.status = RedeemCodeStatus.BOUND.value
-                self.db.commit()
 
-                logger.error(f"Failed to remove {email}: ChatGPT API error: {e.message}")
+                # 增加重试计数
+                if code.removal_retry_count is None:
+                    code.removal_retry_count = 0
+                code.removal_retry_count += 1
 
-                # 记录监控指标
-                from app.metrics import record_expired_user_cleanup
-                record_expired_user_cleanup(success=False, reason="api_error")
+                # 重试 5 次后标记为 REMOVAL_FAILED，不再自动重试
+                if code.removal_retry_count >= 5:
+                    code.status = RedeemCodeStatus.REMOVAL_FAILED.value
+                    self.db.commit()
 
-                # 发送 Telegram 告警
-                try:
-                    asyncio.get_event_loop().run_until_complete(
-                        _send_cleanup_failure_alert(email, code.code, team.name if team else "unknown", str(e))
-                    )
-                except Exception as tg_error:
-                    logger.error(f"Failed to send Telegram alert: {tg_error}")
+                    logger.error(f"Failed to remove {email} after 5 retries, marked as REMOVAL_FAILED", extra={
+                        "email": email,
+                        "code": code.code,
+                        "team": team.name if team else "unknown",
+                        "error": e.message
+                    })
+
+                    # 记录监控指标
+                    from app.metrics import record_expired_user_cleanup
+                    record_expired_user_cleanup(success=False, reason="max_retries_exceeded")
+
+                    # 仅发送一次告警（避免告警风暴）
+                    try:
+                        asyncio.get_event_loop().run_until_complete(
+                            _send_cleanup_failure_alert(email, code.code, team.name if team else "unknown",
+                                                       f"重试 5 次失败: {e.message}")
+                        )
+                    except Exception as tg_error:
+                        logger.error(f"Failed to send Telegram alert: {tg_error}")
+                else:
+                    # 回滚状态，下次重试
+                    code.status = RedeemCodeStatus.BOUND.value
+                    self.db.commit()
+
+                    logger.warning(f"Failed to remove {email}, will retry ({code.removal_retry_count}/5): {e.message}", extra={
+                        "email": email,
+                        "code": code.code,
+                        "retry_count": code.removal_retry_count
+                    })
+
+                    # 记录监控指标
+                    from app.metrics import record_expired_user_cleanup
+                    record_expired_user_cleanup(success=False, reason="api_error")
 
             except Exception as e:
                 failed_count += 1
@@ -513,6 +569,140 @@ async def _send_cleanup_failure_alert(email: str, code: str, team_name: str, err
         logger.error(f"Failed to send cleanup failure alert: {e}")
     finally:
         db.close()
+
+
+async def _send_expiration_warning_email(email: str, code: str, days_left: int, expires_at: str):
+    """发送过期提醒邮件"""
+    from app.services.email import send_email
+
+    subject = f"【重要】您的 ChatGPT Team 座位将在 {days_left} 天后过期"
+
+    body = f"""
+<div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+    <h2 style="color: #ff9500;">⏰ 座位即将过期提醒</h2>
+
+    <p>您好，</p>
+
+    <p>您的 ChatGPT Team 座位即将到期：</p>
+
+    <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin: 20px 0;">
+        <p style="margin: 10px 0;"><strong>兑换码：</strong> <code>{code}</code></p>
+        <p style="margin: 10px 0;"><strong>剩余天数：</strong> <span style="color: #ff3b30; font-size: 18px; font-weight: bold;">{days_left} 天</span></p>
+        <p style="margin: 10px 0;"><strong>过期时间：</strong> {expires_at}</p>
+    </div>
+
+    <div style="background: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px 0;">
+        <p style="margin: 0;"><strong>重要提示：</strong></p>
+        <p style="margin: 10px 0 0;">过期后您将自动从 Team 中移除，请及时续费以保持座位。</p>
+    </div>
+
+    <p>如需续费，请访问我们的商店页面购买新的兑换码。</p>
+
+    <p style="color: #86868b; font-size: 12px; margin-top: 30px;">
+        此邮件为系统自动发送，请勿直接回复。
+    </p>
+</div>
+    """
+
+    try:
+        await send_email(
+            to_email=email,
+            subject=subject,
+            body=body
+        )
+        logger.info(f"Sent expiration warning to {email}, {days_left} days left")
+    except Exception as e:
+        logger.error(f"Failed to send expiration warning to {email}: {e}")
+
+
+@celery_app.task(bind=True, base=DatabaseTask)
+def send_expiration_warnings(self):
+    """
+    发送过期提醒邮件
+
+    定时任务：每天执行一次
+    提醒时间：7 天、3 天、1 天
+    """
+    from app.cache import get_redis
+    from datetime import datetime, timedelta
+
+    logger.info("Starting expiration warnings task")
+
+    # 使用 Redis 锁防止重复执行
+    redis_client = get_redis()
+    if not redis_client:
+        logger.warning("Redis not available, skipping expiration warnings")
+        return
+
+    lock_key = "celery:expiration_warnings:lock"
+    lock = redis_client.lock(lock_key, timeout=1800)  # 30 分钟超时
+
+    if not lock.acquire(blocking=False):
+        logger.info("Expiration warnings task is already running")
+        return
+
+    try:
+        now = datetime.utcnow()
+        warning_periods = [7, 3, 1]  # 提前 7 天、3 天、1 天提醒
+        total_sent = 0
+
+        for days in warning_periods:
+            # 计算目标日期范围（当天的 00:00 到 23:59）
+            target_date = now + timedelta(days=days)
+            day_start = target_date.replace(hour=0, minute=0, second=0, microsecond=0)
+            day_end = day_start + timedelta(days=1)
+
+            # 查找即将在 X 天后过期的兑换码
+            expiring_codes = self.db.query(RedeemCode).filter(
+                RedeemCode.is_active == True,
+                RedeemCode.activated_at != None,
+                RedeemCode.bound_email != None,
+                RedeemCode.status.in_([None, RedeemCodeStatus.BOUND.value])
+            ).all()
+
+            # 过滤出过期时间在目标日期的
+            codes_to_warn = []
+            for code in expiring_codes:
+                if code.user_expires_at:
+                    # 检查是否在目标日期范围内
+                    if day_start <= code.user_expires_at < day_end:
+                        codes_to_warn.append(code)
+
+            # 去重：同一用户只发送一次（选择最早过期的兑换码）
+            email_to_code = {}
+            for code in codes_to_warn:
+                email = code.bound_email
+                if email not in email_to_code or code.user_expires_at < email_to_code[email].user_expires_at:
+                    email_to_code[email] = code
+
+            # 发送提醒邮件
+            for email, code in email_to_code.items():
+                try:
+                    # 检查是否已发送过该天数的提醒（使用 Redis 缓存）
+                    cache_key = f"expiration_warning:{email}:{days}"
+                    if redis_client.exists(cache_key):
+                        logger.debug(f"Already sent {days}-day warning to {email}")
+                        continue
+
+                    # 发送邮件
+                    expires_at_str = code.user_expires_at.strftime('%Y-%m-%d')
+                    asyncio.get_event_loop().run_until_complete(
+                        _send_expiration_warning_email(email, code.code, days, expires_at_str)
+                    )
+
+                    # 标记为已发送（缓存 7 天）
+                    redis_client.setex(cache_key, 604800, "1")
+                    total_sent += 1
+
+                except Exception as e:
+                    logger.error(f"Failed to send warning to {email}: {e}")
+
+        logger.info(f"Expiration warnings completed: sent={total_sent}")
+
+    except Exception as e:
+        logger.exception(f"Expiration warnings task failed: {e}")
+    finally:
+        lock.release()
 
 
 @celery_app.task(

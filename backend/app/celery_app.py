@@ -106,4 +106,9 @@ celery_app.conf.beat_schedule = {
         'task': 'app.tasks_celery.retry_failed_invites',
         'schedule': 300.0,  # 5分钟（处理等待队列）
     },
+    # 每天发送过期提醒邮件（7 天、3 天、1 天）
+    'send-expiration-warnings': {
+        'task': 'app.tasks_celery.send_expiration_warnings',
+        'schedule': 86400.0,  # 24小时（每天执行一次）
+    },
 }

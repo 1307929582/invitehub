@@ -170,9 +170,10 @@ class RedeemCodeType(str, enum.Enum):
 
 class RedeemCodeStatus(str, enum.Enum):
     """兑换码状态（用于过期用户清理）"""
-    BOUND = "bound"          # 已绑定，用户活跃
-    REMOVING = "removing"    # 正在移除中
-    REMOVED = "removed"      # 已移除
+    BOUND = "bound"              # 已绑定，用户活跃
+    REMOVING = "removing"        # 正在移除中
+    REMOVED = "removed"          # 已移除
+    REMOVAL_FAILED = "removal_failed"  # 移除失败（需要人工介入）
 
 
 class RedeemCode(Base):
@@ -201,6 +202,7 @@ class RedeemCode(Base):
     rebind_limit = Column(Integer, nullable=True, default=3)  # 最大换车次数
     status = Column(String(20), nullable=True, default=RedeemCodeStatus.BOUND.value)  # 状态
     removed_at = Column(DateTime, nullable=True)  # 移除时间
+    removal_retry_count = Column(Integer, nullable=True, default=0)  # 移除失败重试次数
 
     group = relationship("TeamGroup", back_populates="redeem_codes")
     creator = relationship("User", back_populates="redeem_codes")
