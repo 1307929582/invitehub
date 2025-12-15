@@ -1,8 +1,8 @@
 """add removal_retry_count field
 
-Revision ID: 011
-Revises: 010
-Create Date: 2025-12-15
+Revision ID: 018
+Revises: 017
+Create Date: 2025-12-16
 
 """
 from alembic import op
@@ -10,8 +10,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = '011'
-down_revision = '010'
+revision = '018'
+down_revision = '017'
 branch_labels = None
 depends_on = None
 
