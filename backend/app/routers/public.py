@@ -736,9 +736,8 @@ async def get_user_status(
             if team:
                 team_name = team.name
                 team_active = team.is_active
-                # 换车可用性：Team 不健康或不活跃，且兑换码未过期 (Requirements 8.2)
-                team_healthy = team.is_active and team.status == TeamStatus.ACTIVE
-                can_rebind = not team_healthy and not redeem_code.is_user_expired
+                # 换车可用性：仅 BANNED 状态可换车，且兑换码未过期 (Requirements 8.2)
+                can_rebind = (team.status == TeamStatus.BANNED) and not redeem_code.is_user_expired
 
     # 返回完整状态信息 (Requirements 8.1, 8.2)
     return StatusResponse(
@@ -759,9 +758,10 @@ class RebindError:
     INVALID_CODE = "INVALID_CODE"
     EMAIL_MISMATCH = "EMAIL_MISMATCH"
     CODE_EXPIRED = "CODE_EXPIRED"
-    TEAM_STILL_ACTIVE = "TEAM_STILL_ACTIVE"
+    TEAM_STILL_ACTIVE = "TEAM_STILL_ACTIVE"  # Team 正常运行，不允许换车
     NO_AVAILABLE_TEAM = "NO_AVAILABLE_TEAM"
-    NO_PREVIOUS_INVITE = "NO_PREVIOUS_INVITE"
+    NO_PREVIOUS_INVITE = "NO_PREVIOUS_INVITE"  # 首次使用，无邀请记录
+    TEAM_NOT_BANNED = "TEAM_NOT_BANNED"  # Team 未封禁（新增）
 
 
 @router.post("/rebind", response_model=RebindResponse)
@@ -982,50 +982,46 @@ async def _do_rebind(data: RebindRequest, db: Session) -> RebindResponse:
     current_team_id = last_invite.team_id if last_invite else None
     current_team = db.query(Team).filter(Team.id == current_team_id).first() if current_team_id else None
 
-    # 5. 检测原 Team 健康状态，决定是否允许换车和是否消耗换车次数
-    # 【重要】只有 Team 封禁或异常状态时才允许换车
+    # 5. 检测原 Team 状态，决定是否允许换车和是否消耗换车次数
+    # 【核心规则】仅 BANNED（封禁）状态允许换车
     consume_rebind_count = True
     old_team_chatgpt_user_id = None
 
-    # 如果没有找到当前 Team，说明用户还未激活或记录丢失
     if not current_team:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": "NO_CURRENT_TEAM",
-                "message": "未找到您当前所在的 Team，无法换车。如果您是首次使用，请先使用兑换码激活。"
-            }
-        )
+        # 场景 A：无当前 Team（首次使用或记录丢失）
+        # 允许换车但消耗次数（自救机制）
+        consume_rebind_count = True
+        logger.info(f"Rebind without current team (first time or lost record)", extra={
+            "email": email,
+            "redeem_code": redeem_code.code
+        })
+    else:
+        # 场景 B：有当前 Team，检查是否为 BANNED 状态
+        if current_team.status != TeamStatus.BANNED:
+            # Team 不是 BANNED 状态，禁止换车
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": RebindError.TEAM_NOT_BANNED,
+                    "message": f"当前 Team 状态为【{current_team.status.value}】，仅封禁（BANNED）状态下才能换车。"
+                }
+            )
 
-    # 检查 Team 是否健康（正常运行）
-    team_healthy = current_team.is_active and current_team.status == TeamStatus.ACTIVE
-
-    # 如果 Team 是健康的，禁止换车
-    if team_healthy:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "error": "TEAM_HEALTHY",
-                "message": f"当前 Team 【{current_team.name}】运行正常，无法换车。只有在 Team 封禁或异常状态下才能换车。"
-            }
-        )
-
-    # Team 不健康（BANNED 或 TOKEN_INVALID）则免费换车
-    if current_team.status in [TeamStatus.BANNED, TeamStatus.TOKEN_INVALID]:
+        # Team 是 BANNED 状态，允许免费换车（不消耗次数）
         consume_rebind_count = False
-        logger.info(f"Free rebind from unhealthy team", extra={
+        logger.info(f"Free rebind from banned team", extra={
             "email": email,
             "team": current_team.name,
             "team_status": current_team.status.value
         })
 
-    # 获取用户在原 Team 的 chatgpt_user_id（用于踢人）
-    member = db.query(TeamMember).filter(
-        TeamMember.team_id == current_team_id,
-        TeamMember.email == email
-    ).first()
-    if member:
-        old_team_chatgpt_user_id = member.chatgpt_user_id
+        # 获取用户在原 Team 的 chatgpt_user_id（用于踢人）
+        member = db.query(TeamMember).filter(
+            TeamMember.team_id == current_team_id,
+            TeamMember.email == email
+        ).first()
+        if member:
+            old_team_chatgpt_user_id = member.chatgpt_user_id
 
     # 6. 检查换车次数限制（免费换车也需要检查，除非要绕过上限）
     # 决策：免费换车绕过上限（否则用户会被锁死在坏车上）
