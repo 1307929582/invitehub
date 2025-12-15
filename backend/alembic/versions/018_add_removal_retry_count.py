@@ -1,7 +1,7 @@
 """add removal_retry_count field
 
-Revision ID: 018
-Revises: 017
+Revision ID: 018_add_removal_retry_count
+Revises: 017_add_coupons
 Create Date: 2025-12-16
 
 """
@@ -10,8 +10,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = '018'
-down_revision = '017'
+revision = '018_add_removal_retry_count'
+down_revision = '017_add_coupons'
 branch_labels = None
 depends_on = None
 
