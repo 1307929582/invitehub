@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Card, Table, Button, Space, Tag, Modal, Form, Input, InputNumber, message, Popconfirm, Tooltip, Radio, Select } from 'antd'
-import { PlusOutlined, DeleteOutlined, CopyOutlined, StopOutlined, CheckOutlined, EyeOutlined } from '@ant-design/icons'
+import { PlusOutlined, DeleteOutlined, CopyOutlined, StopOutlined, CheckOutlined, EyeOutlined, SearchOutlined } from '@ant-design/icons'
 import { redeemApi, groupApi } from '../api'
 import { formatDate, formatDateOnly, toLocalDate } from '../utils/date'
 import dayjs from 'dayjs'
@@ -46,6 +46,7 @@ export default function RedeemCodes() {
   const [creating, setCreating] = useState(false)
   const [newCodes, setNewCodes] = useState<string[]>([])
   const [filter, setFilter] = useState<FilterType>('all')
+  const [searchText, setSearchText] = useState('')
   const [recordsModal, setRecordsModal] = useState(false)
   const [records, setRecords] = useState<InviteRecord[]>([])
   const [currentCode, setCurrentCode] = useState('')
@@ -75,24 +76,43 @@ export default function RedeemCodes() {
     fetchGroups()
   }, [])
 
-  // 根据筛选条件过滤
-  const isExpiredCode = (code: RedeemCode) => code.expires_at && toLocalDate(code.expires_at)?.isBefore(dayjs())
-  
+  // 根据筛选条件和搜索关键词过滤
+  const isExpiredCode = (code: RedeemCode): boolean => {
+    return !!(code.expires_at && toLocalDate(code.expires_at)?.isBefore(dayjs()))
+  }
+
   const filteredCodes = codes.filter(code => {
     const isExpired = isExpiredCode(code)
     const isUsedUp = code.used_count >= code.max_uses
     const isAvailable = code.is_active && !isExpired && !isUsedUp
 
+    // 状态筛选
+    let statusMatch: boolean = true
     switch (filter) {
       case 'available':
-        return isAvailable
+        statusMatch = isAvailable
+        break
       case 'used':
-        return isUsedUp
+        statusMatch = isUsedUp
+        break
       case 'expired':
-        return isExpired
+        statusMatch = isExpired
+        break
       default:
-        return true
+        statusMatch = true
     }
+
+    // 搜索匹配（兑换码、邮箱、分组名称）
+    let searchMatch: boolean = true
+    if (searchText.trim()) {
+      const search = searchText.toLowerCase().trim()
+      searchMatch =
+        code.code.toLowerCase().includes(search) ||
+        (code.bound_email ? code.bound_email.toLowerCase().includes(search) : false) ||
+        (code.group_name ? code.group_name.toLowerCase().includes(search) : false)
+    }
+
+    return statusMatch && searchMatch
   })
 
   // 统计数量
@@ -308,13 +328,23 @@ export default function RedeemCodes() {
       </div>
 
       <Card bodyStyle={{ padding: 0 }}>
-        <div style={{ padding: '16px 20px', borderBottom: '1px solid #f0f0f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <Radio.Group value={filter} onChange={e => setFilter(e.target.value)} buttonStyle="solid">
-            <Radio.Button value="all">全部 ({stats.all})</Radio.Button>
-            <Radio.Button value="available">可用 ({stats.available})</Radio.Button>
-            <Radio.Button value="used">已用完 ({stats.used})</Radio.Button>
-            <Radio.Button value="expired">已过期 ({stats.expired})</Radio.Button>
-          </Radio.Group>
+        <div style={{ padding: '16px 20px', borderBottom: '1px solid #f0f0f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 16 }}>
+          <Space size={12}>
+            <Radio.Group value={filter} onChange={e => setFilter(e.target.value)} buttonStyle="solid">
+              <Radio.Button value="all">全部 ({stats.all})</Radio.Button>
+              <Radio.Button value="available">可用 ({stats.available})</Radio.Button>
+              <Radio.Button value="used">已用完 ({stats.used})</Radio.Button>
+              <Radio.Button value="expired">已过期 ({stats.expired})</Radio.Button>
+            </Radio.Group>
+            <Input
+              placeholder="搜索兑换码/邮箱/分组"
+              prefix={<SearchOutlined style={{ color: '#94a3b8' }} />}
+              value={searchText}
+              onChange={e => setSearchText(e.target.value)}
+              allowClear
+              style={{ width: 220 }}
+            />
+          </Space>
           {selectedRowKeys.length > 0 && (
             <Space>
               <span style={{ color: '#64748b' }}>已选 {selectedRowKeys.length} 项</span>
