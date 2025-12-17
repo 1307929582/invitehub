@@ -151,7 +151,7 @@ async def sync_all_teams(
 ):
     """批量同步所有 Team 成员，同时检测封号和 Token 失效"""
     from app.services.telegram import send_admin_notification
-    from app.models import SystemConfig
+    from app.services.authorization import check_is_unauthorized
     import asyncio
 
     teams_list = db.query(Team).filter(Team.is_active == True).all()
@@ -159,23 +159,6 @@ async def sync_all_teams(
     fail_count = 0
     banned_teams = []
     token_invalid_teams = []
-
-    # 预先获取所有系统邀请的邮箱和管理员邮箱
-    all_invited_emails = set()
-    all_invites = db.query(InviteRecord).filter(InviteRecord.status == InviteStatus.SUCCESS).all()
-    for inv in all_invites:
-        all_invited_emails.add(inv.email.lower().strip())
-
-    admin_emails = set()
-    admins = db.query(User).filter(User.is_active == True).all()
-    for admin in admins:
-        admin_emails.add(admin.email.lower().strip())
-
-    # 获取白名单邮箱后缀
-    whitelist_suffix_config = db.query(SystemConfig).filter(SystemConfig.key == "admin_email_suffix").first()
-    whitelist_suffixes = []
-    if whitelist_suffix_config and whitelist_suffix_config.value:
-        whitelist_suffixes = [s.strip().lower() for s in whitelist_suffix_config.value.split(",") if s.strip()]
 
     all_unauthorized = {}  # team_name -> [emails]
 
@@ -211,42 +194,41 @@ async def sync_all_teams(
             
             # 清除旧成员数据
             db.query(TeamMember).filter(TeamMember.team_id == team.id).delete()
-            
+
             # 插入新成员数据（去重），并检测未授权成员
             seen_emails = set()
             unauthorized_members = []
-            
+
             for m in members_data:
                 email = m.get("email", "").lower().strip()
                 if not email or email in seen_emails:
                     continue
                 seen_emails.add(email)
-                
-                # 检查是否为未授权成员
-                # owner/admin/workspace_owner 等管理员角色不检查
-                member_role = m.get("role", "member").lower()
-                is_unauthorized = False
-                admin_roles = {"owner", "admin", "workspace_owner", "workspace_admin", "billing_admin"}
-                
-                # 检查是否在白名单后缀中
-                is_whitelisted = any(email.endswith(suffix) for suffix in whitelist_suffixes)
-                
-                if member_role not in admin_roles and not is_whitelisted:
-                    if email not in all_invited_emails and email not in admin_emails:
-                        is_unauthorized = True
-                        unauthorized_members.append(email)
-                
+
+                role = m.get("role", "member")
+
+                # ✅ 使用统一函数检查是否未授权（限定当前 Team）
+                is_unauthorized = check_is_unauthorized(
+                    email=email,
+                    team_id=team.id,
+                    role=role,
+                    db=db
+                )
+
+                if is_unauthorized:
+                    unauthorized_members.append(email)
+
                 member = TeamMember(
                     team_id=team.id,
                     email=email,
                     name=m.get("name", m.get("display_name", "")),
-                    role=member_role,
+                    role=role,
                     chatgpt_user_id=m.get("id", m.get("user_id", "")),
                     synced_at=datetime.utcnow(),
-                    is_unauthorized=is_unauthorized
+                    is_unauthorized=is_unauthorized  # ✅ 正确设置
                 )
                 db.add(member)
-            
+
             if unauthorized_members:
                 all_unauthorized[team.name] = unauthorized_members
 
@@ -519,73 +501,47 @@ async def sync_team_members(
             updated_count += 1
     
     print(f"[Sync] Team {team.name}: 更新了 {updated_count} 条邀请记录")
-    
-    # 获取所有通过系统邀请的邮箱（所有 Team 的成功邀请记录）
-    # 因为直接邀请链接可能分配到任意有空位的 Team
-    invited_emails = set()
-    all_invites = db.query(InviteRecord).filter(
-        InviteRecord.status == InviteStatus.SUCCESS
-    ).all()
-    for inv in all_invites:
-        invited_emails.add(inv.email.lower().strip())
-    
-    # 获取管理员邮箱（不检查管理员）
-    admin_emails = set()
-    admins = db.query(User).filter(User.is_active == True).all()
-    for admin in admins:
-        admin_emails.add(admin.email.lower().strip())
-    
-    # 获取白名单邮箱后缀
-    from app.models import SystemConfig
-    whitelist_suffix_config = db.query(SystemConfig).filter(SystemConfig.key == "admin_email_suffix").first()
-    whitelist_suffixes = []
-    if whitelist_suffix_config and whitelist_suffix_config.value:
-        whitelist_suffixes = [s.strip().lower() for s in whitelist_suffix_config.value.split(",") if s.strip()]
-    
-    print(f"[Sync] Team {team.name}: 系统邀请邮箱 = {invited_emails}")
-    print(f"[Sync] Team {team.name}: 管理员邮箱 = {admin_emails}")
-    print(f"[Sync] Team {team.name}: 白名单后缀 = {whitelist_suffixes}")
-    
+
     # 清除旧成员数据
     db.query(TeamMember).filter(TeamMember.team_id == team_id).delete()
-    
+
     # 插入新成员数据（去重），并检测未授权成员
+    from app.services.authorization import check_is_unauthorized
     seen_emails = set()
     unauthorized_members = []
-    
+
     for m in members_data:
         email = m.get("email", "").lower().strip()
         if not email or email in seen_emails:
             continue
         seen_emails.add(email)
-        
-        # 检查是否为未授权成员
-        # owner/admin/workspace_owner 等管理员角色不检查
-        member_role = m.get("role", "member").lower()
-        is_unauthorized = False
-        admin_roles = {"owner", "admin", "workspace_owner", "workspace_admin", "billing_admin"}
-        
-        # 检查是否在白名单后缀中
-        is_whitelisted = any(email.endswith(suffix) for suffix in whitelist_suffixes)
-        
-        if member_role not in admin_roles and not is_whitelisted:
-            if email not in invited_emails and email not in admin_emails:
-                is_unauthorized = True
-                unauthorized_members.append(email)
-        
+
+        role = m.get("role", "member")
+
+        # ✅ 使用统一函数检查是否未授权（限定当前 Team）
+        is_unauthorized = check_is_unauthorized(
+            email=email,
+            team_id=team_id,
+            role=role,
+            db=db
+        )
+
+        if is_unauthorized:
+            unauthorized_members.append(email)
+
         member = TeamMember(
             team_id=team_id,
             email=email,
             name=m.get("name", m.get("display_name", "")),
-            role=member_role,
+            role=role,
             chatgpt_user_id=m.get("id", m.get("user_id", "")),
             synced_at=datetime.utcnow(),
-            is_unauthorized=is_unauthorized
+            is_unauthorized=is_unauthorized  # ✅ 正确设置
         )
         db.add(member)
-    
+
     db.commit()
-    
+
     # 如果发现未授权成员，发送 Telegram 通知
     if unauthorized_members:
         print(f"[Sync] Team {team.name}: 发现 {len(unauthorized_members)} 个未授权成员: {unauthorized_members}")

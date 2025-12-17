@@ -21,6 +21,7 @@ async def sync_all_teams():
     """定时同步所有 Team 成员（仅同步健康的 Team）"""
     from app.models import Team, TeamMember, InviteRecord, InviteStatus, TeamStatus
     from app.services.chatgpt_api import ChatGPTAPI, ChatGPTAPIError
+    from app.services.authorization import check_is_unauthorized
     from datetime import datetime
 
     db = SessionLocal()
@@ -30,63 +31,74 @@ async def sync_all_teams():
             Team.is_active == True,
             Team.status == TeamStatus.ACTIVE
         ).all()
-        
+
         for team in teams_list:
             try:
                 api = ChatGPTAPI(team.session_token, team.device_id or "", team.cookie or "")
                 result = await api.get_members(team.account_id)
                 members_data = result.get("items", result.get("users", []))
-                
+
                 # 获取成员邮箱列表
                 member_emails = set()
                 for m in members_data:
                     email = m.get("email", "").lower().strip()
                     if email:
                         member_emails.add(email)
-                
+
                 # 更新邀请记录：如果邮箱已在成员列表中，标记为已接受
                 pending_invites = db.query(InviteRecord).filter(
                     InviteRecord.team_id == team.id,
                     InviteRecord.status == InviteStatus.SUCCESS,
                     InviteRecord.accepted_at == None
                 ).all()
-                
+
                 for invite in pending_invites:
                     if invite.email.lower().strip() in member_emails:
                         invite.accepted_at = datetime.utcnow()
-                
+
                 # 清除旧成员数据
                 db.query(TeamMember).filter(TeamMember.team_id == team.id).delete()
-                
-                # 插入新成员数据（去重）
+
+                # 插入新成员数据（去重）并正确设置 is_unauthorized
                 seen_emails = set()
                 for m in members_data:
                     email = m.get("email", "").lower().strip()
                     if not email or email in seen_emails:
                         continue
                     seen_emails.add(email)
-                    
+
+                    role = m.get("role", "member")
+
+                    # ✅ 使用统一函数检查是否未授权
+                    is_unauthorized = check_is_unauthorized(
+                        email=email,
+                        team_id=team.id,
+                        role=role,
+                        db=db
+                    )
+
                     member = TeamMember(
                         team_id=team.id,
                         email=email,
                         name=m.get("name", m.get("display_name", "")),
-                        role=m.get("role", "member"),
+                        role=role,
                         chatgpt_user_id=m.get("id", m.get("user_id", "")),
-                        synced_at=datetime.utcnow()
+                        synced_at=datetime.utcnow(),
+                        is_unauthorized=is_unauthorized  # ✅ 正确设置
                     )
                     db.add(member)
-                
+
                 db.commit()
-                
+
                 # 清除座位缓存
                 from app.cache import invalidate_seat_cache
                 invalidate_seat_cache()
-                
+
                 logger.info("Team sync completed", extra={
                     "team": team.name,
                     "member_count": len(members_data)
                 })
-                
+
             except ChatGPTAPIError as e:
                 logger.error("Team sync failed", extra={
                     "team": team.name,
@@ -97,10 +109,10 @@ async def sync_all_teams():
                     "team": team.name,
                     "error": str(e)
                 })
-            
+
             # 每个 Team 间隔 2 秒，避免请求过快
             await asyncio.sleep(2)
-            
+
     finally:
         db.close()
 
