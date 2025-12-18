@@ -237,6 +237,12 @@ export default function AdminDistributors() {
 
   const salesColumns = [
     {
+      title: '序号',
+      key: 'index',
+      width: 60,
+      render: (_: any, __: any, index: number) => index + 1,
+    },
+    {
       title: '兑换码',
       dataIndex: 'code',
       key: 'code',

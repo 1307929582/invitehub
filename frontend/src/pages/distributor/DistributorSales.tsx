@@ -44,6 +44,12 @@ export default function DistributorSales() {
 
   const columns = [
     {
+      title: '序号',
+      key: 'index',
+      width: 60,
+      render: (_: any, __: any, index: number) => index + 1,  // 从 1 开始，不是从 0
+    },
+    {
       title: '兑换码',
       dataIndex: 'code',
       key: 'code',
