@@ -9,14 +9,19 @@ const { Text } = Typography
 interface Order {
   id: number
   order_no: string
+  order_type?: string  // 订单类型
   plan_id: number
   plan_name?: string
+  email?: string  // 联系邮箱
+  buyer_username?: string  // 买家用户名（分销商）
   amount: number
   coupon_code?: string
   discount_amount: number
   final_amount?: number
   status: string
   redeem_code?: string
+  quantity?: number  // 购买份数
+  delivered_count?: number  // 已发码数量
   trade_no?: string
   pay_type?: string
   paid_at?: string
@@ -106,9 +111,37 @@ export default function Orders() {
       render: (v: string) => <code style={{ fontSize: 12 }}>{v}</code>
     },
     {
+      title: '类型',
+      dataIndex: 'order_type',
+      width: 120,
+      render: (v: string) => {
+        if (v === 'distributor_codes') {
+          return <Tag color="purple">分销商采购</Tag>
+        }
+        return <Tag color="blue">用户购买</Tag>
+      }
+    },
+    {
+      title: '买家',
+      width: 150,
+      render: (_: any, r: Order) => {
+        if (r.order_type === 'distributor_codes' && r.buyer_username) {
+          return <Text style={{ fontWeight: 500 }}>{r.buyer_username}</Text>
+        }
+        return <Text type="secondary">{r.email || '-'}</Text>
+      }
+    },
+    {
       title: '套餐',
       dataIndex: 'plan_name',
-      render: (v: string) => <span style={{ fontWeight: 500 }}>{v || '-'}</span>
+      render: (v: string, r: Order) => (
+        <div>
+          <div style={{ fontWeight: 500 }}>{v || '-'}</div>
+          {r.order_type === 'distributor_codes' && r.quantity && r.quantity > 1 && (
+            <Text type="secondary" style={{ fontSize: 12 }}>x{r.quantity} 份</Text>
+          )}
+        </div>
+      )
     },
     {
       title: '金额',
@@ -164,7 +197,18 @@ export default function Orders() {
       title: '兑换码',
       dataIndex: 'redeem_code',
       width: 140,
-      render: (v: string) => v ? <code style={{ fontSize: 12, color: '#007aff' }}>{v}</code> : <span style={{ color: '#86868b' }}>-</span>
+      render: (v: string, r: Order) => {
+        // 分销商订单显示已发码数量
+        if (r.order_type === 'distributor_codes') {
+          return (
+            <Tooltip title={`已发放 ${r.delivered_count || 0} 个兑换码`}>
+              <Tag color="green">{r.delivered_count || 0} 个码</Tag>
+            </Tooltip>
+          )
+        }
+        // 公开订单显示单个兑换码
+        return v ? <code style={{ fontSize: 12, color: '#007aff' }}>{v}</code> : <span style={{ color: '#86868b' }}>-</span>
+      }
     },
     {
       title: '流水号',
