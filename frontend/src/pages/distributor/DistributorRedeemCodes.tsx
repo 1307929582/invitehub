@@ -91,13 +91,16 @@ export default function DistributorRedeemCodes() {
   }
 
   // 获取邀请链接（使用分销商白标域名）
-  const getInviteUrl = (code: string) => {
-    // 修复：使用分销商的白标域名，而不是当前访问的域名
+  const getInviteUrl = (code: string, useWhiteLabel: boolean = true) => {
     const distributorId = user?.id
-    if (!distributorId) {
-      return `${window.location.origin}/invite/${code}`
+
+    if (useWhiteLabel && distributorId) {
+      // 白标链接（隐藏价格）
+      return `https://distributor-${distributorId}.zenscaleai.com/invite/${code}`
+    } else {
+      // 官方链接（显示价格）
+      return `https://mmw-team.zenscaleai.com/invite/${code}`
     }
-    return `https://distributor-${distributorId}.zenscaleai.com/invite/${code}`
   }
 
   // 复制单个兑换码
@@ -106,25 +109,25 @@ export default function DistributorRedeemCodes() {
     message.success('已复制兑换码')
   }
 
-  // 复制单个链接
-  const copyLink = (code: string) => {
-    const url = getInviteUrl(code)
+  // 复制链接（带选择）
+  const copyLink = (code: string, useWhiteLabel: boolean = true) => {
+    const url = getInviteUrl(code, useWhiteLabel)
     navigator.clipboard.writeText(url)
-    message.success('已复制邀请链接')
+    message.success(`已复制${useWhiteLabel ? '白标' : '官方'}链接`)
   }
 
-  // 批量复制链接
-  const handleBatchCopyLinks = () => {
+  // 批量复制链接（带选择）
+  const handleBatchCopyLinks = (useWhiteLabel: boolean = true) => {
     if (selectedRowKeys.length === 0) {
       message.warning('请先选择要复制的兑换码')
       return
     }
 
     const selectedCodes = codes.filter(c => selectedRowKeys.includes(c.id))
-    const links = selectedCodes.map(c => getInviteUrl(c.code)).join('\n')
+    const links = selectedCodes.map(c => getInviteUrl(c.code, useWhiteLabel)).join('\n')
 
     navigator.clipboard.writeText(links)
-    message.success(`已复制 ${selectedCodes.length} 个邀请链接`)
+    message.success(`已复制 ${selectedCodes.length} 个${useWhiteLabel ? '白标' : '官方'}链接`)
   }
 
   // 批量复制兑换码
@@ -241,16 +244,42 @@ export default function DistributorRedeemCodes() {
       dataIndex: 'code',
       key: 'code',
       render: (text: string) => (
-        <Space>
-          <code style={{ background: '#f5f5f5', padding: '2px 8px', borderRadius: 4, fontFamily: 'monospace' }}>
-            {text}
-          </code>
-          <Tooltip title="复制兑换码">
-            <CopyOutlined style={{ cursor: 'pointer', color: '#1890ff' }} onClick={() => copyCode(text)} />
-          </Tooltip>
-          <Tooltip title="复制邀请链接">
-            <LinkOutlined style={{ cursor: 'pointer', color: '#52c41a' }} onClick={() => copyLink(text)} />
-          </Tooltip>
+        <Space direction="vertical" size={4}>
+          <Space size={4}>
+            <code style={{ background: '#f5f5f5', padding: '2px 8px', borderRadius: 4, fontFamily: 'monospace' }}>
+              {text}
+            </code>
+            <Tooltip title="复制兑换码">
+              <CopyOutlined style={{ cursor: 'pointer', color: '#1890ff' }} onClick={() => copyCode(text)} />
+            </Tooltip>
+          </Space>
+          <Space size={4}>
+            <Tooltip title="复制白标链接（隐藏价格）">
+              <LinkOutlined
+                style={{ cursor: 'pointer', color: '#52c41a', fontSize: 12 }}
+                onClick={() => copyLink(text, true)}
+              />
+              <span
+                style={{ cursor: 'pointer', color: '#52c41a', fontSize: 12 }}
+                onClick={() => copyLink(text, true)}
+              >
+                白标链接
+              </span>
+            </Tooltip>
+            <span style={{ color: '#d9d9d9' }}>|</span>
+            <Tooltip title="复制官方链接（显示价格）">
+              <LinkOutlined
+                style={{ cursor: 'pointer', color: '#999', fontSize: 12 }}
+                onClick={() => copyLink(text, false)}
+              />
+              <span
+                style={{ cursor: 'pointer', color: '#999', fontSize: 12 }}
+                onClick={() => copyLink(text, false)}
+              >
+                官方链接
+              </span>
+            </Tooltip>
+          </Space>
         </Space>
       ),
     },
@@ -369,9 +398,15 @@ export default function DistributorRedeemCodes() {
               <Button
                 type="primary"
                 icon={<LinkOutlined />}
-                onClick={handleBatchCopyLinks}
+                onClick={() => handleBatchCopyLinks(true)}
               >
-                批量复制邀请链接
+                批量复制白标链接
+              </Button>
+              <Button
+                icon={<LinkOutlined />}
+                onClick={() => handleBatchCopyLinks(false)}
+              >
+                批量复制官方链接
               </Button>
               <Popconfirm
                 title="批量删除兑换码"
