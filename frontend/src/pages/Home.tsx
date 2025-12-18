@@ -25,16 +25,6 @@ export default function Home() {
   const [paymentEnabled, setPaymentEnabled] = useState(false)
   const navigate = useNavigate()
 
-  // 分销商白标域名检测：只有主站显示完整首页，其他都跳转到兑换页面
-  useEffect(() => {
-    const hostname = window.location.hostname.toLowerCase().replace(/\.$/, '')  // 移除尾点
-    const isMainSite = hostname === 'mmw-team.zenscaleai.com'
-    if (!isMainSite) {
-      navigate('/invite', { replace: true })
-      return
-    }
-  }, [navigate])
-
   useEffect(() => {
     Promise.all([
       publicApi.getSiteConfig().catch(() => null),

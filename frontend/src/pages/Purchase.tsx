@@ -112,15 +112,6 @@ export default function Purchase() {
     discountAmount: number
   } | null>(null)
 
-  // 分销商白标域名检测：只有主站可以购买，其他都重定向到兑换页面
-  useEffect(() => {
-    const hostname = window.location.hostname.toLowerCase().replace(/\.$/, '')  // 移除尾点
-    const isMainSite = hostname === 'mmw-team.zenscaleai.com'
-    if (!isMainSite) {
-      navigate('/invite', { replace: true })
-    }
-  }, [navigate])
-
   useEffect(() => {
     Promise.all([
       publicApi.getPaymentConfig().catch(() => null),

@@ -104,6 +104,18 @@ function App() {
   const [loading, setLoading] = useState(true)
   const [initialized, setInitialized] = useState<boolean | null>(null)  // 初始为 null，等待 API 返回
 
+  // 全局白标域名检测：除了主站外，所有域名都只能访问 /invite
+  useEffect(() => {
+    const hostname = window.location.hostname.toLowerCase()
+    const isMainSite = hostname === 'mmw-team.zenscaleai.com' || hostname === 'localhost'
+    const currentPath = window.location.pathname
+
+    // 如果不是主站，且不在 /invite 路径，则跳转
+    if (!isMainSite && !currentPath.startsWith('/invite')) {
+      window.location.replace('/invite')
+    }
+  }, [])
+
   useEffect(() => {
     // 先检查系统是否已初始化
     setupApi.getStatus()
