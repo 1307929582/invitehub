@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field, field_validator
 from app.database import get_db
 from app.config import settings
 from app.limiter import limiter
-from app.models import Plan, PlanType, Order, OrderStatus, OrderType, RedeemCode, RedeemCodeType, SystemConfig, Coupon, DiscountType
+from app.models import Plan, Order, OrderStatus, RedeemCode, RedeemCodeType, SystemConfig, Coupon, DiscountType
 from app.services.epay import (
     get_epay_config,
     create_payment_url,
@@ -223,7 +223,7 @@ async def get_public_plans(request: Request, db: Session = Depends(get_db)):
 
     plans = db.query(Plan).filter(
         Plan.is_active == True,
-        Plan.plan_type == PlanType.PUBLIC  # 只返回公开套餐
+        Plan.plan_type == "public"  # 只返回公开套餐
     ).order_by(Plan.sort_order.asc(), Plan.id.asc()).all()
 
     return [
@@ -309,7 +309,7 @@ async def create_order(
     plan = db.query(Plan).filter(
         Plan.id == data.plan_id,
         Plan.is_active == True,
-        Plan.plan_type == PlanType.PUBLIC  # 公开购买只能买公开套餐
+        Plan.plan_type == "public"  # 公开购买只能买公开套餐
     ).first()
     if not plan:
         raise HTTPException(status_code=404, detail="套餐不存在或已下架")
@@ -355,7 +355,7 @@ async def create_order(
 
         order = Order(
             order_no=order_no,
-            order_type=OrderType.PUBLIC_PLAN,  # 公开套餐订单
+            order_type="public_plan",  # 公开套餐订单
             plan_id=plan.id,
             email=data.email,
             quantity=1,  # 公开订单购买 1 份
@@ -630,7 +630,7 @@ async def payment_notify(request: Request, db: Session = Depends(get_db)):
 
     # 根据订单类型生成兑换码
     redeem_code = None
-    if order.order_type == OrderType.DISTRIBUTOR_CODES:
+    if order.order_type == "distributor_codes":
         # 分销商订单：批量发码
         if not order.buyer_user_id:
             logger.error(f"Distributor order missing buyer_user_id: {order_no}")

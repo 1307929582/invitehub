@@ -370,12 +370,7 @@ class Plan(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)              # 套餐名称
-    plan_type = Column(
-        Enum(PlanType, values_callable=lambda x: [e.value for e in x]),
-        default=PlanType.PUBLIC,
-        nullable=False,
-        index=True
-    )  # 套餐类型
+    plan_type = Column(String(30), default="public", nullable=False, index=True)  # 套餐类型
     price = Column(Integer, nullable=False)                 # 价格（分）
     original_price = Column(Integer, nullable=True)         # 原价（分），用于显示划线价
     validity_days = Column(Integer, nullable=False)         # 有效天数
@@ -398,12 +393,7 @@ class Order(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     order_no = Column(String(32), unique=True, nullable=False, index=True)  # 订单号
-    order_type = Column(
-        Enum(OrderType, values_callable=lambda x: [e.value for e in x]),
-        default=OrderType.PUBLIC_PLAN,
-        nullable=False,
-        index=True
-    )  # 订单类型
+    order_type = Column(String(30), default="public_plan", nullable=False, index=True)  # 订单类型
     plan_id = Column(Integer, ForeignKey("plans.id"), nullable=False)       # 套餐ID
     email = Column(String(100), nullable=False, index=True)                 # 联系邮箱（用于查询订单）
     buyer_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)  # 分销商采购归属

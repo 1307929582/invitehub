@@ -12,7 +12,7 @@ import string
 from app.database import get_db
 from app.models import (
     User, UserRole, RedeemCode, InviteRecord, UserApprovalStatus,
-    Team, TeamMember, InviteStatus, Plan, PlanType, Order, OrderStatus, OrderType,
+    Team, TeamMember, InviteStatus, Plan, Order, OrderStatus,
     RedeemCodeType, SystemConfig
 )
 from app.services.auth import get_current_user, require_roles
@@ -671,7 +671,7 @@ async def get_my_code_plans(
     """获取可购买的码包列表"""
     plans = db.query(Plan).filter(
         Plan.is_active == True,
-        Plan.plan_type == PlanType.DISTRIBUTOR_CODES
+        Plan.plan_type == "distributor_codes"
     ).order_by(Plan.sort_order.asc(), Plan.id.asc()).all()
 
     return [
@@ -705,7 +705,7 @@ async def create_my_code_order(
     plan = db.query(Plan).filter(
         Plan.id == data.plan_id,
         Plan.is_active == True,
-        Plan.plan_type == PlanType.DISTRIBUTOR_CODES
+        Plan.plan_type == "distributor_codes"
     ).first()
 
     if not plan:
@@ -766,7 +766,7 @@ async def create_my_code_order(
 
         order = Order(
             order_no=order_no,
-            order_type=OrderType.DISTRIBUTOR_CODES,  # 分销商订单
+            order_type="distributor_codes",  # 分销商订单
             plan_id=plan.id,
             email=current_user.email,
             buyer_user_id=current_user.id,  # 关联到分销商
@@ -806,7 +806,7 @@ async def list_my_code_orders(
     """获取分销商码包订单列表"""
     orders = db.query(Order).filter(
         Order.buyer_user_id == current_user.id,
-        Order.order_type == OrderType.DISTRIBUTOR_CODES
+        Order.order_type == "distributor_codes"
     ).order_by(Order.created_at.desc()).limit(100).all()
 
     return [
