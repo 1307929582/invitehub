@@ -39,10 +39,11 @@ export default function DistributorDashboard() {
   const [loading, setLoading] = useState(true)
   const { user } = useStore()
 
+  // 从 localStorage 读取自定义前缀
+  const customPrefix = localStorage.getItem(`distributor_prefix_${user?.id}`) || `distributor-${user?.id || ''}`
+
   // 生成分销商白标链接
-  const whiteLabelUrl = user?.id
-    ? `https://distributor-${user.id}.zenscaleai.com/invite`
-    : ''
+  const whiteLabelUrl = `https://${customPrefix}.zenscaleai.com/invite`
 
   const copyWhiteLabelUrl = () => {
     if (whiteLabelUrl) {

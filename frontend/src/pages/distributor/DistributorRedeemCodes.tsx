@@ -2,9 +2,9 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Table, Button, message, Popconfirm, Badge, Space, Tooltip, Typography, Card,
-  Modal, Form, InputNumber, Select, Radio
+  Modal, Form, InputNumber, Select, Radio, Input, Alert
 } from 'antd'
-import { DeleteOutlined, CopyOutlined, LinkOutlined, ShoppingCartOutlined } from '@ant-design/icons'
+import { DeleteOutlined, CopyOutlined, LinkOutlined, ShoppingCartOutlined, SettingOutlined } from '@ant-design/icons'
 import type { TableRowSelection } from 'antd/es/table/interface'
 import { redeemApi, distributorApi } from '../../api'
 import { useStore } from '../../store'
@@ -41,6 +41,13 @@ export default function DistributorRedeemCodes() {
   const [loading, setLoading] = useState(true)
   const [batchDeleteLoading, setBatchDeleteLoading] = useState(false)
   const { user } = useStore()
+
+  // 自定义域名前缀（从 localStorage 读取）
+  const [customPrefix, setCustomPrefix] = useState<string>(() => {
+    return localStorage.getItem(`distributor_prefix_${user?.id}`) || `distributor-${user?.id || ''}`
+  })
+  const [prefixModalVisible, setPrefixModalVisible] = useState(false)
+  const [prefixForm] = Form.useForm()
 
   // 购买兑换码相关状态
   const [purchaseModalVisible, setPurchaseModalVisible] = useState(false)
@@ -92,14 +99,40 @@ export default function DistributorRedeemCodes() {
 
   // 获取邀请链接（使用分销商白标域名）
   const getInviteUrl = (code: string, useWhiteLabel: boolean = true) => {
-    const distributorId = user?.id
-
-    if (useWhiteLabel && distributorId) {
-      // 白标链接（隐藏价格）
-      return `https://distributor-${distributorId}.zenscaleai.com/invite/${code}`
+    if (useWhiteLabel) {
+      // 白标链接（使用自定义前缀）
+      return `https://${customPrefix}.zenscaleai.com/invite/${code}`
     } else {
       // 官方链接（显示价格）
       return `https://mmw-team.zenscaleai.com/invite/${code}`
+    }
+  }
+
+  // 保存自定义前缀
+  const handleSavePrefix = async () => {
+    const values = await prefixForm.validateFields()
+    const prefix = values.prefix.trim().toLowerCase()
+
+    // 前端验证
+    const prefixRegex = /^[a-z0-9]([a-z0-9-]{0,18}[a-z0-9])?$/
+    if (!prefixRegex.test(prefix)) {
+      message.error('前缀只能包含小写字母、数字和连字符，3-20个字符')
+      return
+    }
+
+    // 保留词检查
+    const reserved = ['www', 'api', 'admin', 'mail', 'smtp', 'ftp', 'mmw-team', 'backend', 'console']
+    if (reserved.includes(prefix)) {
+      message.error('该前缀为保留词，请使用其他前缀')
+      return
+    }
+
+    // 保存到 localStorage
+    if (user?.id) {
+      localStorage.setItem(`distributor_prefix_${user.id}`, prefix)
+      setCustomPrefix(prefix)
+      message.success('域名前缀已保存')
+      setPrefixModalVisible(false)
     }
   }
 
@@ -364,14 +397,49 @@ export default function DistributorRedeemCodes() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Title level={4} style={{ margin: 0 }}>兑换码管理</Title>
-        <Button
-          type="primary"
-          icon={<ShoppingCartOutlined />}
-          onClick={showPurchaseModal}
-        >
-          购买兑换码
-        </Button>
+        <Space>
+          <Button
+            icon={<SettingOutlined />}
+            onClick={() => {
+              prefixForm.setFieldsValue({ prefix: customPrefix })
+              setPrefixModalVisible(true)
+            }}
+          >
+            设置域名前缀
+          </Button>
+          <Button
+            type="primary"
+            icon={<ShoppingCartOutlined />}
+            onClick={showPurchaseModal}
+          >
+            购买兑换码
+          </Button>
+        </Space>
       </div>
+
+      {/* 当前使用的域名前缀提示 */}
+      <Alert
+        message="当前白标域名"
+        description={
+          <div>
+            <Text>客户专属链接：</Text>
+            <Text code style={{ marginLeft: 8 }}>https://{customPrefix}.zenscaleai.com</Text>
+            <Button
+              type="link"
+              size="small"
+              onClick={() => {
+                navigator.clipboard.writeText(`https://${customPrefix}.zenscaleai.com`)
+                message.success('已复制域名')
+              }}
+            >
+              复制域名
+            </Button>
+          </div>
+        }
+        type="info"
+        showIcon
+        style={{ marginBottom: 16 }}
+      />
 
       <Card>
         {/* 批量操作栏 */}
@@ -532,6 +600,59 @@ export default function DistributorRedeemCodes() {
                 ({selectedPlan.code_count * purchaseQuantity} 个兑换码)
               </span>
             )}
+          </div>
+        </Form>
+      </Modal>
+
+      {/* 设置域名前缀 Modal */}
+      <Modal
+        title="设置域名前缀"
+        open={prefixModalVisible}
+        onOk={handleSavePrefix}
+        onCancel={() => {
+          setPrefixModalVisible(false)
+          prefixForm.resetFields()
+        }}
+        okText="保存"
+        cancelText="取消"
+      >
+        <Alert
+          message="设置说明"
+          description="设置您的专属域名前缀，客户访问此域名时将看不到平台的购买功能和价格。"
+          type="info"
+          showIcon
+          style={{ marginBottom: 16 }}
+        />
+        <Form
+          form={prefixForm}
+          layout="vertical"
+        >
+          <Form.Item
+            name="prefix"
+            label="域名前缀"
+            rules={[
+              { required: true, message: '请输入域名前缀' },
+              { min: 3, message: '前缀至少3个字符' },
+              { max: 20, message: '前缀最多20个字符' },
+              { pattern: /^[a-z0-9-]+$/, message: '只能包含小写字母、数字和连字符' }
+            ]}
+            extra="只能包含小写字母、数字和连字符，3-20个字符"
+          >
+            <Input
+              placeholder="例如：vip, abc, dealer"
+              addonAfter=".zenscaleai.com"
+            />
+          </Form.Item>
+
+          <div style={{ background: '#f5f5f5', padding: 12, borderRadius: 8 }}>
+            <Text type="secondary" style={{ fontSize: 12 }}>
+              实时预览：
+            </Text>
+            <div style={{ marginTop: 8 }}>
+              <Text code>
+                https://{prefixForm.getFieldValue('prefix') || customPrefix}.zenscaleai.com
+              </Text>
+            </div>
           </div>
         </Form>
       </Modal>
