@@ -87,7 +87,8 @@ async def get_site_config(request: Request, db: Session = Depends(get_db)):
 
     # 检测是否是分销商白标域名
     hostname = (request.url.hostname or "").strip().lower().rstrip('.')  # 移除尾点
-    is_distributor = bool(re.match(r'^distributor-\d+\.zenscaleai\.com$', hostname, re.IGNORECASE))
+    # 只有主站显示购买功能，其他都是白标
+    is_distributor = hostname != "mmw-team.zenscaleai.com"
 
     # 如果是分销商域名，不使用缓存（因为需要动态判断）
     if is_distributor:

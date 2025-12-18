@@ -25,11 +25,11 @@ export default function Home() {
   const [paymentEnabled, setPaymentEnabled] = useState(false)
   const navigate = useNavigate()
 
-  // 分销商白标域名检测：直接跳转到兑换页面
+  // 分销商白标域名检测：只有主站显示完整首页，其他都跳转到兑换页面
   useEffect(() => {
     const hostname = window.location.hostname.toLowerCase().replace(/\.$/, '')  // 移除尾点
-    const isDistributorDomain = /^distributor-\d+\.zenscaleai\.com$/.test(hostname)
-    if (isDistributorDomain) {
+    const isMainSite = hostname === 'mmw-team.zenscaleai.com'
+    if (!isMainSite) {
       navigate('/invite', { replace: true })
       return
     }

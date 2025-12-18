@@ -31,16 +31,15 @@ router = APIRouter(prefix="/shop", tags=["商店"])
 # 邮箱格式校验正则
 EMAIL_REGEX = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
 
-# 分销商白标域名模式
-DISTRIBUTOR_DOMAIN_PATTERN = re.compile(r'^distributor-\d+\.zenscaleai\.com$', re.IGNORECASE)
-
-
+# 分销商白标域名检测：除了主站外都是白标
 def is_distributor_domain(hostname: str) -> bool:
-    """检测是否是分销商白标域名"""
+    """检测是否是分销商白标域名（除主站外都是白标）"""
     if not hostname:
         return False
     hostname = hostname.strip().lower().rstrip('.')  # 移除尾点，防止绕过
-    return bool(DISTRIBUTOR_DOMAIN_PATTERN.match(hostname))
+
+    # 只有主站可以购买，其他都是白标
+    return hostname != "mmw-team.zenscaleai.com"
 
 
 def ensure_shop_available(request: Request) -> None:

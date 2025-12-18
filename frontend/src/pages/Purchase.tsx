@@ -112,11 +112,11 @@ export default function Purchase() {
     discountAmount: number
   } | null>(null)
 
-  // 分销商白标域名检测：重定向到兑换页面
+  // 分销商白标域名检测：只有主站可以购买，其他都重定向到兑换页面
   useEffect(() => {
     const hostname = window.location.hostname.toLowerCase().replace(/\.$/, '')  // 移除尾点
-    const isDistributorDomain = /^distributor-\d+\.zenscaleai\.com$/.test(hostname)
-    if (isDistributorDomain) {
+    const isMainSite = hostname === 'mmw-team.zenscaleai.com'
+    if (!isMainSite) {
       navigate('/invite', { replace: true })
     }
   }, [navigate])
