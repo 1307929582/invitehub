@@ -1,7 +1,7 @@
 // 管理员 - 分销商管理
 import { useState, useEffect, useCallback } from 'react'
-import { Table, Button, message, Badge, Typography, Card, Modal, Input, Select, Form, Popconfirm, Space } from 'antd'
-import { EyeOutlined, SearchOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons'
+import { Table, Button, message, Badge, Typography, Card, Modal, Input, Select, Form, Popconfirm, Space, InputNumber } from 'antd'
+import { EyeOutlined, SearchOutlined, PlusOutlined, DeleteOutlined, GiftOutlined } from '@ant-design/icons'
 import { distributorApi, adminApi } from '../../api'
 
 const { Title } = Typography
@@ -42,6 +42,12 @@ export default function AdminDistributors() {
   const [createModalVisible, setCreateModalVisible] = useState(false)
   const [createLoading, setCreateLoading] = useState(false)
   const [createForm] = Form.useForm()
+
+  // 赠送兑换码弹窗
+  const [grantModalVisible, setGrantModalVisible] = useState(false)
+  const [grantLoading, setGrantLoading] = useState(false)
+  const [grantForm] = Form.useForm()
+  const [grantTarget, setGrantTarget] = useState<Distributor | null>(null)
 
   const fetchDistributors = useCallback(async () => {
     setLoading(true)
@@ -100,6 +106,31 @@ export default function AdminDistributors() {
       fetchDistributors()
     } catch (error: any) {
       message.error(error.response?.data?.detail || '删除失败')
+    }
+  }
+
+  const handleGrantCodes = (distributor: Distributor) => {
+    setGrantTarget(distributor)
+    grantForm.resetFields()
+    grantForm.setFieldsValue({ count: 10, max_uses: 1, validity_days: 30 })
+    setGrantModalVisible(true)
+  }
+
+  const handleSubmitGrant = async () => {
+    if (!grantTarget) return
+
+    const values = await grantForm.validateFields()
+    setGrantLoading(true)
+    try {
+      await distributorApi.grantCodes(grantTarget.id, values)
+      message.success(`成功向 ${grantTarget.username} 赠送了 ${values.count} 个兑换码`)
+      setGrantModalVisible(false)
+      grantForm.resetFields()
+      fetchDistributors()
+    } catch (error: any) {
+      message.error(error.response?.data?.detail || '赠送失败')
+    } finally {
+      setGrantLoading(false)
     }
   }
 
@@ -171,6 +202,14 @@ export default function AdminDistributors() {
       width: 180,
       render: (_: any, record: Distributor) => (
         <Space size="small">
+          <Button
+            type="link"
+            size="small"
+            icon={<GiftOutlined />}
+            onClick={() => handleGrantCodes(record)}
+          >
+            赠送
+          </Button>
           <Button
             type="link"
             size="small"
@@ -338,6 +377,82 @@ export default function AdminDistributors() {
             <Button type="primary" htmlType="submit" loading={createLoading}>
               创建
             </Button>
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* 赠送兑换码 Modal */}
+      <Modal
+        title={`赠送兑换码给 ${grantTarget?.username}`}
+        open={grantModalVisible}
+        onOk={handleSubmitGrant}
+        onCancel={() => {
+          setGrantModalVisible(false)
+          grantForm.resetFields()
+        }}
+        confirmLoading={grantLoading}
+        okText="确认赠送"
+        cancelText="取消"
+      >
+        <Form
+          form={grantForm}
+          layout="vertical"
+          initialValues={{ count: 10, max_uses: 1, validity_days: 30 }}
+        >
+          <Form.Item
+            name="count"
+            label="赠送数量"
+            rules={[{ required: true, message: '请输入赠送数量' }]}
+          >
+            <InputNumber
+              min={1}
+              max={1000}
+              style={{ width: '100%' }}
+              addonAfter="个"
+            />
+          </Form.Item>
+
+          <Form.Item
+            name="max_uses"
+            label="每码可用次数"
+            rules={[{ required: true, message: '请输入可用次数' }]}
+          >
+            <InputNumber
+              min={1}
+              max={999}
+              style={{ width: '100%' }}
+              addonAfter="次"
+            />
+          </Form.Item>
+
+          <Form.Item
+            name="validity_days"
+            label="有效天数"
+            rules={[{ required: true, message: '请输入有效天数' }]}
+          >
+            <InputNumber
+              min={1}
+              max={365}
+              style={{ width: '100%' }}
+              addonAfter="天"
+            />
+          </Form.Item>
+
+          <Form.Item name="expires_days" label="兑换码过期天数（选填）">
+            <InputNumber
+              min={1}
+              max={365}
+              style={{ width: '100%' }}
+              placeholder="留空则永久有效"
+              addonAfter="天"
+            />
+          </Form.Item>
+
+          <Form.Item name="note" label="备注（选填）">
+            <Input.TextArea
+              rows={2}
+              placeholder="如：新年活动赠送"
+            />
           </Form.Item>
         </Form>
       </Modal>
