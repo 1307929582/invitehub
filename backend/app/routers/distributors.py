@@ -1,15 +1,23 @@
 # 分销商管理路由
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import func, Integer
+from sqlalchemy.exc import IntegrityError
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional
-from datetime import datetime
+from datetime import datetime, timedelta
+import secrets
+import string
 
 from app.database import get_db
-from app.models import User, UserRole, RedeemCode, InviteRecord, UserApprovalStatus, Team, TeamMember, InviteStatus
+from app.models import (
+    User, UserRole, RedeemCode, InviteRecord, UserApprovalStatus,
+    Team, TeamMember, InviteStatus, Plan, PlanType, Order, OrderStatus, OrderType,
+    RedeemCodeType, SystemConfig
+)
 from app.services.auth import get_current_user, require_roles
 from app.utils.timezone import to_beijing_iso
+from app.services.epay import get_epay_config, create_payment_url, generate_order_no
 
 router = APIRouter(prefix="/distributors", tags=["分销商管理"])
 
@@ -611,3 +619,316 @@ async def add_member(
         "team_name": team.name,
         "invite_id": new_invite.id
     }
+
+
+# ===== 分销商购买兑换码 =====
+
+class DistributorCodePlanResponse(BaseModel):
+    """分销商码包响应"""
+    id: int
+    name: str
+    price: int  # 价格（分）
+    original_price: Optional[int] = None
+    code_count: int  # 包含的兑换码数量
+    code_max_uses: int  # 每个码的可用次数
+    validity_days: int  # 有效天数
+    description: Optional[str] = None
+    is_recommended: bool = False
+
+
+class CreateDistributorCodeOrderRequest(BaseModel):
+    """创建分销商码包订单请求"""
+    plan_id: int
+    quantity: int = 1  # 购买份数
+    pay_type: str = "alipay"  # 支付方式
+
+
+class CreateDistributorCodeOrderResponse(BaseModel):
+    """创建分销商码包订单响应"""
+    order_no: str
+    amount: int
+    pay_url: str
+    expire_at: datetime
+
+
+class DistributorCodeOrderResponse(BaseModel):
+    """分销商码包订单响应"""
+    order_no: str
+    status: str
+    amount: int
+    final_amount: Optional[int] = None
+    quantity: int
+    delivered_count: int
+    created_at: str
+    paid_at: Optional[str] = None
+
+
+@router.get("/me/code-plans", response_model=List[DistributorCodePlanResponse])
+async def get_my_code_plans(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.DISTRIBUTOR))
+):
+    """获取可购买的码包列表"""
+    plans = db.query(Plan).filter(
+        Plan.is_active == True,
+        Plan.plan_type == PlanType.DISTRIBUTOR_CODES
+    ).order_by(Plan.sort_order.asc(), Plan.id.asc()).all()
+
+    return [
+        DistributorCodePlanResponse(
+            id=p.id,
+            name=p.name,
+            price=p.price,
+            original_price=p.original_price,
+            code_count=p.code_count or 1,
+            code_max_uses=p.code_max_uses or 1,
+            validity_days=p.validity_days,
+            description=p.description,
+            is_recommended=p.is_recommended,
+        )
+        for p in plans
+    ]
+
+
+@router.post("/me/code-orders", response_model=CreateDistributorCodeOrderResponse)
+async def create_my_code_order(
+    data: CreateDistributorCodeOrderRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.DISTRIBUTOR))
+):
+    """创建分销商码包订单"""
+    if data.quantity < 1 or data.quantity > 100:
+        raise HTTPException(status_code=400, detail="购买数量必须在 1-100 之间")
+
+    # 获取码包套餐
+    plan = db.query(Plan).filter(
+        Plan.id == data.plan_id,
+        Plan.is_active == True,
+        Plan.plan_type == PlanType.DISTRIBUTOR_CODES
+    ).first()
+
+    if not plan:
+        raise HTTPException(status_code=404, detail="码包不存在或已下架")
+
+    # 检查总兑换码数量限制（防止回调超时）
+    total_codes = (plan.code_count or 1) * data.quantity
+    if total_codes > 5000:
+        raise HTTPException(
+            status_code=400,
+            detail=f"单次订单最多生成 5000 个兑换码，当前为 {total_codes} 个。请减少购买份数。"
+        )
+
+    # 检查支付配置
+    config = get_epay_config(db)
+    if not config.get("enabled"):
+        raise HTTPException(status_code=400, detail="在线支付未启用")
+
+    # 检查支付方式
+    if data.pay_type == "alipay" and not config.get("alipay_enabled"):
+        raise HTTPException(status_code=400, detail="支付宝支付未启用")
+    if data.pay_type == "wxpay" and not config.get("wxpay_enabled"):
+        raise HTTPException(status_code=400, detail="微信支付未启用")
+
+    # 计算金额
+    total_amount = plan.price * data.quantity
+
+    # 订单过期时间（15分钟）
+    expire_at = datetime.utcnow() + timedelta(minutes=15)
+
+    # 构建回调地址
+    site_url_cfg = db.query(SystemConfig).filter(SystemConfig.key == "site_url").first()
+    site_url = (site_url_cfg.value or "").strip() if site_url_cfg else ""
+    if site_url.startswith(("http://", "https://")):
+        base_url = site_url.rstrip("/")
+    else:
+        base_url = str(request.base_url).rstrip("/")
+
+    notify_url = f"{base_url}/api/v1/public/shop/notify"
+
+    # 生成订单号（重试机制）
+    for _ in range(5):
+        order_no = generate_order_no()
+        return_url = f"{base_url}/distributor?order_no={order_no}"
+
+        pay_url = create_payment_url(
+            config=config,
+            order_no=order_no,
+            amount=total_amount,
+            name=f"{plan.name} x{data.quantity}",
+            pay_type=data.pay_type,
+            notify_url=notify_url,
+            return_url=return_url,
+        )
+
+        if not pay_url:
+            raise HTTPException(status_code=500, detail="创建支付链接失败")
+
+        order = Order(
+            order_no=order_no,
+            order_type=OrderType.DISTRIBUTOR_CODES,  # 分销商订单
+            plan_id=plan.id,
+            email=current_user.email,
+            buyer_user_id=current_user.id,  # 关联到分销商
+            quantity=data.quantity,
+            amount=total_amount,
+            final_amount=total_amount,
+            status=OrderStatus.PENDING,
+            pay_type=data.pay_type,
+            expire_at=expire_at,
+        )
+        db.add(order)
+
+        try:
+            db.commit()
+            from app.logger import get_logger
+            logger = get_logger(__name__)
+            logger.info(f"Created distributor order: {order_no}, distributor: {current_user.username}, quantity: {data.quantity}")
+
+            return CreateDistributorCodeOrderResponse(
+                order_no=order_no,
+                amount=total_amount,
+                pay_url=pay_url,
+                expire_at=expire_at,
+            )
+        except IntegrityError:
+            db.rollback()
+            continue
+
+    raise HTTPException(status_code=500, detail="创建订单失败，请重试")
+
+
+@router.get("/me/code-orders", response_model=List[DistributorCodeOrderResponse])
+async def list_my_code_orders(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.DISTRIBUTOR))
+):
+    """获取分销商码包订单列表"""
+    orders = db.query(Order).filter(
+        Order.buyer_user_id == current_user.id,
+        Order.order_type == OrderType.DISTRIBUTOR_CODES
+    ).order_by(Order.created_at.desc()).limit(100).all()
+
+    return [
+        DistributorCodeOrderResponse(
+            order_no=o.order_no,
+            status=o.status.value if hasattr(o.status, 'value') else o.status,
+            amount=o.amount,
+            final_amount=o.final_amount,
+            quantity=o.quantity or 1,
+            delivered_count=o.delivered_count or 0,
+            created_at=to_beijing_iso(o.created_at),
+            paid_at=to_beijing_iso(o.paid_at) or None
+        )
+        for o in orders
+    ]
+
+
+# ===== 管理员赠送兑换码 =====
+
+class GrantCodesRequest(BaseModel):
+    """赠送兑换码请求"""
+    count: int
+    max_uses: int = 1
+    validity_days: int = 30
+    expires_days: Optional[int] = None
+    note: Optional[str] = None
+
+
+class GrantCodesResponse(BaseModel):
+    """赠送兑换码响应"""
+    count: int
+    distributor_username: str
+    message: str
+
+
+@router.post("/{distributor_id}/grant-codes", response_model=GrantCodesResponse)
+async def grant_codes_to_distributor(
+    distributor_id: int,
+    data: GrantCodesRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.ADMIN))
+):
+    """管理员赠送兑换码给分销商"""
+    # 验证分销商存在
+    distributor = db.query(User).filter(
+        User.id == distributor_id,
+        User.role == UserRole.DISTRIBUTOR
+    ).first()
+
+    if not distributor:
+        raise HTTPException(status_code=404, detail="分销商不存在")
+
+    if data.count < 1 or data.count > 1000:
+        raise HTTPException(status_code=400, detail="赠送数量必须在 1-1000 之间")
+
+    # 计算过期时间
+    expires_at = None
+    if data.expires_days:
+        expires_at = datetime.utcnow() + timedelta(days=data.expires_days)
+
+    # 批量生成兑换码
+    generated_codes = []
+    max_retries_per_code = 10
+
+    for i in range(data.count):
+        retry_count = 0
+        code_generated = False
+
+        while retry_count < max_retries_per_code:
+            chars = string.ascii_uppercase + string.digits
+            code_str = f"GIFT_D{distributor_id}_" + "".join(secrets.choice(chars) for _ in range(8))
+
+            redeem_code = RedeemCode(
+                code=code_str,
+                code_type=RedeemCodeType.DIRECT,
+                max_uses=data.max_uses,
+                expires_at=expires_at,
+                validity_days=data.validity_days,
+                note=f"{data.note or '管理员赠送'} (by:{current_user.username})",
+                group_id=None,
+                is_active=True,
+                created_by=distributor_id,  # 关联到分销商
+            )
+
+            # 使用 savepoint 避免单个冲突回滚整个批次
+            try:
+                with db.begin_nested():  # 上下文管理器自动处理 savepoint
+                    db.add(redeem_code)
+                    db.flush()
+                generated_codes.append(code_str)
+                code_generated = True
+                break
+            except IntegrityError:
+                # savepoint 自动回滚，不影响外层事务
+                retry_count += 1
+
+        if not code_generated:
+            # 超过重试次数，抛出异常让整个操作回滚
+            raise HTTPException(
+                status_code=500,
+                detail=f"生成第 {i+1} 个兑换码失败，已回滚所有操作，请重试"
+            )
+
+    # 记录操作日志（与生成码在同一事务中）
+    from app.models import OperationLog
+    log = OperationLog(
+        user_id=current_user.id,
+        action="grant_codes",
+        target=f"distributor:{distributor.username}",
+        details=f"赠送 {len(generated_codes)} 个兑换码, 有效期 {data.validity_days} 天"
+    )
+    db.add(log)
+
+    # 一次性提交所有操作（生成码 + 日志）
+    db.commit()
+
+    from app.logger import get_logger
+    logger = get_logger(__name__)
+    logger.info(f"Admin {current_user.username} granted {data.count} codes to distributor {distributor.username}")
+
+    return GrantCodesResponse(
+        count=len(generated_codes),
+        distributor_username=distributor.username,
+        message=f"成功向分销商 {distributor.username} 赠送了 {len(generated_codes)} 个兑换码"
+    )

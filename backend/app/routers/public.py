@@ -76,18 +76,36 @@ class SiteConfig(BaseModel):
     home_notice: str = ""  # 首页公告
     success_message: str = "邀请已发送！请查收邮箱并接受邀请"
     footer_text: str = ""  # 页脚文字
+    redeem_only: bool = False  # 是否为分销商白标域名（只兑换，不购买）
 
 
 @router.get("/site-config", response_model=SiteConfig)
-async def get_site_config(db: Session = Depends(get_db)):
+async def get_site_config(request: Request, db: Session = Depends(get_db)):
     """获取站点配置（公开，带缓存）"""
     from app.cache import get_site_config_cache, set_site_config_cache
-    
-    # 尝试从缓存获取
+    import re
+
+    # 检测是否是分销商白标域名
+    hostname = (request.url.hostname or "").strip().lower().rstrip('.')  # 移除尾点
+    is_distributor = bool(re.match(r'^distributor-\d+\.zenscaleai\.com$', hostname, re.IGNORECASE))
+
+    # 如果是分销商域名，不使用缓存（因为需要动态判断）
+    if is_distributor:
+        result = SiteConfig(
+            site_title=get_config(db, "site_title") or "ChatGPT Team 自助上车",
+            site_description=get_config(db, "site_description") or "使用兑换码加入 Team",
+            home_notice=get_config(db, "home_notice") or "",
+            success_message=get_config(db, "success_message") or "邀请已发送！请查收邮箱并接受邀请",
+            footer_text=get_config(db, "footer_text") or "",
+            redeem_only=True  # 分销商域名：只允许兑换
+        )
+        return result
+
+    # 主站点：尝试从缓存获取
     cached = get_site_config_cache()
     if cached:
         return SiteConfig(**cached)
-    
+
     # 从数据库获取
     result = SiteConfig(
         site_title=get_config(db, "site_title") or "ChatGPT Team 自助上车",
@@ -95,6 +113,7 @@ async def get_site_config(db: Session = Depends(get_db)):
         home_notice=get_config(db, "home_notice") or "",
         success_message=get_config(db, "success_message") or "邀请已发送！请查收邮箱并接受邀请",
         footer_text=get_config(db, "footer_text") or "",
+        redeem_only=False  # 主站点：允许购买
     )
     
     # 写入缓存

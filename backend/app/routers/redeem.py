@@ -116,10 +116,14 @@ async def list_redeem_codes(
 async def batch_create_codes(
     data: RedeemCodeCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.OPERATOR, UserRole.DISTRIBUTOR))
+    current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.OPERATOR))
 ):
-    """批量创建兑换码"""
+    """批量创建兑换码（仅管理员和运营）"""
     from app.models import SystemConfig
+
+    # 防御性校验：确保分销商无法创建
+    if current_user.role == UserRole.DISTRIBUTOR:
+        raise HTTPException(status_code=403, detail="分销商不能免费创建兑换码，请通过购买或联系管理员赠送")
 
     if data.count < 1 or data.count > 100:
         raise HTTPException(status_code=400, detail="数量必须在 1-100 之间")
@@ -299,10 +303,15 @@ async def toggle_code(
     code = db.query(RedeemCode).filter(RedeemCode.id == code_id).first()
     if not code:
         raise HTTPException(status_code=404, detail="兑换码不存在")
-    
+
+    # 分销商权限检查：只能操作自己创建的兑换码
+    if current_user.role == UserRole.DISTRIBUTOR:
+        if code.created_by != current_user.id:
+            raise HTTPException(status_code=403, detail="您只能操作自己创建的兑换码")
+
     code.is_active = not code.is_active
     db.commit()
-    
+
     return {"message": "已" + ("启用" if code.is_active else "禁用"), "is_active": code.is_active}
 
 
@@ -329,7 +338,12 @@ async def get_code_records(
     code = db.query(RedeemCode).filter(RedeemCode.id == code_id).first()
     if not code:
         raise HTTPException(status_code=404, detail="兑换码不存在")
-    
+
+    # 分销商权限检查：只能查看自己创建的兑换码记录
+    if current_user.role == UserRole.DISTRIBUTOR:
+        if code.created_by != current_user.id:
+            raise HTTPException(status_code=403, detail="您只能查看自己创建的兑换码记录")
+
     from app.models import Team
     
     # 查询使用该兑换码的邀请记录

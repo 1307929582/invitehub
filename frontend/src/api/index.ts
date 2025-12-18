@@ -194,9 +194,16 @@ export const distributorApi = {
   list: (status?: string) => api.get('/distributors', { params: { status } }),
   getSales: (distributorId: number, limit?: number) =>
     api.get(`/distributors/${distributorId}/sales`, { params: { limit } }),
+  grantCodes: (distributorId: number, data: { count: number; max_uses?: number; validity_days?: number; expires_days?: number; note?: string }) =>
+    api.post(`/distributors/${distributorId}/grant-codes`, data),
   // 分销商端点
   getMySummary: () => api.get('/distributors/me/summary'),
   getMySales: (limit?: number) => api.get('/distributors/me/sales', { params: { limit } }),
+  // 购买兑换码
+  getCodePlans: () => api.get('/distributors/me/code-plans'),
+  createCodeOrder: (data: { plan_id: number; quantity: number; pay_type: string }) =>
+    api.post('/distributors/me/code-orders', data),
+  listCodeOrders: () => api.get('/distributors/me/code-orders'),
   // 成员管理端点
   getMyMembers: () => api.get('/distributors/me/members'),
   removeMember: (data: { email: string; team_id: number; reason?: string }) =>

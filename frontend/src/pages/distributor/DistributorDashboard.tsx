@@ -1,15 +1,18 @@
 // 分销商 Dashboard
 import { useState, useEffect } from 'react'
-import { Row, Col, Card, Statistic, Table, Typography, Spin, Empty } from 'antd'
+import { Row, Col, Card, Statistic, Table, Typography, Spin, Empty, Button, message, Alert } from 'antd'
 import {
   GiftOutlined,
   CheckCircleOutlined,
   ShoppingCartOutlined,
   DollarOutlined,
+  LinkOutlined,
+  CopyOutlined,
 } from '@ant-design/icons'
 import { distributorApi } from '../../api'
+import { useStore } from '../../store'
 
-const { Title } = Typography
+const { Title, Paragraph, Text } = Typography
 
 interface Summary {
   total_codes_created: number
@@ -34,6 +37,19 @@ export default function DistributorDashboard() {
   const [summary, setSummary] = useState<Summary | null>(null)
   const [recentSales, setRecentSales] = useState<SaleRecord[]>([])
   const [loading, setLoading] = useState(true)
+  const { user } = useStore()
+
+  // 生成分销商白标链接
+  const whiteLabelUrl = user?.id
+    ? `https://distributor-${user.id}.zenscaleai.com/invite`
+    : ''
+
+  const copyWhiteLabelUrl = () => {
+    if (whiteLabelUrl) {
+      navigator.clipboard.writeText(whiteLabelUrl)
+      message.success('链接已复制到剪贴板')
+    }
+  }
 
   useEffect(() => {
     const fetchData = async () => {
@@ -123,6 +139,58 @@ export default function DistributorDashboard() {
           </Card>
         </Col>
       </Row>
+
+      {/* 白标链接展示 */}
+      <Card
+        style={{ marginTop: 24 }}
+        title={
+          <span>
+            <LinkOutlined style={{ marginRight: 8 }} />
+            您的客户专属链接
+          </span>
+        }
+      >
+        <Alert
+          message="专属白标入口"
+          description={
+            <div>
+              <Paragraph>
+                将此链接发送给您的客户，客户使用此链接兑换时将<Text strong>看不到平台的购买功能和价格信息</Text>，确保您的销售渠道独立性。
+              </Paragraph>
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                background: '#f5f5f5',
+                padding: '12px 16px',
+                borderRadius: 8,
+                marginTop: 12,
+              }}>
+                <code style={{
+                  flex: 1,
+                  fontSize: 14,
+                  color: '#007aff',
+                  wordBreak: 'break-all',
+                }}>
+                  {whiteLabelUrl}
+                </code>
+                <Button
+                  type="primary"
+                  icon={<CopyOutlined />}
+                  onClick={copyWhiteLabelUrl}
+                >
+                  复制链接
+                </Button>
+              </div>
+              <Paragraph style={{ marginTop: 12, marginBottom: 0, fontSize: 12, color: '#8c8c8c' }}>
+                提示：此链接仅用于兑换，客户无法在此域名下查看或购买套餐
+              </Paragraph>
+            </div>
+          }
+          type="info"
+          showIcon
+        />
+      </Card>
 
       <Card title="最近销售记录" style={{ marginTop: 24 }}>
         {recentSales.length > 0 ? (

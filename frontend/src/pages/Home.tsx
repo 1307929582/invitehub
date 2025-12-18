@@ -9,6 +9,7 @@ interface SiteConfig {
   site_description: string
   home_notice: string
   footer_text: string
+  redeem_only?: boolean  // 是否为分销商白标域名
 }
 
 interface SeatStats {
@@ -23,6 +24,16 @@ export default function Home() {
   const [seats, setSeats] = useState<SeatStats | null>(null)
   const [paymentEnabled, setPaymentEnabled] = useState(false)
   const navigate = useNavigate()
+
+  // 分销商白标域名检测：直接跳转到兑换页面
+  useEffect(() => {
+    const hostname = window.location.hostname.toLowerCase().replace(/\.$/, '')  // 移除尾点
+    const isDistributorDomain = /^distributor-\d+\.zenscaleai\.com$/.test(hostname)
+    if (isDistributorDomain) {
+      navigate('/invite', { replace: true })
+      return
+    }
+  }, [navigate])
 
   useEffect(() => {
     Promise.all([
@@ -139,7 +150,7 @@ export default function Home() {
           >
             立即上车
           </Button>
-          {paymentEnabled && (
+          {paymentEnabled && !siteConfig?.redeem_only && (
             <Button
               size="large"
               icon={<ShoppingCartOutlined />}

@@ -112,6 +112,15 @@ export default function Purchase() {
     discountAmount: number
   } | null>(null)
 
+  // 分销商白标域名检测：重定向到兑换页面
+  useEffect(() => {
+    const hostname = window.location.hostname.toLowerCase().replace(/\.$/, '')  // 移除尾点
+    const isDistributorDomain = /^distributor-\d+\.zenscaleai\.com$/.test(hostname)
+    if (isDistributorDomain) {
+      navigate('/invite', { replace: true })
+    }
+  }, [navigate])
+
   useEffect(() => {
     Promise.all([
       publicApi.getPaymentConfig().catch(() => null),

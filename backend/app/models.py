@@ -352,15 +352,35 @@ class OrderStatus(str, enum.Enum):
     REFUNDED = "refunded"    # 已退款
 
 
+class PlanType(str, enum.Enum):
+    """套餐类型"""
+    PUBLIC = "public"                    # 公开套餐（终端用户购买）
+    DISTRIBUTOR_CODES = "distributor_codes"  # 分销商码包
+
+
+class OrderType(str, enum.Enum):
+    """订单类型"""
+    PUBLIC_PLAN = "public_plan"          # 公开套餐订单
+    DISTRIBUTOR_CODES = "distributor_codes"  # 分销商码包订单
+
+
 class Plan(Base):
     """套餐配置"""
     __tablename__ = "plans"
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)              # 套餐名称
+    plan_type = Column(
+        Enum(PlanType, values_callable=lambda x: [e.value for e in x]),
+        default=PlanType.PUBLIC,
+        nullable=False,
+        index=True
+    )  # 套餐类型
     price = Column(Integer, nullable=False)                 # 价格（分）
     original_price = Column(Integer, nullable=True)         # 原价（分），用于显示划线价
     validity_days = Column(Integer, nullable=False)         # 有效天数
+    code_count = Column(Integer, default=1)                 # 码包：包含的兑换码数量
+    code_max_uses = Column(Integer, default=1)              # 每个兑换码的可用次数
     description = Column(String(255), nullable=True)        # 描述
     features = Column(Text, nullable=True)                  # 特性列表（JSON格式）
     is_active = Column(Boolean, default=True, index=True)   # 是否上架
@@ -378,8 +398,16 @@ class Order(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     order_no = Column(String(32), unique=True, nullable=False, index=True)  # 订单号
+    order_type = Column(
+        Enum(OrderType, values_callable=lambda x: [e.value for e in x]),
+        default=OrderType.PUBLIC_PLAN,
+        nullable=False,
+        index=True
+    )  # 订单类型
     plan_id = Column(Integer, ForeignKey("plans.id"), nullable=False)       # 套餐ID
     email = Column(String(100), nullable=False, index=True)                 # 联系邮箱（用于查询订单）
+    buyer_user_id = Column(Integer, ForeignKey("users.id"), nullable=True, index=True)  # 分销商采购归属
+    quantity = Column(Integer, default=1)                                   # 购买份数（码包数量）
     amount = Column(Integer, nullable=False)                                 # 原始金额（分）
     coupon_code = Column(String(30), nullable=True)                         # 使用的优惠码
     discount_amount = Column(Integer, default=0)                            # 优惠金额（分）
@@ -388,11 +416,13 @@ class Order(Base):
         Enum(OrderStatus, values_callable=lambda x: [e.value for e in x]),
         default=OrderStatus.PENDING, index=True
     )
-    redeem_code = Column(String(50), nullable=True, index=True)             # 生成的兑换码
+    redeem_code = Column(String(50), nullable=True, index=True)             # 生成的兑换码（公开订单）
     trade_no = Column(String(64), nullable=True)                            # 支付平台交易号
     pay_type = Column(String(20), nullable=True)                            # 支付方式 alipay/wxpay
     paid_at = Column(DateTime, nullable=True)                               # 支付时间
     expire_at = Column(DateTime, nullable=True)                             # 订单过期时间
+    delivered_count = Column(Integer, default=0)                            # 分销商订单：已发码数量
+    delivered_at = Column(DateTime, nullable=True)                          # 分销商订单：发码完成时间
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
 
     plan = relationship("Plan", back_populates="orders")

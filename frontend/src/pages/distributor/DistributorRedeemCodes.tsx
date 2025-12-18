@@ -1,12 +1,13 @@
 // 分销商兑换码管理
 import { useState, useEffect, useCallback } from 'react'
 import {
-  Table, Button, Modal, Form, InputNumber, Input, message,
-  Popconfirm, Badge, Space, Tooltip, Typography, Card
+  Table, Button, message, Popconfirm, Badge, Space, Tooltip, Typography, Card,
+  Modal, Form, InputNumber, Select, Radio
 } from 'antd'
-import { PlusOutlined, DeleteOutlined, CopyOutlined, LinkOutlined } from '@ant-design/icons'
+import { DeleteOutlined, CopyOutlined, LinkOutlined, ShoppingCartOutlined } from '@ant-design/icons'
 import type { TableRowSelection } from 'antd/es/table/interface'
-import { redeemApi } from '../../api'
+import { redeemApi, distributorApi } from '../../api'
+import { useStore } from '../../store'
 
 const { Title, Text } = Typography
 
@@ -24,13 +25,31 @@ interface RedeemCode {
   validity_days: number
 }
 
+interface CodePlan {
+  id: number
+  name: string
+  price: number
+  code_count: number
+  code_max_uses: number
+  validity_days: number
+  description?: string
+  is_recommended: boolean
+}
+
 export default function DistributorRedeemCodes() {
   const [codes, setCodes] = useState<RedeemCode[]>([])
   const [loading, setLoading] = useState(true)
-  const [modalVisible, setModalVisible] = useState(false)
-  const [createLoading, setCreateLoading] = useState(false)
   const [batchDeleteLoading, setBatchDeleteLoading] = useState(false)
-  const [form] = Form.useForm()
+  const { user } = useStore()
+
+  // 购买兑换码相关状态
+  const [purchaseModalVisible, setPurchaseModalVisible] = useState(false)
+  const [codePlans, setCodePlans] = useState<CodePlan[]>([])
+  const [selectedPlanId, setSelectedPlanId] = useState<number | undefined>(undefined)
+  const [purchaseQuantity, setPurchaseQuantity] = useState(1)
+  const [payType, setPayType] = useState<'alipay' | 'wxpay'>('alipay')
+  const [purchaseLoading, setPurchaseLoading] = useState(false)
+  const [purchaseForm] = Form.useForm()
 
   // 批量选择
   const [selectedRowKeys, setSelectedRowKeys] = useState<React.Key[]>([])
@@ -71,32 +90,14 @@ export default function DistributorRedeemCodes() {
     }
   }
 
-  const handleCreate = async (values: any) => {
-    setCreateLoading(true)
-    try {
-      const res = await redeemApi.batchCreate({
-        max_uses: values.max_uses,
-        count: values.count,
-        expires_days: values.expires_days || undefined,
-        validity_days: values.validity_days,
-        note: values.note || undefined,
-        code_type: 'direct',
-      }) as any
-      message.success(`成功创建 ${res.count} 个兑换码`)
-      setModalVisible(false)
-      form.resetFields()
-      fetchCodes()
-    } catch (error) {
-      // 错误已在 interceptor 中处理
-    } finally {
-      setCreateLoading(false)
-    }
-  }
-
-  // 获取邀请链接
+  // 获取邀请链接（使用分销商白标域名）
   const getInviteUrl = (code: string) => {
-    const baseUrl = window.location.origin
-    return `${baseUrl}/invite/${code}`
+    // 修复：使用分销商的白标域名，而不是当前访问的域名
+    const distributorId = user?.id
+    if (!distributorId) {
+      return `${window.location.origin}/invite/${code}`
+    }
+    return `https://distributor-${distributorId}.zenscaleai.com/invite/${code}`
   }
 
   // 复制单个兑换码
@@ -172,6 +173,56 @@ export default function DistributorRedeemCodes() {
       setBatchDeleteLoading(false)
     }
   }
+
+  // 购买兑换码相关函数
+  const showPurchaseModal = async () => {
+    setPurchaseModalVisible(true)
+    try {
+      const res = await distributorApi.getCodePlans() as any
+      setCodePlans(res || [])
+      if (res && res.length > 0) {
+        setSelectedPlanId(res[0].id)
+        purchaseForm.setFieldsValue({ planId: res[0].id })
+      }
+    } catch (error) {
+      message.error('加载码包列表失败')
+    }
+  }
+
+  const handlePurchase = async () => {
+    if (!selectedPlanId) {
+      message.error('请选择码包套餐')
+      return
+    }
+
+    setPurchaseLoading(true)
+    try {
+      const res = await distributorApi.createCodeOrder({
+        plan_id: selectedPlanId,
+        quantity: purchaseQuantity,
+        pay_type: payType,
+      }) as any
+
+      // 打开支付窗口
+      window.open(res.pay_url, '_blank')
+      message.success('订单已创建，请在新窗口中完成支付')
+      setPurchaseModalVisible(false)
+      purchaseForm.resetFields()
+
+      // 5秒后刷新列表
+      setTimeout(() => {
+        fetchCodes()
+      }, 5000)
+    } catch (error) {
+      // 错误已在 interceptor 中处理
+    } finally {
+      setPurchaseLoading(false)
+    }
+  }
+
+  // 计算总价
+  const selectedPlan = codePlans.find(p => p.id === selectedPlanId)
+  const totalPrice = selectedPlan ? (selectedPlan.price * purchaseQuantity / 100).toFixed(2) : '0.00'
 
   // 表格多选配置
   const rowSelection: TableRowSelection<RedeemCode> = {
@@ -284,8 +335,12 @@ export default function DistributorRedeemCodes() {
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
         <Title level={4} style={{ margin: 0 }}>兑换码管理</Title>
-        <Button type="primary" icon={<PlusOutlined />} onClick={() => setModalVisible(true)}>
-          创建兑换码
+        <Button
+          type="primary"
+          icon={<ShoppingCartOutlined />}
+          onClick={showPurchaseModal}
+        >
+          购买兑换码
         </Button>
       </div>
 
@@ -354,62 +409,95 @@ export default function DistributorRedeemCodes() {
         />
       </Card>
 
+      {/* 购买兑换码 Modal */}
       <Modal
-        title="创建兑换码"
-        open={modalVisible}
-        onCancel={() => { setModalVisible(false); form.resetFields() }}
-        footer={null}
+        title="购买兑换码"
+        open={purchaseModalVisible}
+        onOk={handlePurchase}
+        onCancel={() => {
+          setPurchaseModalVisible(false)
+          purchaseForm.resetFields()
+          setPurchaseQuantity(1)
+        }}
+        confirmLoading={purchaseLoading}
+        okText="确认购买并支付"
+        cancelText="取消"
         destroyOnClose
       >
         <Form
-          form={form}
+          form={purchaseForm}
           layout="vertical"
-          onFinish={handleCreate}
-          initialValues={{ count: 1, max_uses: 1, validity_days: 30 }}
+          initialValues={{ quantity: 1, payType: 'alipay' }}
         >
           <Form.Item
-            name="count"
-            label="生成数量"
-            rules={[{ required: true, message: '请输入生成数量' }]}
+            name="planId"
+            label="选择码包套餐"
+            rules={[{ required: true, message: '请选择码包套餐' }]}
           >
-            <InputNumber min={1} max={100} style={{ width: '100%' }} />
+            <Select
+              placeholder="请选择码包"
+              onChange={(value) => setSelectedPlanId(value)}
+              value={selectedPlanId}
+            >
+              {codePlans.map((plan) => (
+                <Select.Option key={plan.id} value={plan.id}>
+                  {plan.name} - {plan.code_count}个兑换码 - ¥{(plan.price / 100).toFixed(2)}
+                  {plan.is_recommended && ' 🔥推荐'}
+                </Select.Option>
+              ))}
+            </Select>
           </Form.Item>
+
+          {selectedPlan && (
+            <div style={{ marginBottom: 16, padding: 12, background: '#f5f5f5', borderRadius: 8 }}>
+              <div style={{ fontSize: 13, color: '#666' }}>
+                <div>• 包含 {selectedPlan.code_count} 个兑换码</div>
+                <div>• 每个码可用 {selectedPlan.code_max_uses} 次</div>
+                <div>• 有效期 {selectedPlan.validity_days} 天</div>
+                {selectedPlan.description && <div>• {selectedPlan.description}</div>}
+              </div>
+            </div>
+          )}
 
           <Form.Item
-            name="max_uses"
-            label="每码可用次数"
-            rules={[{ required: true, message: '请输入可用次数' }]}
+            name="quantity"
+            label="购买份数"
+            rules={[{ required: true, message: '请输入购买份数' }]}
           >
-            <InputNumber min={1} max={999} style={{ width: '100%' }} />
+            <InputNumber
+              min={1}
+              max={100}
+              style={{ width: '100%' }}
+              value={purchaseQuantity}
+              onChange={(value) => setPurchaseQuantity(value || 1)}
+            />
           </Form.Item>
 
-          <Form.Item
-            name="validity_days"
-            label="用户有效期(天)"
-            tooltip="用户激活后的有效天数"
-            rules={[{ required: true, message: '请输入有效期' }]}
-          >
-            <InputNumber min={1} max={365} style={{ width: '100%' }} />
+          <Form.Item label="支付方式">
+            <Radio.Group
+              onChange={(e) => setPayType(e.target.value)}
+              value={payType}
+            >
+              <Radio.Button value="alipay">支付宝</Radio.Button>
+              <Radio.Button value="wxpay">微信支付</Radio.Button>
+            </Radio.Group>
           </Form.Item>
 
-          <Form.Item
-            name="expires_days"
-            label="兑换码有效期(天)"
-            tooltip="兑换码本身的有效期，留空则永久有效"
-          >
-            <InputNumber min={1} max={365} style={{ width: '100%' }} placeholder="留空则永久有效" />
-          </Form.Item>
-
-          <Form.Item name="note" label="备注">
-            <Input.TextArea rows={2} placeholder="可选，添加备注信息" />
-          </Form.Item>
-
-          <Form.Item style={{ marginBottom: 0, textAlign: 'right' }}>
-            <Space>
-              <Button onClick={() => { setModalVisible(false); form.resetFields() }}>取消</Button>
-              <Button type="primary" htmlType="submit" loading={createLoading}>创建</Button>
-            </Space>
-          </Form.Item>
+          <div style={{
+            fontSize: 16,
+            fontWeight: 'bold',
+            padding: '16px 0',
+            borderTop: '1px solid #f0f0f0',
+            marginTop: 8
+          }}>
+            <span>总计: </span>
+            <span style={{ color: '#ff4d4f', fontSize: 24 }}>¥{totalPrice}</span>
+            {selectedPlan && (
+              <span style={{ fontSize: 12, color: '#999', marginLeft: 8 }}>
+                ({selectedPlan.code_count * purchaseQuantity} 个兑换码)
+              </span>
+            )}
+          </div>
         </Form>
       </Modal>
     </div>

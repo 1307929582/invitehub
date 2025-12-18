@@ -13,8 +13,9 @@ from sqlalchemy.exc import IntegrityError
 from pydantic import BaseModel, Field, field_validator
 
 from app.database import get_db
+from app.config import settings
 from app.limiter import limiter
-from app.models import Plan, Order, OrderStatus, RedeemCode, RedeemCodeType, SystemConfig, Coupon, DiscountType
+from app.models import Plan, PlanType, Order, OrderStatus, OrderType, RedeemCode, RedeemCodeType, SystemConfig, Coupon, DiscountType
 from app.services.epay import (
     get_epay_config,
     create_payment_url,
@@ -29,6 +30,24 @@ router = APIRouter(prefix="/shop", tags=["商店"])
 
 # 邮箱格式校验正则
 EMAIL_REGEX = re.compile(r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$')
+
+# 分销商白标域名模式
+DISTRIBUTOR_DOMAIN_PATTERN = re.compile(r'^distributor-\d+\.zenscaleai\.com$', re.IGNORECASE)
+
+
+def is_distributor_domain(hostname: str) -> bool:
+    """检测是否是分销商白标域名"""
+    if not hostname:
+        return False
+    hostname = hostname.strip().lower().rstrip('.')  # 移除尾点，防止绕过
+    return bool(DISTRIBUTOR_DOMAIN_PATTERN.match(hostname))
+
+
+def ensure_shop_available(request: Request) -> None:
+    """确保商店功能可用（分销商域名下禁用）"""
+    hostname = (request.url.hostname or "").strip().lower()
+    if is_distributor_domain(hostname):
+        raise HTTPException(status_code=404, detail="Not Found")
 
 
 # ============ 请求/响应模型 ============
@@ -179,8 +198,16 @@ def _validate_coupon(
 # ============ 公开 API ============
 
 @router.get("/config", response_model=PaymentConfigResponse)
-async def get_payment_config(db: Session = Depends(get_db)):
+async def get_payment_config(request: Request, db: Session = Depends(get_db)):
     """获取支付配置（是否启用）"""
+    # 分销商白标域名：返回禁用状态
+    if is_distributor_domain(request.url.hostname or ""):
+        return PaymentConfigResponse(
+            enabled=False,
+            alipay_enabled=False,
+            wxpay_enabled=False,
+        )
+
     config = get_epay_config(db)
     return PaymentConfigResponse(
         enabled=config.get("enabled", False),
@@ -190,10 +217,13 @@ async def get_payment_config(db: Session = Depends(get_db)):
 
 
 @router.get("/plans", response_model=List[PublicPlanResponse])
-async def get_public_plans(db: Session = Depends(get_db)):
+async def get_public_plans(request: Request, db: Session = Depends(get_db)):
     """获取上架的套餐列表"""
+    ensure_shop_available(request)
+
     plans = db.query(Plan).filter(
-        Plan.is_active == True
+        Plan.is_active == True,
+        Plan.plan_type == PlanType.PUBLIC  # 只返回公开套餐
     ).order_by(Plan.sort_order.asc(), Plan.id.asc()).all()
 
     return [
@@ -221,6 +251,8 @@ async def check_coupon(
     db: Session = Depends(get_db),
 ):
     """验证优惠码"""
+    ensure_shop_available(request)
+
     code = code.strip().upper()
 
     try:
@@ -252,6 +284,8 @@ async def create_order(
     db: Session = Depends(get_db)
 ):
     """创建订单"""
+    ensure_shop_available(request)
+
     # 检查支付配置
     config = get_epay_config(db)
     if not config.get("enabled"):
@@ -272,7 +306,11 @@ async def create_order(
         base_url = str(request.base_url).rstrip("/")
 
     # 获取套餐
-    plan = db.query(Plan).filter(Plan.id == data.plan_id, Plan.is_active == True).first()
+    plan = db.query(Plan).filter(
+        Plan.id == data.plan_id,
+        Plan.is_active == True,
+        Plan.plan_type == PlanType.PUBLIC  # 公开购买只能买公开套餐
+    ).first()
     if not plan:
         raise HTTPException(status_code=404, detail="套餐不存在或已下架")
 
@@ -317,8 +355,10 @@ async def create_order(
 
         order = Order(
             order_no=order_no,
+            order_type=OrderType.PUBLIC_PLAN,  # 公开套餐订单
             plan_id=plan.id,
             email=data.email,
+            quantity=1,  # 公开订单购买 1 份
             amount=original_amount,      # 原始金额
             coupon_code=coupon_code_used,
             discount_amount=discount_amount,
@@ -352,6 +392,8 @@ async def get_order_status(
     db: Session = Depends(get_db)
 ):
     """查询订单状态"""
+    ensure_shop_available(request)
+
     order = db.query(Order).filter(Order.order_no == order_no).first()
     if not order:
         raise HTTPException(status_code=404, detail="订单不存在")
@@ -382,6 +424,8 @@ async def query_orders_by_email(
     db: Session = Depends(get_db)
 ):
     """按邮箱查询订单列表"""
+    ensure_shop_available(request)
+
     # 格式校验
     email = email.strip().lower()
     if not EMAIL_REGEX.match(email):
@@ -533,10 +577,12 @@ async def payment_notify(request: Request, db: Session = Depends(get_db)):
 
     # 查询订单（使用行锁防止并发）
     order_query = db.query(Order).filter(Order.order_no == order_no)
+
+    # 对订单加悲观锁，防止并发重复处理
     try:
-        if db.bind and db.bind.dialect.name in ("postgresql", "mysql"):
-            order_query = order_query.with_for_update()
+        order_query = order_query.with_for_update()
     except Exception:
+        # 某些数据库不支持 for_update，降级处理
         pass
 
     order = order_query.first()
@@ -582,8 +628,39 @@ async def payment_notify(request: Request, db: Session = Depends(get_db)):
         logger.error(f"Plan not found for order: {order_no}")
         return "fail"
 
-    # 生成兑换码
-    redeem_code = _generate_redeem_code(db, plan.validity_days, order_no)
+    # 根据订单类型生成兑换码
+    redeem_code = None
+    if order.order_type == OrderType.DISTRIBUTOR_CODES:
+        # 分销商订单：批量发码
+        if not order.buyer_user_id:
+            logger.error(f"Distributor order missing buyer_user_id: {order_no}")
+            return "fail"
+
+        total_codes = (plan.code_count or 1) * (order.quantity or 1)
+        try:
+            actual_count = _generate_redeem_codes_batch(
+                db=db,
+                count=total_codes,
+                validity_days=plan.validity_days,
+                max_uses=plan.code_max_uses or 1,
+                order_no=order_no,
+                created_by=order.buyer_user_id,
+            )
+            order.delivered_count = actual_count
+            order.delivered_at = datetime.utcnow()
+            logger.info(f"Generated {actual_count} codes for distributor order: {order_no}")
+        except HTTPException as e:
+            logger.error(f"Failed to generate codes for order {order_no}: {e.detail}")
+            db.rollback()  # 显式回滚事务
+            return "fail"
+    else:
+        # 公开订单：生成单个兑换码
+        try:
+            redeem_code = _generate_redeem_code(db, plan.validity_days, order_no)
+        except HTTPException as e:
+            logger.error(f"Failed to generate code for order {order_no}: {e.detail}")
+            db.rollback()  # 显式回滚事务
+            return "fail"
 
     # 优惠码使用次数 +1（支付成功后才扣减）
     if order.coupon_code:
@@ -595,7 +672,8 @@ async def payment_notify(request: Request, db: Session = Depends(get_db)):
     # 更新订单状态
     order.status = OrderStatus.PAID
     order.trade_no = trade_no
-    order.redeem_code = redeem_code
+    if redeem_code:  # 公开订单才有单个兑换码
+        order.redeem_code = redeem_code
     order.paid_at = datetime.utcnow()
 
     try:
@@ -612,8 +690,8 @@ async def payment_notify(request: Request, db: Session = Depends(get_db)):
 
 def _generate_redeem_code(db: Session, validity_days: int, order_no: str) -> str:
     """生成兑换码"""
-    # 生成唯一兑换码（12位增强唯一性）
-    while True:
+    max_retries = 100  # 最多重试 100 次
+    for _ in range(max_retries):
         chars = string.ascii_uppercase + string.digits
         code_str = "BUY_" + "".join(secrets.choice(chars) for _ in range(12))
 
@@ -623,13 +701,72 @@ def _generate_redeem_code(db: Session, validity_days: int, order_no: str) -> str
             max_uses=1,
             validity_days=validity_days,
             note=f"在线购买-订单:{order_no}",
-            group_id=None,  # 不限分组
+            group_id=None,
             is_active=True,
         )
-        db.add(redeem_code)
+
+        # 使用 savepoint 避免回滚整个事务
         try:
-            db.flush()
-            return code_str
+            with db.begin_nested():  # 创建 savepoint
+                db.add(redeem_code)
+                db.flush()
+            return code_str  # 成功生成
         except IntegrityError:
-            db.rollback()
-            continue
+            continue  # 冲突，重新生成
+
+    # 重试耗尽，抛出异常让外层回滚
+    raise HTTPException(status_code=500, detail="生成兑换码失败，请重试")
+
+
+def _generate_redeem_codes_batch(
+    db: Session,
+    count: int,
+    validity_days: int,
+    max_uses: int,
+    order_no: str,
+    created_by: int
+) -> int:
+    """批量生成兑换码（分销商订单）- 返回实际生成数量"""
+    successful_count = 0
+    max_retries_per_code = 10
+
+    for i in range(count):
+        retry_count = 0
+        code_generated = False
+
+        while retry_count < max_retries_per_code:
+            chars = string.ascii_uppercase + string.digits
+            code_str = "DBUY_" + "".join(secrets.choice(chars) for _ in range(12))
+
+            redeem_code = RedeemCode(
+                code=code_str,
+                code_type=RedeemCodeType.DIRECT,
+                max_uses=max_uses,
+                validity_days=validity_days,
+                note=f"分销商购买-订单:{order_no}",
+                group_id=None,
+                is_active=True,
+                created_by=created_by,
+            )
+
+            # 使用 savepoint 避免冲突回滚整个批次
+            try:
+                with db.begin_nested():  # 上下文管理器自动处理 savepoint
+                    db.add(redeem_code)
+                    db.flush()
+                successful_count += 1
+                code_generated = True
+                break
+            except IntegrityError:
+                # savepoint 自动回滚，不影响外层事务
+                retry_count += 1
+
+        if not code_generated:
+            # 超过重试次数，抛出异常让整个订单回滚
+            raise HTTPException(
+                status_code=500,
+                detail=f"生成第 {i+1} 个兑换码失败，订单已回滚，请重试"
+            )
+
+    return successful_count
+
