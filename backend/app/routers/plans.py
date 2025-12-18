@@ -16,9 +16,12 @@ router = APIRouter(prefix="/plans", tags=["套餐管理"])
 
 class PlanCreate(BaseModel):
     name: str
+    plan_type: str = "public"  # 套餐类型
     price: int  # 分
     original_price: Optional[int] = None
     validity_days: int
+    code_count: int = 1  # 码包数量
+    code_max_uses: int = 1  # 每码可用次数
     description: Optional[str] = None
     features: Optional[str] = None  # JSON 字符串
     is_active: bool = True
@@ -28,9 +31,12 @@ class PlanCreate(BaseModel):
 
 class PlanUpdate(BaseModel):
     name: Optional[str] = None
+    plan_type: Optional[str] = None  # 套餐类型
     price: Optional[int] = None
     original_price: Optional[int] = None
     validity_days: Optional[int] = None
+    code_count: Optional[int] = None  # 码包数量
+    code_max_uses: Optional[int] = None  # 每码可用次数
     description: Optional[str] = None
     features: Optional[str] = None
     is_active: Optional[bool] = None
@@ -41,9 +47,12 @@ class PlanUpdate(BaseModel):
 class PlanResponse(BaseModel):
     id: int
     name: str
+    plan_type: str  # 套餐类型
     price: int
     original_price: Optional[int]
     validity_days: int
+    code_count: int  # 码包数量
+    code_max_uses: int  # 每码可用次数
     description: Optional[str]
     features: Optional[str]
     is_active: bool
