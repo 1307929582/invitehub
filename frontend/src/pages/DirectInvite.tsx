@@ -27,6 +27,7 @@ interface SiteConfig {
   hero_title?: string
   hero_subtitle?: string
   features?: Feature[]
+  is_simple_page?: boolean  // 纯净页面：只显示兑换表单
 }
 
 interface RedeemResult {
@@ -558,6 +559,22 @@ export default function DirectInvite() {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(180deg, #fafafa 0%, #f5f5f7 100%)' }}>
         <Spin size="large" />
+      </div>
+    )
+  }
+
+  // 纯净页面：只显示兑换表单（居中）
+  if (siteConfig?.is_simple_page) {
+    return (
+      <div style={{
+        minHeight: '100vh',
+        background: 'linear-gradient(180deg, #fafafa 0%, #f5f5f7 100%)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 20,
+      }}>
+        {renderRightPanel()}
       </div>
     )
   }

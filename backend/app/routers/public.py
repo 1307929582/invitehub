@@ -96,7 +96,7 @@ class SiteConfig(BaseModel):
     home_notice: str = ""  # 首页公告
     success_message: str = "邀请已发送！请查收邮箱并接受邀请"
     footer_text: str = ""  # 页脚文字
-    redeem_only: bool = False  # 是否为分销商白标域名（只兑换，不购买）
+    is_simple_page: bool = False  # 是否为纯净页面（只显示兑换表单，不显示左侧广告）
     # 左侧面板配置
     hero_title: Optional[str] = None  # 大标题
     hero_subtitle: Optional[str] = None  # 副标题
@@ -148,27 +148,32 @@ async def get_site_config(request: Request, db: Session = Depends(get_db)):
     """获取站点配置（公开，带缓存）"""
     from app.cache import get_site_config_cache, set_site_config_cache
 
-    # 检测是否是分销商白标域名
-    hostname = (request.url.hostname or "").strip().lower().rstrip('.')  # 移除尾点
-    # 只有主站显示购买功能，其他都是白标
-    is_distributor = hostname != "mmw-team.zenscaleai.com"
+    # 检测是否是纯净页面域名
+    hostname = (request.url.hostname or "").strip().lower().rstrip('.')
 
-    # 如果是分销商域名，不使用缓存（因为需要动态判断）
-    if is_distributor:
+    # 从配置获取纯净页面域名列表（逗号分隔）
+    simple_domains_str = get_config(db, "simple_page_domains") or ""
+    simple_domains = [d.strip().lower() for d in simple_domains_str.split(",") if d.strip()]
+
+    # 判断当前域名是否在纯净页面列表中
+    is_simple = hostname in simple_domains
+
+    # 纯净页面不使用缓存（因为需要动态判断域名）
+    if is_simple:
         result = SiteConfig(
             site_title=get_config(db, "site_title") or "ChatGPT Team 自助上车",
             site_description=get_config(db, "site_description") or "使用兑换码加入 Team",
             home_notice=get_config(db, "home_notice") or "",
             success_message=get_config(db, "success_message") or "邀请已发送！请查收邮箱并接受邀请",
             footer_text=get_config(db, "footer_text") or "",
-            redeem_only=True,  # 分销商域名：只允许兑换
+            is_simple_page=True,  # 纯净页面：只显示兑换表单
             hero_title=get_config(db, "hero_title"),
             hero_subtitle=get_config(db, "hero_subtitle"),
             features=_parse_features(get_config(db, "features"))
         )
         return result
 
-    # 主站点：尝试从缓存获取
+    # 普通页面：尝试从缓存获取
     cached = get_site_config_cache()
     if cached:
         return SiteConfig(**cached)
@@ -180,7 +185,7 @@ async def get_site_config(request: Request, db: Session = Depends(get_db)):
         home_notice=get_config(db, "home_notice") or "",
         success_message=get_config(db, "success_message") or "邀请已发送！请查收邮箱并接受邀请",
         footer_text=get_config(db, "footer_text") or "",
-        redeem_only=False,  # 主站点：允许购买
+        is_simple_page=False,  # 普通页面：完整显示
         hero_title=get_config(db, "hero_title"),
         hero_subtitle=get_config(db, "hero_subtitle"),
         features=_parse_features(get_config(db, "features"))

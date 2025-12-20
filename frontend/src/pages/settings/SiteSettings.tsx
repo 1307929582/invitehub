@@ -122,6 +122,22 @@ export default function SiteSettings() {
           </Form.Item>
 
           <Divider>
+            <GlobalOutlined style={{ marginRight: 8 }} />
+            纯净页面配置
+          </Divider>
+
+          <Form.Item
+            name="simple_page_domains"
+            label="纯净页面域名"
+            extra="配置哪些域名使用纯净版（只显示兑换表单，不显示左侧广告）。多个域名用英文逗号分隔。"
+          >
+            <Input.TextArea
+              placeholder="例如：simple.zenscaleai.com, lite.zenscaleai.com"
+              rows={2}
+            />
+          </Form.Item>
+
+          <Divider>
             <StarOutlined style={{ marginRight: 8 }} />
             兑换页面左侧面板
           </Divider>
