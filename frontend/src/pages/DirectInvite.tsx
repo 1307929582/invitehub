@@ -188,7 +188,7 @@ export default function DirectInvite() {
         }
         title={isWaiting
           ? '已进入等待队列'
-          : (redeemResult?.is_first_use ? '兑换码已激活！' : '邀请已发送！')
+          : (redeemResult?.is_first_use ? '兑换码已激活！' : '请求已提交！')
         }
         subTitle={
           <div>

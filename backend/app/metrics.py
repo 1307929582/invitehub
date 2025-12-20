@@ -33,6 +33,13 @@ invite_requests_total = Counter(
     ['team_id', 'status']  # status: success/failed
 )
 
+# 等待队列计数器
+waiting_queue_total = Counter(
+    'waiting_queue_total',
+    'Total number of users entering waiting queue',
+    ['code_type']  # code_type: direct/linuxdo
+)
+
 # 换车请求计数器
 rebind_requests_total = Counter(
     'rebind_requests_total',

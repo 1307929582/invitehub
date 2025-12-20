@@ -344,7 +344,7 @@ async def _do_direct_redeem(data: DirectRedeemRequest, db: Session):
     5. 【P0-1 防超员】使用 DB 预占方案，确保座位可用后才返回成功
     """
     from app.tasks_celery import process_invite_task
-    from app.metrics import redeem_requests_total, errors_total
+    from app.metrics import redeem_requests_total, errors_total, waiting_queue_total
     from app.services.seat_calculator import reserve_seat_atomically
     from sqlalchemy import update
 
@@ -437,6 +437,35 @@ async def _do_direct_redeem(data: DirectRedeemRequest, db: Session):
         team_id = None
         team_name = None
 
+        # 幂等检查：如果已经在等待队列中，直接返回（不增加 used_count）
+        queue_record, is_new = _get_or_create_waiting_queue(
+            db=db,
+            email=email,
+            redeem_code=code.code,
+            group_id=code.group_id
+        )
+
+        if not is_new:
+            # 已有记录，回滚本次的 Redis 扣减（如果有）
+            if used_redis and redis_client and code.max_uses > 0:
+                limiter = RedeemLimiter(redis_client)
+                limiter.refund(code.code)
+                logger.info(f"Refunded Redis token for idempotent queue request: {email}")
+
+            queue_position = _get_queue_position(db, queue_record, group_id=code.group_id)
+            logger.info(f"User {email} already in queue, position {queue_position} (idempotent)")
+
+            return DirectRedeemResponse(
+                success=True,
+                message=f"您已在等待队列中（第 {queue_position} 位），有空位时将自动发送邀请",
+                team_name=None,
+                expires_at=code.user_expires_at,
+                remaining_days=code.remaining_days,
+                is_first_use=False,
+                state="WAITING_FOR_SEAT",
+                queue_position=queue_position
+            )
+
     # 7. 首次使用：绑定邮箱和记录激活时间
     if is_first_use:
         result = db.execute(
@@ -514,23 +543,17 @@ async def _do_direct_redeem(data: DirectRedeemRequest, db: Session):
             db.commit()
             db.refresh(code)
 
-    # 方案 B：座位满时进入等待队列（进入队列也算一次使用，不回滚扣减）
+    # 方案 B：座位满时进入等待队列 - 新记录处理（queue_record 在前面已创建）
     if queued_for_seat:
-        from app.models import InviteQueue, InviteQueueStatus
-
-        queue_record = InviteQueue(
-            email=email,
-            redeem_code=code.code,
-            group_id=code.group_id,
-            status=InviteQueueStatus.WAITING,
-            error_message="所有 Team 已满，等待空位",
-            processed_at=None
-        )
-        db.add(queue_record)
+        # queue_record 已在前面的幂等检查中创建（is_new=True 时）
+        # 这里只需提交并返回
         db.commit()
         db.refresh(queue_record)
 
-        queue_position = _get_queue_position(db, queue_record)
+        queue_position = _get_queue_position(db, queue_record, group_id=code.group_id)
+
+        # 记录 metrics
+        waiting_queue_total.labels(code_type="direct").inc()
 
         logger.info(f"User {email} queued for seat, position {queue_position}")
 
@@ -680,7 +703,7 @@ async def _do_redeem(data: RedeemRequest, db: Session) -> RedeemResponse:
     """
     from app.tasks_celery import process_invite_task
     from sqlalchemy import update
-    from app.metrics import redeem_requests_total, errors_total
+    from app.metrics import redeem_requests_total, errors_total, waiting_queue_total
     from app.services.seat_calculator import reserve_seat_atomically
 
     email = data.email.lower().strip()
@@ -752,6 +775,29 @@ async def _do_redeem(data: RedeemRequest, db: Session) -> RedeemResponse:
         # 座位满，进入队列（不立即返回错误）
         team_id = None
         team_name = None
+
+        # 幂等检查：如果已经在等待队列中，直接返回（不增加 used_count）
+        queue_record, is_new = _get_or_create_waiting_queue(
+            db=db,
+            email=email,
+            redeem_code=redeem_code.code,
+            group_id=redeem_code.group_id
+        )
+
+        if not is_new:
+            # 已有记录，直接返回现有位置
+            queue_position = _get_queue_position(db, queue_record, group_id=redeem_code.group_id)
+            logger.info(f"User {email} already in queue, position {queue_position} (idempotent)")
+
+            return RedeemResponse(
+                success=True,
+                message=f"您已在等待队列中（第 {queue_position} 位），有空位时将自动发送邀请",
+                team_name=None,
+                expires_at=redeem_code.user_expires_at,
+                remaining_days=redeem_code.remaining_days,
+                state="WAITING_FOR_SEAT",
+                queue_position=queue_position
+            )
 
     # 7. 首次使用：绑定邮箱和记录激活时间 (Requirements 2.1, 4.1)
     if is_first_use:
@@ -828,23 +874,17 @@ async def _do_redeem(data: RedeemRequest, db: Session) -> RedeemResponse:
     db.commit()
     db.refresh(redeem_code)
 
-    # 方案 B：座位满时进入等待队列
+    # 方案 B：座位满时进入等待队列 - 新记录处理（queue_record 在前面已创建）
     if queued_for_seat:
-        from app.models import InviteQueue, InviteQueueStatus
-
-        queue_record = InviteQueue(
-            email=email,
-            redeem_code=redeem_code.code,
-            group_id=redeem_code.group_id,
-            status=InviteQueueStatus.WAITING,
-            error_message="所有 Team 已满，等待空位",
-            processed_at=None
-        )
-        db.add(queue_record)
+        # queue_record 已在前面的幂等检查中创建（is_new=True 时）
+        # 这里只需提交并返回
         db.commit()
         db.refresh(queue_record)
 
-        queue_position = _get_queue_position(db, queue_record)
+        queue_position = _get_queue_position(db, queue_record, group_id=redeem_code.group_id)
+
+        # 记录 metrics
+        waiting_queue_total.labels(code_type="linuxdo").inc()
 
         logger.info(f"User {email} queued for seat, position {queue_position}")
 
@@ -965,16 +1005,69 @@ def _mask_code(code: str) -> str:
     return code[:4] + "*" * (len(code) - 6) + code[-2:]
 
 
-def _get_queue_position(db: Session, record: "InviteQueue") -> int:
-    """计算等待队列中的位置（FIFO）"""
+def _get_or_create_waiting_queue(
+    db: Session,
+    email: str,
+    redeem_code: str,
+    group_id: Optional[int]
+) -> tuple["InviteQueue", bool]:
+    """
+    幂等获取或创建等待队列记录
+
+    Returns:
+        (queue_record, is_new): 队列记录和是否是新创建的标志
+    """
     from app.models import InviteQueue, InviteQueueStatus
 
-    # 统计在该记录之前创建的 WAITING 状态记录数
-    position = db.query(InviteQueue).filter(
-        InviteQueue.status == InviteQueueStatus.WAITING,
-        InviteQueue.created_at < record.created_at
-    ).count()
+    # 查找现有的 WAITING/PENDING/PROCESSING 状态记录
+    existing = db.query(InviteQueue).filter(
+        InviteQueue.email == email,
+        InviteQueue.redeem_code == redeem_code,
+        InviteQueue.status.in_([
+            InviteQueueStatus.WAITING,
+            InviteQueueStatus.PENDING,
+            InviteQueueStatus.PROCESSING
+        ])
+    ).first()
 
+    if existing:
+        # 已有记录，直接返回（幂等）
+        return existing, False
+
+    # 创建新记录
+    queue_record = InviteQueue(
+        email=email,
+        redeem_code=redeem_code,
+        group_id=group_id,
+        status=InviteQueueStatus.WAITING,
+        error_message="所有 Team 已满，等待空位",
+        processed_at=None
+    )
+    db.add(queue_record)
+    db.flush()  # 获取 id，但不提交（由调用方统一提交）
+    return queue_record, True
+
+
+def _get_queue_position(db: Session, record: "InviteQueue", group_id: Optional[int] = None) -> int:
+    """
+    计算等待队列中的位置（FIFO，按 group_id 分组）
+
+    使用 id 而非 created_at 做稳定排序，避免同秒并发时位置不稳定
+    """
+    from app.models import InviteQueue, InviteQueueStatus
+
+    query = db.query(InviteQueue).filter(
+        InviteQueue.status == InviteQueueStatus.WAITING,
+        InviteQueue.id < record.id  # 使用 id 做稳定排序
+    )
+
+    # 按 group_id 分组（NULL 统一处理）
+    if group_id is not None:
+        query = query.filter(InviteQueue.group_id == group_id)
+    else:
+        query = query.filter(InviteQueue.group_id.is_(None))
+
+    position = query.count()
     return position + 1  # 位置从 1 开始
 
 
@@ -1177,7 +1270,7 @@ async def get_invite_status(email: str, db: Session = Depends(get_db)):
         will_auto_process = queue_record.status == InviteQueueStatus.WAITING
 
         # 计算队列位置（仅 WAITING 状态）
-        queue_position = _get_queue_position(db, queue_record) if will_auto_process else None
+        queue_position = _get_queue_position(db, queue_record, group_id=queue_record.group_id) if will_auto_process else None
 
         # 根据状态生成消息
         if status == "failed" and can_retry:
