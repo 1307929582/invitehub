@@ -697,6 +697,13 @@ export default function Purchase() {
           >
             确认支付
           </Button>
+
+          <div style={{ marginTop: 12, textAlign: 'center', fontSize: 12, color: '#86868b' }}>
+            点击支付即表示您已阅读并同意
+            <a href="/legal#terms" target="_blank" style={{ color: '#007aff', margin: '0 2px' }}>服务条款</a>、
+            <a href="/legal#privacy" target="_blank" style={{ color: '#007aff', margin: '0 2px' }}>隐私政策</a>和
+            <a href="/legal#refund" target="_blank" style={{ color: '#007aff', margin: '0 2px' }}>退款政策</a>
+          </div>
         </div>
       </Modal>
 
