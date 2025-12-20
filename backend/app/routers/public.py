@@ -284,6 +284,9 @@ class DirectRedeemResponse(BaseModel):
     expires_at: Optional[datetime] = None  # 用户到期时间
     remaining_days: Optional[int] = None  # 剩余天数
     is_first_use: Optional[bool] = None  # 是否首次使用
+    # 方案 B: 座位满进入等待队列
+    state: Optional[str] = None  # INVITE_QUEUED | WAITING_FOR_SEAT
+    queue_position: Optional[int] = None  # 仅 WAITING_FOR_SEAT 时返回
 
 
 @router.get("/queue-status")
@@ -420,26 +423,19 @@ async def _do_direct_redeem(data: DirectRedeemRequest, db: Session):
 
     # ========== P0-1 核心修改：座位预占 ==========
     # 在继续处理之前，先原子性预占座位
-    # 如果座位已满，直接返回错误，而不是让用户进入等待队列
-    success, team_id, team_name = reserve_seat_atomically(
+    # 方案 B：如果座位已满，则进入 WAITING 队列等待空位
+    seat_reserved, team_id, team_name = reserve_seat_atomically(
         db=db,
         email=email,
         redeem_code=code.code,
         group_id=code.group_id
     )
 
-    if not success:
-        # 回滚 Redis 令牌桶（如果使用了的话）
-        if used_redis and redis_client and code.max_uses > 0:
-            limiter = RedeemLimiter(redis_client)
-            limiter.refund(code.code)
-            logger.info(f"Refunded Redis token for code {code.code} due to no available seats")
-
-        errors_total.labels(error_type="no_seats", endpoint="direct_redeem").inc()
-        raise HTTPException(
-            status_code=503,
-            detail="当前座位已满，请稍后重试或联系管理员"
-        )
+    queued_for_seat = not seat_reserved
+    if queued_for_seat:
+        # 座位满，但不回滚 Redis（进入队列也算一次使用）
+        team_id = None
+        team_name = None
 
     # 7. 首次使用：绑定邮箱和记录激活时间
     if is_first_use:
@@ -518,6 +514,37 @@ async def _do_direct_redeem(data: DirectRedeemRequest, db: Session):
             db.commit()
             db.refresh(code)
 
+    # 方案 B：座位满时进入等待队列（进入队列也算一次使用，不回滚扣减）
+    if queued_for_seat:
+        from app.models import InviteQueue, InviteQueueStatus
+
+        queue_record = InviteQueue(
+            email=email,
+            redeem_code=code.code,
+            group_id=code.group_id,
+            status=InviteQueueStatus.WAITING,
+            error_message="所有 Team 已满，等待空位",
+            processed_at=None
+        )
+        db.add(queue_record)
+        db.commit()
+        db.refresh(queue_record)
+
+        queue_position = _get_queue_position(db, queue_record)
+
+        logger.info(f"User {email} queued for seat, position {queue_position}")
+
+        return DirectRedeemResponse(
+            success=True,
+            message=f"当前座位已满，已进入等待队列（第 {queue_position} 位），有空位时将自动发送邀请",
+            team_name=None,
+            expires_at=code.user_expires_at,
+            remaining_days=code.remaining_days,
+            is_first_use=is_first_use,
+            state="WAITING_FOR_SEAT",
+            queue_position=queue_position
+        )
+
     # 8. 提交 Celery 邀请任务（座位已预占，状态为 RESERVED）
     try:
         process_invite_task.delay(
@@ -537,7 +564,9 @@ async def _do_direct_redeem(data: DirectRedeemRequest, db: Session):
             team_name=team_name,
             expires_at=code.user_expires_at,
             remaining_days=code.remaining_days,
-            is_first_use=is_first_use
+            is_first_use=is_first_use,
+            state="INVITE_QUEUED",
+            queue_position=None
         )
     except Exception as e:
         errors_total.labels(error_type="celery_error", endpoint="direct_redeem").inc()
@@ -561,7 +590,9 @@ async def _do_direct_redeem(data: DirectRedeemRequest, db: Session):
                 team_name=team_name,
                 expires_at=code.user_expires_at,
                 remaining_days=code.remaining_days,
-                is_first_use=is_first_use
+                is_first_use=is_first_use,
+                state="INVITE_QUEUED",
+                queue_position=None
             )
         except Exception as fallback_err:
             logger.error(f"Fallback to async queue also failed: {fallback_err}")
@@ -708,20 +739,19 @@ async def _do_redeem(data: RedeemRequest, db: Session) -> RedeemResponse:
 
     # ========== P0-1 核心修改：座位预占 ==========
     # 在继续处理之前，先原子性预占座位
-    # 如果座位已满，直接返回错误，而不是让用户进入等待队列
-    success, team_id, team_name = reserve_seat_atomically(
+    # 方案 B：如果座位已满，则进入 WAITING 队列等待空位
+    seat_reserved, team_id, team_name = reserve_seat_atomically(
         db=db,
         email=email,
         redeem_code=redeem_code.code,
         group_id=redeem_code.group_id
     )
 
-    if not success:
-        errors_total.labels(error_type="no_seats", endpoint="redeem").inc()
-        raise HTTPException(
-            status_code=503,
-            detail={"error": RedeemError.NO_AVAILABLE_TEAM, "message": "当前座位已满，请稍后重试或联系管理员"}
-        )
+    queued_for_seat = not seat_reserved
+    if queued_for_seat:
+        # 座位满，进入队列（不立即返回错误）
+        team_id = None
+        team_name = None
 
     # 7. 首次使用：绑定邮箱和记录激活时间 (Requirements 2.1, 4.1)
     if is_first_use:
@@ -798,6 +828,36 @@ async def _do_redeem(data: RedeemRequest, db: Session) -> RedeemResponse:
     db.commit()
     db.refresh(redeem_code)
 
+    # 方案 B：座位满时进入等待队列
+    if queued_for_seat:
+        from app.models import InviteQueue, InviteQueueStatus
+
+        queue_record = InviteQueue(
+            email=email,
+            redeem_code=redeem_code.code,
+            group_id=redeem_code.group_id,
+            status=InviteQueueStatus.WAITING,
+            error_message="所有 Team 已满，等待空位",
+            processed_at=None
+        )
+        db.add(queue_record)
+        db.commit()
+        db.refresh(queue_record)
+
+        queue_position = _get_queue_position(db, queue_record)
+
+        logger.info(f"User {email} queued for seat, position {queue_position}")
+
+        return RedeemResponse(
+            success=True,
+            message=f"当前座位已满，已进入等待队列（第 {queue_position} 位），有空位时将自动发送邀请",
+            team_name=None,
+            expires_at=redeem_code.user_expires_at,
+            remaining_days=redeem_code.remaining_days,
+            state="WAITING_FOR_SEAT",
+            queue_position=queue_position
+        )
+
     # 9. 提交 Celery 邀请任务（座位已预占，状态为 RESERVED）
     try:
         process_invite_task.delay(
@@ -816,7 +876,9 @@ async def _do_redeem(data: RedeemRequest, db: Session) -> RedeemResponse:
             message="已加入队列，邀请将在几秒内发送，请查收邮箱",
             team_name=team_name,  # P0-1: 现在知道具体 Team（座位预占）
             expires_at=redeem_code.user_expires_at,
-            remaining_days=redeem_code.remaining_days
+            remaining_days=redeem_code.remaining_days,
+            state="INVITE_QUEUED",
+            queue_position=None
         )
     except Exception as e:
         errors_total.labels(error_type="celery_error", endpoint="redeem").inc()
@@ -839,7 +901,9 @@ async def _do_redeem(data: RedeemRequest, db: Session) -> RedeemResponse:
                 message="已加入队列，邀请将在几秒内发送，请查收邮箱",
                 team_name=team_name,  # P0-1: 现在知道具体 Team
                 expires_at=redeem_code.user_expires_at,
-                remaining_days=redeem_code.remaining_days
+                remaining_days=redeem_code.remaining_days,
+                state="INVITE_QUEUED",
+                queue_position=None
             )
         except Exception as fallback_err:
             logger.error(f"Fallback to async queue also failed: {fallback_err}")

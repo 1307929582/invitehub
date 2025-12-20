@@ -4,7 +4,8 @@ import { Card, Input, Button, message, Spin, Result, Tag, Tabs, Row, Col, Grid, 
 import {
   MailOutlined, KeyOutlined, CheckCircleOutlined, ClockCircleOutlined,
   RocketOutlined, SwapOutlined, TeamOutlined,
-  SafetyOutlined, ThunderboltOutlined, CustomerServiceOutlined, StarOutlined
+  SafetyOutlined, ThunderboltOutlined, CustomerServiceOutlined, StarOutlined,
+  HourglassOutlined
 } from '@ant-design/icons'
 import axios from 'axios'
 import { publicApi } from '../api'
@@ -35,6 +36,9 @@ interface RedeemResult {
   expires_at?: string
   remaining_days?: number
   is_first_use?: boolean
+  // 方案 B: 座位满进入等待队列
+  state?: 'INVITE_QUEUED' | 'WAITING_FOR_SEAT'
+  queue_position?: number
 }
 
 interface RebindResult {
@@ -172,36 +176,63 @@ export default function DirectInvite() {
   }
 
   // 兑换成功
-  const renderRedeemSuccess = () => (
-    <Result
-      status="success"
-      icon={<CheckCircleOutlined style={{ color: '#34c759' }} />}
-      title={redeemResult?.is_first_use ? "兑换码已激活！" : "邀请已发送！"}
-      subTitle={
-        <div>
-          <p style={{ margin: '0 0 12px', color: '#1d1d1f' }}>{redeemResult?.message}</p>
-          {redeemResult?.remaining_days !== null && redeemResult?.remaining_days !== undefined && (
-            <div style={{ background: 'rgba(0, 122, 255, 0.08)', padding: '12px 16px', borderRadius: 12, marginBottom: 12 }}>
-              <ClockCircleOutlined style={{ marginRight: 8, color: getDaysColor(redeemResult.remaining_days) }} />
-              <span style={{ color: getDaysColor(redeemResult.remaining_days), fontWeight: 600 }}>
-                有效期剩余 {redeemResult.remaining_days} 天
-              </span>
-              {redeemResult.expires_at && (
-                <div style={{ fontSize: 12, color: '#86868b', marginTop: 4 }}>
-                  到期时间：{new Date(redeemResult.expires_at).toLocaleDateString('zh-CN')}
+  const renderRedeemSuccess = () => {
+    const isWaiting = redeemResult?.state === 'WAITING_FOR_SEAT'
+
+    return (
+      <Result
+        status={isWaiting ? 'info' : 'success'}
+        icon={isWaiting
+          ? <HourglassOutlined style={{ color: '#ff9500' }} />
+          : <CheckCircleOutlined style={{ color: '#34c759' }} />
+        }
+        title={isWaiting
+          ? '已进入等待队列'
+          : (redeemResult?.is_first_use ? '兑换码已激活！' : '邀请已发送！')
+        }
+        subTitle={
+          <div>
+            <p style={{ margin: '0 0 12px', color: '#1d1d1f' }}>{redeemResult?.message}</p>
+            {/* 等待队列状态显示 */}
+            {isWaiting && redeemResult?.queue_position && (
+              <div style={{ background: 'rgba(255, 149, 0, 0.1)', padding: '16px 20px', borderRadius: 12, marginBottom: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+                  <HourglassOutlined style={{ color: '#ff9500', fontSize: 18 }} />
+                  <span style={{ color: '#ff9500', fontWeight: 600, fontSize: 16 }}>
+                    排队位置：第 {redeemResult.queue_position} 位
+                  </span>
                 </div>
-              )}
-            </div>
-          )}
-          {redeemResult?.is_first_use && <Tag color="blue" style={{ marginBottom: 12 }}>首次激活，邮箱已绑定</Tag>}
-          <p style={{ color: '#ff9500', fontSize: 13, marginTop: 8 }}>
-            {siteConfig?.success_message || '请查收邮箱并接受邀请'}
-          </p>
-        </div>
-      }
-      extra={<Button type="primary" onClick={() => { setRedeemSuccess(false); setRedeemResult(null) }} style={{ borderRadius: 8 }}>继续兑换</Button>}
-    />
-  )
+                <div style={{ fontSize: 13, color: '#86868b' }}>
+                  系统将在有空位时自动发送邀请到您的邮箱
+                </div>
+              </div>
+            )}
+            {/* 有效期显示 */}
+            {redeemResult?.remaining_days !== null && redeemResult?.remaining_days !== undefined && (
+              <div style={{ background: 'rgba(0, 122, 255, 0.08)', padding: '12px 16px', borderRadius: 12, marginBottom: 12 }}>
+                <ClockCircleOutlined style={{ marginRight: 8, color: getDaysColor(redeemResult.remaining_days) }} />
+                <span style={{ color: getDaysColor(redeemResult.remaining_days), fontWeight: 600 }}>
+                  有效期剩余 {redeemResult.remaining_days} 天
+                </span>
+                {redeemResult.expires_at && (
+                  <div style={{ fontSize: 12, color: '#86868b', marginTop: 4 }}>
+                    到期时间：{new Date(redeemResult.expires_at).toLocaleDateString('zh-CN')}
+                  </div>
+                )}
+              </div>
+            )}
+            {redeemResult?.is_first_use && <Tag color="blue" style={{ marginBottom: 12 }}>首次激活，邮箱已绑定</Tag>}
+            {!isWaiting && (
+              <p style={{ color: '#ff9500', fontSize: 13, marginTop: 8 }}>
+                {siteConfig?.success_message || '请查收邮箱并接受邀请'}
+              </p>
+            )}
+          </div>
+        }
+        extra={<Button type="primary" onClick={() => { setRedeemSuccess(false); setRedeemResult(null) }} style={{ borderRadius: 8 }}>继续兑换</Button>}
+      />
+    )
+  }
 
   // 换车成功
   const renderRebindSuccess = () => (

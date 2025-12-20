@@ -202,6 +202,9 @@ class RedeemResponse(BaseModel):
     team_name: Optional[str] = None
     expires_at: Optional[datetime] = None
     remaining_days: Optional[int] = None
+    # 方案 B: 座位满进入等待队列
+    state: Optional[str] = None  # INVITE_QUEUED | WAITING_FOR_SEAT
+    queue_position: Optional[int] = None  # 仅 WAITING_FOR_SEAT 时返回
 
 
 # ========== Status Query API (Commercial) ==========
