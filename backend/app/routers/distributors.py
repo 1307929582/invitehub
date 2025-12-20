@@ -1,7 +1,7 @@
 # 分销商管理路由
 from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
-from sqlalchemy import func, Integer
+from sqlalchemy import func, Integer, update
 from sqlalchemy.exc import IntegrityError
 from pydantic import BaseModel, EmailStr
 from typing import List, Optional
@@ -451,7 +451,7 @@ async def remove_member(
         if not team_member.chatgpt_user_id:
             raise HTTPException(status_code=400, detail="成员缺少 ChatGPT User ID，无法移除")
 
-        result = await api.remove_member(team.chatgpt_account_id, team_member.chatgpt_user_id)
+        result = await api.remove_member(team.account_id, team_member.chatgpt_user_id)
         if not result:
             raise HTTPException(status_code=500, detail="移除成员失败，请稍后重试")
     except HTTPException:
@@ -464,12 +464,13 @@ async def remove_member(
     # 从数据库删除成员记录
     db.delete(team_member)
 
-    # 恢复兑换码使用次数
-    redeem_code = db.query(RedeemCode).filter(
-        RedeemCode.code == invite_record.redeem_code
-    ).first()
-    if redeem_code and redeem_code.used_count > 0:
-        redeem_code.used_count -= 1
+    # 恢复兑换码使用次数（使用原子操作避免并发问题）
+    db.execute(
+        update(RedeemCode)
+        .where(RedeemCode.code == invite_record.redeem_code)
+        .where(RedeemCode.used_count > 0)
+        .values(used_count=RedeemCode.used_count - 1)
+    )
 
     # 更新邀请记录状态（标记为已移除）
     invite_record.status = InviteStatus.REMOVED
@@ -566,8 +567,21 @@ async def add_member(
     )
     db.add(new_invite)
 
-    # 增加兑换码使用次数
-    redeem_code.used_count += 1
+    # 增加兑换码使用次数（使用原子操作避免并发问题）
+    result = db.execute(
+        update(RedeemCode)
+        .where(RedeemCode.code == previous_invite.redeem_code)
+        .where(
+            (RedeemCode.max_uses == 0) |  # 不限量，或
+            (RedeemCode.used_count < RedeemCode.max_uses)  # 未达上限
+        )
+        .values(used_count=RedeemCode.used_count + 1)
+    )
+
+    # 验证更新是否成功（如果已达上限，则不会更新）
+    if result.rowcount == 0:
+        db.rollback()
+        raise HTTPException(status_code=400, detail="兑换码使用次数已达上限")
 
     db.commit()
     db.refresh(new_invite)

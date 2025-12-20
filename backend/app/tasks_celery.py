@@ -203,6 +203,11 @@ def sync_redeem_count_task(self, code_id: int):
             logger.warning(f"RedeemCode {code_id} not found")
             return
 
+        # 跳过不限量码（不使用 Redis 令牌桶）
+        if code.max_uses == 0:
+            logger.debug(f"Skip sync for unlimited code: {code.code}")
+            return
+
         # 从 Redis 获取当前余额
         redis_key = f"redeem:{code.code}:remaining"
         remaining = redis_client.get(redis_key)
@@ -249,6 +254,10 @@ def batch_sync_redeem_counts(self):
 
         synced_count = 0
         for code in codes:
+            # 跳过不限量码（不使用 Redis 令牌桶）
+            if code.max_uses == 0:
+                continue
+
             redis_key = f"redeem:{code.code}:remaining"
             remaining = redis_client.get(redis_key)
 

@@ -79,13 +79,20 @@ class RedeemLimiter:
         """
         初始化兑换码余额到 Redis
 
+        注意：max_uses == 0 表示不限量，不会初始化到 Redis（走数据库路径）
+
         Args:
             code: 兑换码
-            max_uses: 最大使用次数
+            max_uses: 最大使用次数（0 表示不限量）
             used_count: 已使用次数
             ttl: 过期时间（秒），默认24小时
         """
         try:
+            # 不限量码不使用 Redis 令牌桶，让它走数据库路径
+            if max_uses == 0:
+                logger.info(f"Skip Redis init for unlimited code: {code}")
+                return
+
             key = self._get_key(code)
             remaining = max(0, max_uses - used_count)
             self.redis.setex(key, ttl, remaining)
@@ -158,19 +165,27 @@ class RedeemLimiter:
         """
         批量初始化兑换码（优化启动性能）
 
+        注意：max_uses == 0 表示不限量，不会初始化到 Redis
+
         Args:
             codes: [(code, max_uses, used_count), ...]
         """
         try:
             pipe = self.redis.pipeline()
+            count = 0
 
             for code, max_uses, used_count in codes:
+                # 跳过不限量码
+                if max_uses == 0:
+                    continue
+
                 key = self._get_key(code)
                 remaining = max(0, max_uses - used_count)
                 pipe.setex(key, 86400, remaining)
+                count += 1
 
             pipe.execute()
-            logger.info(f"Batch initialized {len(codes)} redeem codes")
+            logger.info(f"Batch initialized {count} redeem codes (skipped {len(codes) - count} unlimited codes)")
 
         except redis.RedisError as e:
             logger.error(f"Redis error in batch_init_codes: {e}")

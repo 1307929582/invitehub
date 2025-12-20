@@ -238,13 +238,14 @@ async def get_direct_code_info(code: str, db: Session = Depends(get_db)):
     
     if redeem_code.expires_at and redeem_code.expires_at < datetime.utcnow():
         raise HTTPException(status_code=400, detail="兑换码已过期")
-    
-    if redeem_code.used_count >= redeem_code.max_uses:
+
+    # 检查使用次数（max_uses == 0 表示不限量）
+    if redeem_code.max_uses > 0 and redeem_code.used_count >= redeem_code.max_uses:
         raise HTTPException(status_code=400, detail="兑换码已用完")
 
     return {
         "valid": True,
-        "remaining": redeem_code.max_uses - redeem_code.used_count,
+        "remaining": redeem_code.max_uses - redeem_code.used_count if redeem_code.max_uses > 0 else -1,
         "expires_at": to_beijing_iso(redeem_code.expires_at) or None
     }
 
@@ -314,8 +315,9 @@ async def _do_direct_redeem(data: DirectRedeemRequest, db: Session):
     is_first_use = code.activated_at is None
 
     # 6. 使用 Redis 令牌桶扣减（避免数据库热点）
+    # 注意：不限量码（max_uses == 0）不使用 Redis，直接走数据库路径
     redis_client = get_redis()
-    if redis_client:
+    if redis_client and code.max_uses > 0:
         limiter = RedeemLimiter(redis_client)
 
         # 尝试从 Redis 扣减
@@ -332,12 +334,12 @@ async def _do_direct_redeem(data: DirectRedeemRequest, db: Session):
                 errors_total.labels(error_type="code_exhausted", endpoint="direct_redeem").inc()
                 raise HTTPException(status_code=400, detail="兑换码已用完")
 
-        # 异步回写数据库
+        # 异步回写数据库（修复：传递 code.id 而非 code.code 字符串）
         from app.tasks_celery import sync_redeem_count_task
-        sync_redeem_count_task.apply_async(args=[code.code], countdown=5)
+        sync_redeem_count_task.apply_async(args=[code.id], countdown=5)
     else:
-        # Redis 不可用时回退到数据库
-        if code.used_count >= code.max_uses:
+        # Redis 不可用时回退到数据库（max_uses == 0 表示不限量）
+        if code.max_uses > 0 and code.used_count >= code.max_uses:
             errors_total.labels(error_type="code_exhausted", endpoint="direct_redeem").inc()
             raise HTTPException(status_code=400, detail="兑换码已用完")
 
@@ -347,6 +349,10 @@ async def _do_direct_redeem(data: DirectRedeemRequest, db: Session):
             update(RedeemCode)
             .where(RedeemCode.id == code.id)
             .where(RedeemCode.activated_at == None)  # 确保是首次激活
+            .where(
+                (RedeemCode.max_uses == 0) |  # 不限量，或
+                (RedeemCode.used_count < RedeemCode.max_uses)  # 未达上限
+            )
             .values(
                 used_count=RedeemCode.used_count + 1,
                 activated_at=datetime.utcnow(),
@@ -355,11 +361,20 @@ async def _do_direct_redeem(data: DirectRedeemRequest, db: Session):
         )
 
         if result.rowcount == 0:
-            # 并发情况下可能已被其他请求激活
+            # 并发情况下可能已被其他请求激活，或已达上限
             db.refresh(code)
+
+            # 检查是否已达上限
+            if code.max_uses > 0 and code.used_count >= code.max_uses:
+                # 回滚 Redis（仅当本次确实使用了 Redis 时）
+                if redis_client and code.max_uses > 0:
+                    limiter.refund(code.code)
+                errors_total.labels(error_type="code_exhausted", endpoint="direct_redeem").inc()
+                raise HTTPException(status_code=400, detail="兑换码已用完")
+
             if code.bound_email and code.bound_email.lower() != email:
-                # 回滚 Redis
-                if redis_client:
+                # 回滚 Redis（仅当本次确实使用了 Redis 时）
+                if redis_client and code.max_uses > 0:
                     limiter.refund(code.code)
                 raise HTTPException(
                     status_code=400,
@@ -373,7 +388,10 @@ async def _do_direct_redeem(data: DirectRedeemRequest, db: Session):
             db.execute(
                 update(RedeemCode)
                 .where(RedeemCode.id == code.id)
-                .where(RedeemCode.used_count < RedeemCode.max_uses)
+                .where(
+                    (RedeemCode.max_uses == 0) |  # 不限量，或
+                    (RedeemCode.used_count < RedeemCode.max_uses)  # 未达上限
+                )
                 .values(used_count=RedeemCode.used_count + 1)
             )
             db.commit()
@@ -427,7 +445,8 @@ async def _do_direct_redeem(data: DirectRedeemRequest, db: Session):
 
             # 回滚（补偿事务）
             try:
-                if redis_client:
+                # 仅当本次确实使用了 Redis 令牌桶时才回滚
+                if redis_client and code.max_uses > 0:
                     limiter = RedeemLimiter(redis_client)
                     limiter.refund(code.code)
                     logger.info(f"Refunded Redis token for code {code.code}")
@@ -512,8 +531,8 @@ async def _do_redeem(data: RedeemRequest, db: Session) -> RedeemResponse:
             detail={"error": RedeemError.CODE_EXPIRED, "message": "兑换码已过期"}
         )
     
-    # 3. 检查使用次数
-    if redeem_code.used_count >= redeem_code.max_uses:
+    # 3. 检查使用次数（max_uses == 0 表示不限量）
+    if redeem_code.max_uses > 0 and redeem_code.used_count >= redeem_code.max_uses:
         raise HTTPException(
             status_code=400,
             detail={"error": RedeemError.CODE_USED_UP, "message": "兑换码已用完"}
@@ -549,7 +568,10 @@ async def _do_redeem(data: RedeemRequest, db: Session) -> RedeemResponse:
         result = db.execute(
             update(RedeemCode)
             .where(RedeemCode.id == redeem_code.id)
-            .where(RedeemCode.used_count < RedeemCode.max_uses)
+            .where(
+                (RedeemCode.max_uses == 0) |  # 不限量，或
+                (RedeemCode.used_count < RedeemCode.max_uses)  # 未达上限
+            )
             .where(RedeemCode.activated_at == None)  # 确保是首次激活
             .values(
                 used_count=RedeemCode.used_count + 1,
@@ -559,8 +581,16 @@ async def _do_redeem(data: RedeemRequest, db: Session) -> RedeemResponse:
         )
         
         if result.rowcount == 0:
-            # 并发情况下可能已被其他请求激活
+            # 并发情况下可能已被其他请求激活，或已达上限
             db.refresh(redeem_code)
+
+            # 检查是否已达上限
+            if redeem_code.max_uses > 0 and redeem_code.used_count >= redeem_code.max_uses:
+                raise HTTPException(
+                    status_code=400,
+                    detail={"error": RedeemError.CODE_USED_UP, "message": "兑换码已用完"}
+                )
+
             if redeem_code.bound_email and redeem_code.bound_email.lower() != email:
                 raise HTTPException(
                     status_code=400,
@@ -574,7 +604,10 @@ async def _do_redeem(data: RedeemRequest, db: Session) -> RedeemResponse:
         result = db.execute(
             update(RedeemCode)
             .where(RedeemCode.id == redeem_code.id)
-            .where(RedeemCode.used_count < RedeemCode.max_uses)
+            .where(
+                (RedeemCode.max_uses == 0) |  # 不限量，或
+                (RedeemCode.used_count < RedeemCode.max_uses)  # 未达上限
+            )
             .values(used_count=RedeemCode.used_count + 1)
         )
         
