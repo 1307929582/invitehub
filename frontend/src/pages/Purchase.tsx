@@ -329,7 +329,7 @@ export default function Purchase() {
         <Result
           status="info"
           title="暂未开放购买"
-          subTitle="请联系管理员获取兑换码"
+          subTitle={<span>请联系：<a href="mailto:contact@zenscaleai.com" style={{ color: '#007aff' }}>contact@zenscaleai.com</a></span>}
           extra={<Button type="primary" onClick={() => navigate('/')}>返回首页</Button>}
         />
       </div>

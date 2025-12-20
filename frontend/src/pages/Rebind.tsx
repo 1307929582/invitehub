@@ -442,7 +442,7 @@ export default function Rebind() {
             换车后，您将自动从原 Team 中移出，并加入新的 Team
           </p>
           <p style={{ margin: '6px 0 0' }}>
-            如遇问题，请联系管理员
+            如遇问题，请联系：<a href="mailto:contact@zenscaleai.com" style={{ color: '#007aff' }}>contact@zenscaleai.com</a>
           </p>
         </div>
       </div>
