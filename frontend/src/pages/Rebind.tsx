@@ -144,7 +144,7 @@ export default function Rebind() {
         {/* Logo 和标题 */}
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
           <img
-            src="/logo.jpg"
+            src="/logo.png"
             alt="Logo"
             style={{
               width: 64,

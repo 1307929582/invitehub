@@ -121,9 +121,8 @@ def send_email(
                             <!-- Header -->
                             <tr>
                                 <td style="text-align: center; padding-bottom: 30px;">
-                                    <div style="display: inline-block; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); padding: 12px 24px; border-radius: 12px;">
-                                        <span style="color: #fff; font-size: 18px; font-weight: 700; letter-spacing: 1px;">ZenScale AI</span>
-                                    </div>
+                                    <img src="https://tc-new.z.wiki/autoupload/f/H2cVbE17VeYj5Znq0XSqcbQ7wnixdFyJjmO0Os0dW5Wyl5f0KlZfm6UsKj-HyTuv/20250826/NEoN/500X500/1.png" alt="ZenScale AI" style="width: 64px; height: 64px; border-radius: 16px; margin-bottom: 12px;" />
+                                    <div style="color: #1d1d1f; font-size: 18px; font-weight: 700; letter-spacing: 0.5px;">ZenScale AI</div>
                                 </td>
                             </tr>
                             <!-- Content -->

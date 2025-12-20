@@ -234,7 +234,7 @@ export default function Layout() {
           borderBottom: '1px solid rgba(0, 0, 0, 0.06)',
         }}>
           <img 
-            src="/logo.jpg" 
+            src="/logo.png" 
             alt="Logo" 
             style={{ 
               width: 36, 

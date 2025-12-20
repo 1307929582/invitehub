@@ -64,7 +64,7 @@ export default function Home() {
         zIndex: 1,
       }}>
         <img 
-          src="/logo.jpg" 
+          src="/logo.png" 
           alt="Logo" 
           style={{ 
             width: 80, 

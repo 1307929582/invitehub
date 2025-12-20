@@ -94,7 +94,7 @@ export default function Login() {
       }}>
         <div style={{ textAlign: 'center', marginBottom: 44 }}>
           <img 
-            src="/logo.jpg" 
+            src="/logo.png" 
             alt="Logo" 
             style={{ 
               width: 64, 

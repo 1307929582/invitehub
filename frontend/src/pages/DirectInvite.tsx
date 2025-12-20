@@ -399,7 +399,7 @@ export default function DirectInvite() {
     }}>
       <div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 40 }}>
-          <img src="/logo.jpg" alt="Logo" style={{ width: 48, height: 48, borderRadius: 12, objectFit: 'cover' }} />
+          <img src="/logo.png" alt="Logo" style={{ width: 48, height: 48, borderRadius: 12, objectFit: 'cover' }} />
           <Title level={3} style={{ margin: 0, color: 'white', fontWeight: 700 }}>
             {siteConfig?.site_title || 'ChatGPT Team'}
           </Title>
@@ -520,7 +520,7 @@ export default function DirectInvite() {
         {/* 移动端显示 Logo */}
         {!screens.md && (
           <div style={{ textAlign: 'center', marginBottom: 20 }}>
-            <img src="/logo.jpg" alt="Logo" style={{ width: 64, height: 64, borderRadius: 16, objectFit: 'cover', margin: '0 auto 16px', boxShadow: '0 8px 24px rgba(0, 0, 0, 0.12)', display: 'block' }} />
+            <img src="/logo.png" alt="Logo" style={{ width: 64, height: 64, borderRadius: 16, objectFit: 'cover', margin: '0 auto 16px', boxShadow: '0 8px 24px rgba(0, 0, 0, 0.12)', display: 'block' }} />
             <h1 style={{ fontSize: 22, fontWeight: 700, margin: '0 0 4px', color: '#1d1d1f' }}>{siteConfig?.site_title || 'ChatGPT Team'}</h1>
             <p style={{ color: '#86868b', fontSize: 14, margin: 0 }}>自助兑换和换车服务</p>
           </div>
