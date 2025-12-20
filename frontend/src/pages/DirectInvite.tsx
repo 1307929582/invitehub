@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { Card, Input, Button, message, Spin, Result, Tag, Tabs, Radio, Row, Col, Grid, Space, Typography } from 'antd'
+import { Card, Input, Button, message, Spin, Result, Tag, Tabs, Row, Col, Grid, Space, Typography } from 'antd'
 import {
   MailOutlined, KeyOutlined, CheckCircleOutlined, ClockCircleOutlined,
-  SearchOutlined, RocketOutlined, SwapOutlined, TeamOutlined,
+  RocketOutlined, SwapOutlined, TeamOutlined,
   SafetyOutlined, ThunderboltOutlined, CustomerServiceOutlined, StarOutlined
 } from '@ant-design/icons'
 import axios from 'axios'
@@ -85,16 +85,11 @@ export default function DirectInvite() {
   const [redeemSuccess, setRedeemSuccess] = useState(false)
   const [redeemResult, setRedeemResult] = useState<RedeemResult | null>(null)
 
-  // 换车状态
-  const [rebindEmail, setRebindEmail] = useState('')
+  // 换车状态（简化版：只需兑换码）
   const [rebindCode, setRebindCode] = useState('')
   const [rebindSubmitting, setRebindSubmitting] = useState(false)
   const [rebindSuccess, setRebindSuccess] = useState(false)
   const [rebindResult, setRebindResult] = useState<RebindResult | null>(null)
-
-  // 状态查询
-  const [queryType, setQueryType] = useState<'email' | 'code'>('email')
-  const [queryValue, setQueryValue] = useState('')
   const [querying, setQuerying] = useState(false)
   const [statusResult, setStatusResult] = useState<StatusResult | null>(null)
 
@@ -145,12 +140,10 @@ export default function DirectInvite() {
   }
 
   const handleRebind = async () => {
-    if (!rebindEmail || !rebindEmail.includes('@')) { message.error('请输入有效的邮箱地址'); return }
     if (!rebindCode || rebindCode.trim().length === 0) { message.error('请输入兑换码'); return }
     setRebindSubmitting(true)
     try {
       const res: any = await publicApi.rebind({
-        email: rebindEmail.trim().toLowerCase(),
         code: rebindCode.trim().toUpperCase()
       })
       setRebindSuccess(true)
@@ -164,16 +157,13 @@ export default function DirectInvite() {
   }
 
   const handleQueryStatus = async () => {
-    const value = queryValue.trim()
-    if (!value) { message.error(queryType === 'email' ? '请输入邮箱地址' : '请输入兑换码'); return }
-    if (queryType === 'email' && !value.includes('@')) { message.error('请输入有效的邮箱地址'); return }
+    const trimmedCode = rebindCode.trim().toUpperCase()
+    if (!trimmedCode) { message.error('请输入兑换码'); return }
     setQuerying(true)
     setStatusResult(null)
     try {
-      const params = queryType === 'email' ? { email: value.toLowerCase() } : { code: value.toUpperCase() }
-      const res: any = await publicApi.getStatus(params)
+      const res: any = await publicApi.getStatus({ code: trimmedCode })
       setStatusResult(res)
-      if (res.found && res.email) setRebindEmail(res.email)
     } catch {
       message.error('查询失败')
     } finally {
@@ -273,103 +263,90 @@ export default function DirectInvite() {
     </div>
   )
 
-  // 换车表单
+  // 换车表单（简化版：只需兑换码）
   const renderRebindForm = () => (
     <div>
-      <div style={{ marginBottom: 20, padding: 16, background: 'rgba(0, 0, 0, 0.02)', borderRadius: 12 }}>
-        <div style={{ fontWeight: 600, color: '#1d1d1f', marginBottom: 12, fontSize: 14 }}>
-          <SearchOutlined style={{ marginRight: 8 }} />查询当前状态
-        </div>
-        <Radio.Group
-          value={queryType}
-          onChange={e => { setQueryType(e.target.value); setQueryValue(''); setStatusResult(null) }}
-          size="small"
-          style={{ marginBottom: 12 }}
-        >
-          <Radio.Button value="email">按邮箱</Radio.Button>
-          <Radio.Button value="code">按兑换码</Radio.Button>
-        </Radio.Group>
+      {/* 兑换码输入 + 查询 */}
+      <div style={{ marginBottom: 20 }}>
+        <div style={{ marginBottom: 8, fontWeight: 500, color: '#1d1d1f' }}>兑换码</div>
         <div style={{ display: 'flex', gap: 8 }}>
           <Input
-            prefix={queryType === 'email' ? <MailOutlined style={{ color: '#86868b' }} /> : <KeyOutlined style={{ color: '#86868b' }} />}
-            placeholder={queryType === 'email' ? '输入邮箱查询' : '输入兑换码查询'}
-            value={queryValue}
-            onChange={e => setQueryValue(queryType === 'code' ? e.target.value.toUpperCase() : e.target.value)}
+            prefix={<KeyOutlined style={{ color: '#86868b' }} />}
+            placeholder="输入您的兑换码"
+            size="large"
+            value={rebindCode}
+            onChange={e => {
+              setRebindCode(e.target.value.toUpperCase())
+              setStatusResult(null)  // 清除之前的查询结果
+            }}
             onPressEnter={handleQueryStatus}
-            style={{ flex: 1, borderRadius: 8, fontFamily: queryType === 'code' ? 'monospace' : 'inherit' }}
+            style={{ flex: 1, height: 48, borderRadius: 12, border: '1px solid #d2d2d7', fontFamily: 'monospace', letterSpacing: 1 }}
           />
-          <Button onClick={handleQueryStatus} loading={querying} style={{ borderRadius: 8 }}>查询</Button>
+          <Button
+            onClick={handleQueryStatus}
+            loading={querying}
+            size="large"
+            style={{ height: 48, borderRadius: 12 }}
+          >
+            查询
+          </Button>
         </div>
-        {statusResult && (
-          <div style={{ marginTop: 12 }}>
-            {statusResult.found ? (
-              <div style={{ padding: 12, background: 'rgba(0, 122, 255, 0.04)', borderRadius: 8, fontSize: 13 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                  <TeamOutlined style={{ color: '#007aff' }} />
-                  <span>当前 Team：</span>
-                  <span style={{ fontWeight: 500 }}>{statusResult.team_name || '未知'}</span>
-                  {statusResult.team_active !== undefined && (
-                    <Tag color={statusResult.team_active ? 'success' : 'error'} style={{ marginLeft: 4 }}>
-                      {statusResult.team_active ? '正常' : '异常'}
-                    </Tag>
-                  )}
-                </div>
-                {statusResult.remaining_days !== null && statusResult.remaining_days !== undefined && (
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
-                    <ClockCircleOutlined style={{ color: getDaysColor(statusResult.remaining_days) }} />
-                    <span style={{ color: getDaysColor(statusResult.remaining_days), fontWeight: 600 }}>
-                      剩余 {statusResult.remaining_days} 天
-                    </span>
-                  </div>
+        <div style={{ fontSize: 12, color: '#86868b', marginTop: 6 }}>
+          输入兑换码后点击查询，查看绑定状态
+        </div>
+      </div>
+
+      {/* 查询结果 */}
+      {statusResult && (
+        <div style={{ marginBottom: 20 }}>
+          {statusResult.found ? (
+            <div style={{ padding: 16, background: 'rgba(0, 122, 255, 0.04)', borderRadius: 12, fontSize: 13 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <MailOutlined style={{ color: '#007aff' }} />
+                <span>绑定邮箱：</span>
+                <span style={{ fontWeight: 600 }}>{statusResult.email || '未绑定'}</span>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                <TeamOutlined style={{ color: '#007aff' }} />
+                <span>当前 Team：</span>
+                <span style={{ fontWeight: 500 }}>{statusResult.team_name || '未知'}</span>
+                {statusResult.team_active !== undefined && (
+                  <Tag color={statusResult.team_active ? 'success' : 'error'} style={{ marginLeft: 4 }}>
+                    {statusResult.team_active ? '正常' : '异常'}
+                  </Tag>
                 )}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <SwapOutlined style={{ color: statusResult.can_rebind ? '#34c759' : '#ff3b30' }} />
-                  <span style={{ color: statusResult.can_rebind ? '#34c759' : '#ff3b30', fontWeight: 500 }}>
-                    {statusResult.can_rebind ? '可以换车' : '暂时无法换车'}
+              </div>
+              {statusResult.remaining_days !== null && statusResult.remaining_days !== undefined && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+                  <ClockCircleOutlined style={{ color: getDaysColor(statusResult.remaining_days) }} />
+                  <span style={{ color: getDaysColor(statusResult.remaining_days), fontWeight: 600 }}>
+                    剩余 {statusResult.remaining_days} 天
                   </span>
                 </div>
+              )}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <SwapOutlined style={{ color: statusResult.can_rebind ? '#34c759' : '#ff3b30' }} />
+                <span style={{ color: statusResult.can_rebind ? '#34c759' : '#ff3b30', fontWeight: 500 }}>
+                  {statusResult.can_rebind ? '可以换车' : '暂时无法换车（仅 Team 被封时可换车）'}
+                </span>
               </div>
-            ) : (
-              <div style={{ padding: 12, background: 'rgba(0, 0, 0, 0.02)', borderRadius: 8, textAlign: 'center', color: '#86868b' }}>
-                未找到该邮箱的绑定记录
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-      <div style={{ marginBottom: 16 }}>
-        <div style={{ marginBottom: 8, fontWeight: 500, color: '#1d1d1f' }}>邮箱地址</div>
-        <Input
-          prefix={<MailOutlined style={{ color: '#86868b' }} />}
-          placeholder="your@email.com"
-          size="large"
-          value={rebindEmail}
-          onChange={e => setRebindEmail(e.target.value)}
-          style={{ height: 48, borderRadius: 12, border: '1px solid #d2d2d7' }}
-        />
-      </div>
-      <div style={{ marginBottom: 24 }}>
-        <div style={{ marginBottom: 8, fontWeight: 500, color: '#1d1d1f' }}>兑换码</div>
-        <Input
-          prefix={<KeyOutlined style={{ color: '#86868b' }} />}
-          placeholder="输入绑定的兑换码"
-          size="large"
-          value={rebindCode}
-          onChange={e => setRebindCode(e.target.value.toUpperCase())}
-          onPressEnter={handleRebind}
-          style={{ height: 48, borderRadius: 12, border: '1px solid #d2d2d7', fontFamily: 'monospace', letterSpacing: 1 }}
-        />
-        <div style={{ fontSize: 12, color: '#86868b', marginTop: 6 }}>
-          每个兑换码最多可换车 3 次
+            </div>
+          ) : (
+            <div style={{ padding: 16, background: 'rgba(255, 59, 48, 0.04)', borderRadius: 12, textAlign: 'center', color: '#ff3b30' }}>
+              未找到该兑换码的绑定记录，请确认兑换码正确
+            </div>
+          )}
         </div>
-      </div>
+      )}
+
+      {/* 换车按钮 */}
       <Button
         type="primary"
         block
         size="large"
         loading={rebindSubmitting}
         onClick={handleRebind}
-        disabled={!rebindEmail || !rebindCode}
+        disabled={!rebindCode || (statusResult !== null && !statusResult.can_rebind)}
         icon={<SwapOutlined />}
         style={{ height: 48, borderRadius: 12, fontWeight: 600, background: '#007aff', border: 'none' }}
       >
@@ -514,9 +491,9 @@ export default function DirectInvite() {
             </ol>
           ) : (
             <ol style={{ paddingLeft: 18, margin: 0 }}>
-              <li>每个兑换码最多可换车 3 次</li>
+              <li>输入兑换码查询绑定状态</li>
+              <li>仅当 Team 被封时可以换车</li>
               <li>换车后原 Team 邀请失效</li>
-              <li>兑换码过期后无法换车</li>
             </ol>
           )}
         </div>
