@@ -480,7 +480,7 @@ export default function DirectInvite() {
             <a href="/legal#terms" style={{ color: 'rgba(255, 255, 255, 0.5)', marginRight: 16 }}>服务条款</a>
             <a href="/legal#refund" style={{ color: 'rgba(255, 255, 255, 0.5)' }}>退款政策</a>
           </div>
-          {siteConfig?.footer_text || '© 2024 ChatGPT Team. All rights reserved.'}
+          {siteConfig?.footer_text || '© 2025 ZenScale AI. All rights reserved.'}
         </div>
       </div>
     </div>

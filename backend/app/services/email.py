@@ -154,7 +154,7 @@ def send_email(
                                         <a href="mailto:contact@zenscaleai.com" style="color: #007aff; text-decoration: none;">联系我们</a>
                                     </p>
                                     <p style="margin: 16px 0 0 0; color: #c7c7cc; font-size: 11px;">
-                                        © 2024 ZenScale AI. All rights reserved.
+                                        © 2025 ZenScale AI. All rights reserved.
                                     </p>
                                 </td>
                             </tr>
