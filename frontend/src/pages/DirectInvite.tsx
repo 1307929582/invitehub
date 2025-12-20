@@ -463,7 +463,7 @@ export default function DirectInvite() {
         <div style={{ marginBottom: 20, padding: '16px 20px', background: 'rgba(255, 255, 255, 0.08)', borderRadius: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
             <TeamOutlined style={{ color: '#007aff', fontSize: 18 }} />
-            <Text style={{ color: 'white', fontWeight: 600, fontSize: 14 }}>商务合作</Text>
+            <Text style={{ color: 'white', fontWeight: 600, fontSize: 14 }}>商务合作 / 成为分销商</Text>
           </div>
           <Text style={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: 13, display: 'block', marginBottom: 6 }}>
             TG：<a href="https://t.me/sqbbzsy" target="_blank" rel="noopener noreferrer" style={{ color: '#007aff', fontWeight: 500 }}>@sqbbzsy</a>
