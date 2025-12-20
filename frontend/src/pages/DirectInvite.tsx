@@ -67,7 +67,7 @@ const DynamicIcon = ({ name }: { name: string }) => iconMap[name] || <StarOutlin
 
 const defaultFeatures: Feature[] = [
   { icon: 'SafetyOutlined', title: '安全稳定', description: '官方 Team 账号，数据隔离，稳定可靠' },
-  { icon: 'ThunderboltOutlined', title: 'GPT-4 无限', description: 'Team 版本无消息限制，畅享强大能力' },
+  { icon: 'ThunderboltOutlined', title: 'GPT-5 系列', description: 'Team 版本无消息限制，畅享最新模型' },
   { icon: 'CustomerServiceOutlined', title: '自助换车', description: 'Team 失效时可自助换车，无需等待' },
 ]
 
@@ -417,8 +417,30 @@ export default function DirectInvite() {
         </Space>
       </div>
 
-      <div style={{ marginTop: 40, color: 'rgba(255, 255, 255, 0.4)', fontSize: 12 }}>
-        {siteConfig?.footer_text || '© 2024 ChatGPT Team. All rights reserved.'}
+      <div style={{ marginTop: 40 }}>
+        {/* 推广信息 */}
+        <div style={{ marginBottom: 20, padding: '16px 20px', background: 'rgba(255, 255, 255, 0.08)', borderRadius: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+            <RocketOutlined style={{ color: '#34c759', fontSize: 18 }} />
+            <Text style={{ color: 'white', fontWeight: 600, fontSize: 14 }}>API 服务</Text>
+          </div>
+          <Text style={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: 13 }}>
+            OpenAI 兼容 API：<a href="https://mmw.zenscaleai.com" target="_blank" rel="noopener noreferrer" style={{ color: '#34c759', fontWeight: 500 }}>mmw.zenscaleai.com</a>
+          </Text>
+        </div>
+        <div style={{ marginBottom: 20, padding: '16px 20px', background: 'rgba(255, 255, 255, 0.08)', borderRadius: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+            <TeamOutlined style={{ color: '#007aff', fontSize: 18 }} />
+            <Text style={{ color: 'white', fontWeight: 600, fontSize: 14 }}>成为分销商</Text>
+          </div>
+          <Text style={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: 13 }}>
+            想成为分销商？联系 TG：<a href="https://t.me/sqbbzsy" target="_blank" rel="noopener noreferrer" style={{ color: '#007aff', fontWeight: 500 }}>@sqbbzsy</a>
+          </Text>
+        </div>
+        {/* 版权信息 */}
+        <div style={{ color: 'rgba(255, 255, 255, 0.4)', fontSize: 12 }}>
+          {siteConfig?.footer_text || '© 2024 ChatGPT Team. All rights reserved.'}
+        </div>
       </div>
     </div>
   )
