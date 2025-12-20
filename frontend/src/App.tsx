@@ -30,6 +30,7 @@ import Coupons from './pages/Coupons'
 import Purchase from './pages/Purchase'
 import PayResult from './pages/PayResult'
 import UnauthorizedMembers from './pages/UnauthorizedMembers'
+import Legal from './pages/Legal'
 // 分销商相关页面
 import DistributorLogin from './pages/distributor/DistributorLogin'
 import DistributorRegister from './pages/distributor/DistributorRegister'
@@ -104,14 +105,16 @@ function App() {
   const [loading, setLoading] = useState(true)
   const [initialized, setInitialized] = useState<boolean | null>(null)  // 初始为 null，等待 API 返回
 
-  // 全局白标域名检测：除了主站外，所有域名都只能访问 /invite
+  // 全局白标域名检测：除了主站外，所有域名都只能访问 /invite 和 /legal
   useEffect(() => {
     const hostname = window.location.hostname.toLowerCase()
     const isMainSite = hostname === 'mmw-team.zenscaleai.com' || hostname === 'localhost'
     const currentPath = window.location.pathname
 
-    // 如果不是主站，且不在 /invite 路径，则跳转
-    if (!isMainSite && !currentPath.startsWith('/invite')) {
+    // 如果不是主站，且不在允许的公开路径，则跳转
+    const allowedPaths = ['/invite', '/legal']
+    const isAllowed = allowedPaths.some(p => currentPath.startsWith(p))
+    if (!isMainSite && !isAllowed) {
       window.location.replace('/invite')
     }
   }, [])
@@ -165,6 +168,7 @@ function App() {
         <Route path="/invite/:code" element={<DirectInvite />} />
         <Route path="/purchase" element={<Purchase />} />
         <Route path="/pay/result" element={<PayResult />} />
+        <Route path="/legal" element={<Legal />} />
         <Route path="/rebind" element={<Navigate to="/invite" replace />} />
 
         {/* 分销商注册页面（公开）- 旧路径重定向 */}
