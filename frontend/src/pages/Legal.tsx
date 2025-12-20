@@ -24,7 +24,7 @@ export default function Legal() {
 
   const contactEmail = 'contact@zenscaleai.com'
   const siteName = 'ZenScale AI'
-  const lastUpdated = '2025年1月'
+  const lastUpdated = '2025年12月'
 
   return (
     <div style={{
