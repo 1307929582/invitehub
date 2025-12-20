@@ -31,6 +31,8 @@ import Purchase from './pages/Purchase'
 import PayResult from './pages/PayResult'
 import UnauthorizedMembers from './pages/UnauthorizedMembers'
 import Legal from './pages/Legal'
+import FAQ from './pages/FAQ'
+import NotFound from './pages/NotFound'
 // 分销商相关页面
 import DistributorLogin from './pages/distributor/DistributorLogin'
 import DistributorRegister from './pages/distributor/DistributorRegister'
@@ -112,7 +114,7 @@ function App() {
     const currentPath = window.location.pathname
 
     // 如果不是主站，且不在允许的公开路径，则跳转
-    const allowedPaths = ['/invite', '/legal']
+    const allowedPaths = ['/invite', '/legal', '/faq']
     const isAllowed = allowedPaths.some(p => currentPath.startsWith(p))
     if (!isMainSite && !isAllowed) {
       window.location.replace('/invite')
@@ -169,6 +171,7 @@ function App() {
         <Route path="/purchase" element={<Purchase />} />
         <Route path="/pay/result" element={<PayResult />} />
         <Route path="/legal" element={<Legal />} />
+        <Route path="/faq" element={<FAQ />} />
         <Route path="/rebind" element={<Navigate to="/invite" replace />} />
 
         {/* 分销商注册页面（公开）- 旧路径重定向 */}
@@ -233,6 +236,9 @@ function App() {
           <Route path="distributors" element={<AdminDistributors />} />
           <Route path="distributor-analytics" element={<AdminDistributorAnalytics />} />
         </Route>
+
+        {/* 404 页面 */}
+        <Route path="*" element={<NotFound />} />
       </Routes>
     </BrowserRouter>
     </ConfigProvider>

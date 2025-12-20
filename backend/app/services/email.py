@@ -103,22 +103,66 @@ def send_email(
         msg = MIMEMultipart()
         msg['From'] = smtp_user
         msg['To'] = admin_email
-        msg['Subject'] = f"[Team管理] {subject}"
-        
-        # HTML 内容
+        msg['Subject'] = f"[ZenScale AI] {subject}"
+
+        # HTML 内容 - 专业品牌化模板
         html_content = f"""
+        <!DOCTYPE html>
         <html>
-        <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; padding: 20px; background: #f5f5f5;">
-            <div style="max-width: 600px; margin: 0 auto; background: white; border-radius: 12px; padding: 30px; box-shadow: 0 2px 10px rgba(0,0,0,0.1);">
-                <h2 style="color: #1a1a2e; margin-bottom: 20px;">{subject}</h2>
-                <div style="color: #333; line-height: 1.6;">
-                    {content}
-                </div>
-                <hr style="border: none; border-top: 1px solid #eee; margin: 30px 0;">
-                <p style="color: #999; font-size: 12px;">
-                    此邮件由 ChatGPT Team 管理系统自动发送
-                </p>
-            </div>
+        <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        </head>
+        <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background: #f5f5f7;">
+            <table width="100%" cellpadding="0" cellspacing="0" style="background: #f5f5f7; padding: 40px 20px;">
+                <tr>
+                    <td align="center">
+                        <table width="600" cellpadding="0" cellspacing="0" style="max-width: 600px; width: 100%;">
+                            <!-- Header -->
+                            <tr>
+                                <td style="text-align: center; padding-bottom: 30px;">
+                                    <div style="display: inline-block; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); padding: 12px 24px; border-radius: 12px;">
+                                        <span style="color: #fff; font-size: 18px; font-weight: 700; letter-spacing: 1px;">ZenScale AI</span>
+                                    </div>
+                                </td>
+                            </tr>
+                            <!-- Content -->
+                            <tr>
+                                <td style="background: #ffffff; border-radius: 16px; box-shadow: 0 4px 24px rgba(0,0,0,0.08);">
+                                    <table width="100%" cellpadding="0" cellspacing="0">
+                                        <tr>
+                                            <td style="padding: 40px;">
+                                                <h1 style="margin: 0 0 24px 0; font-size: 22px; font-weight: 700; color: #1d1d1f;">{subject}</h1>
+                                                <div style="color: #333; line-height: 1.7; font-size: 15px;">
+                                                    {content}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    </table>
+                                </td>
+                            </tr>
+                            <!-- Footer -->
+                            <tr>
+                                <td style="padding: 30px 20px; text-align: center;">
+                                    <p style="margin: 0 0 12px 0; color: #86868b; font-size: 13px;">
+                                        此邮件由 ZenScale AI 系统自动发送
+                                    </p>
+                                    <p style="margin: 0; color: #86868b; font-size: 12px;">
+                                        <a href="https://mmw-team.zenscaleai.com/faq" style="color: #007aff; text-decoration: none;">常见问题</a>
+                                        &nbsp;·&nbsp;
+                                        <a href="https://mmw-team.zenscaleai.com/legal" style="color: #007aff; text-decoration: none;">服务条款</a>
+                                        &nbsp;·&nbsp;
+                                        <a href="mailto:contact@zenscaleai.com" style="color: #007aff; text-decoration: none;">联系我们</a>
+                                    </p>
+                                    <p style="margin: 16px 0 0 0; color: #c7c7cc; font-size: 11px;">
+                                        © 2024 ZenScale AI. All rights reserved.
+                                    </p>
+                                </td>
+                            </tr>
+                        </table>
+                    </td>
+                </tr>
+            </table>
         </body>
         </html>
         """
@@ -401,20 +445,20 @@ def test_email_connection(db: Session) -> Dict[str, Any]:
 
 def send_verification_code_email(db: Session, to_email: str, code: str) -> bool:
     """发送分销商注册验证码"""
-    subject = "分销商注册验证码"
+    subject = "注册验证码"
     content = f"""
-    <div style="padding: 30px; background: #f0f9ff; border-radius: 8px; border-left: 4px solid #0ea5e9;">
-        <h3 style="margin: 0 0 20px 0; color: #0284c7;">欢迎注册分销商账号</h3>
-        <p style="margin: 0 0 15px 0; color: #333;">您正在注册分销商账号，请使用以下验证码完成注册：</p>
-        <div style="text-align: center; padding: 20px; background: white; border-radius: 8px; margin: 20px 0;">
-            <span style="font-size: 32px; font-weight: bold; color: #0284c7; letter-spacing: 8px;">{code}</span>
+    <div style="text-align: center;">
+        <div style="margin-bottom: 24px;">
+            <span style="display: inline-block; padding: 8px 16px; background: #ecfdf5; color: #059669; border-radius: 20px; font-size: 13px; font-weight: 500;">分销商注册</span>
         </div>
-        <p style="margin: 0; color: #666; font-size: 14px;">
-            ⏰ 验证码有效期为 <strong>10 分钟</strong>，请勿泄露给他人。
-        </p>
-        <p style="margin: 10px 0 0 0; color: #999; font-size: 12px;">
-            如果这不是您的操作，请忽略此邮件。
-        </p>
+        <p style="margin: 0 0 24px 0; color: #333; font-size: 15px;">您正在注册分销商账号，请使用以下验证码完成注册：</p>
+        <div style="padding: 24px; background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%); border-radius: 12px; margin: 0 0 24px 0;">
+            <span style="font-size: 36px; font-weight: 700; color: #0284c7; letter-spacing: 8px; font-family: 'SF Mono', Monaco, monospace;">{code}</span>
+        </div>
+        <div style="padding: 16px; background: #fef3c7; border-radius: 8px; text-align: left;">
+            <p style="margin: 0 0 8px 0; color: #92400e; font-size: 13px; font-weight: 500;">⏰ 验证码有效期为 10 分钟</p>
+            <p style="margin: 0; color: #a16207; font-size: 12px;">请勿将验证码分享给他人，如非本人操作请忽略此邮件。</p>
+        </div>
     </div>
     """
     return send_email(db, subject, content, to_email=to_email)

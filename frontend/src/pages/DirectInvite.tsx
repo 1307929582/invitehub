@@ -475,6 +475,7 @@ export default function DirectInvite() {
         {/* 版权信息 */}
         <div style={{ color: 'rgba(255, 255, 255, 0.4)', fontSize: 12 }}>
           <div style={{ marginBottom: 8 }}>
+            <a href="/faq" style={{ color: 'rgba(255, 255, 255, 0.5)', marginRight: 16 }}>常见问题</a>
             <a href="/legal#privacy" style={{ color: 'rgba(255, 255, 255, 0.5)', marginRight: 16 }}>隐私政策</a>
             <a href="/legal#terms" style={{ color: 'rgba(255, 255, 255, 0.5)', marginRight: 16 }}>服务条款</a>
             <a href="/legal#refund" style={{ color: 'rgba(255, 255, 255, 0.5)' }}>退款政策</a>
