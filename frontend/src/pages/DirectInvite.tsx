@@ -478,7 +478,7 @@ export default function DirectInvite() {
   )
 
   // 右侧面板
-  const renderRightPanel = () => (
+  const renderRightPanel = (isSimplePage = false) => (
     <div style={{
       height: '100%',
       minHeight: screens.md ? '100vh' : 'auto',
@@ -498,7 +498,7 @@ export default function DirectInvite() {
 
       <Card style={{
         width: '100%',
-        maxWidth: 460,
+        maxWidth: isSimplePage ? 560 : 460,
         background: 'rgba(255, 255, 255, 0.9)',
         backdropFilter: 'blur(20px)',
         WebkitBackdropFilter: 'blur(20px)',
@@ -574,7 +574,7 @@ export default function DirectInvite() {
         justifyContent: 'center',
         padding: 20,
       }}>
-        {renderRightPanel()}
+        {renderRightPanel(true)}
       </div>
     )
   }
