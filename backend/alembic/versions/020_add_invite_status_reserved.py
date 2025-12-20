@@ -1,7 +1,7 @@
 """Add RESERVED value to InviteStatus enum
 
-Revision ID: 020
-Revises: 019
+Revision ID: 020_add_invite_status_reserved
+Revises: 019_add_distributor_order_fields
 Create Date: 2024-12-21
 
 """
@@ -9,8 +9,8 @@ from alembic import op
 
 
 # revision identifiers, used by Alembic.
-revision = '020'
-down_revision = '019'
+revision = '020_add_invite_status_reserved'
+down_revision = '019_add_distributor_order_fields'
 branch_labels = None
 depends_on = None
 
