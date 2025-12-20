@@ -4,7 +4,7 @@
 用于统一判断成员是否为未授权成员（非系统邀请）
 """
 from sqlalchemy.orm import Session
-from app.models import InviteRecord, InviteStatus, User, SystemConfig
+from app.models import InviteRecord, InviteStatus, User, SystemConfig, UserRole
 from typing import Set
 import logging
 
@@ -22,9 +22,10 @@ def check_is_unauthorized(
 
     逻辑：
     1. 管理员角色不检查 → False
-    2. 白名单后缀不检查 → False
-    3. 系统管理员邮箱不检查 → False
-    4. 不在当前 Team 的邀请记录中 → True（未授权）
+    2. 精确邮箱白名单（authorized_email_whitelist）→ False
+    3. 白名单后缀不检查 → False
+    4. 系统管理员邮箱不检查 → False
+    5. 不在当前 Team 的邀请记录中 → True（未授权）
 
     Args:
         email: 成员邮箱（应已规范化：lower + strip）
@@ -45,7 +46,17 @@ def check_is_unauthorized(
     if normalized_role in admin_roles:
         return False
 
-    # 2. 检查白名单后缀
+    # 2. 检查精确邮箱白名单（管理员手动授权的邮箱）
+    whitelist_email_config = db.query(SystemConfig).filter(
+        SystemConfig.key == "authorized_email_whitelist"
+    ).first()
+
+    if whitelist_email_config and whitelist_email_config.value:
+        whitelist_emails = {e.strip().lower() for e in whitelist_email_config.value.split(",") if e.strip()}
+        if normalized_email in whitelist_emails:
+            return False
+
+    # 3. 检查白名单后缀
     whitelist_suffix_config = db.query(SystemConfig).filter(
         SystemConfig.key == "admin_email_suffix"
     ).first()
@@ -55,16 +66,19 @@ def check_is_unauthorized(
         if any(normalized_email.endswith(suffix) for suffix in whitelist_suffixes):
             return False
 
-    # 3. 检查是否为系统管理员
+    # 4. 检查是否为系统管理员（仅检查 Admin 角色的活跃用户）
     admin_emails = set()
-    admins = db.query(User).filter(User.is_active == True).all()
+    admins = db.query(User).filter(
+        User.is_active == True,
+        User.role == UserRole.ADMIN
+    ).all()
     for admin in admins:
         admin_emails.add(admin.email.lower().strip())
 
     if normalized_email in admin_emails:
         return False
 
-    # 4. 检查是否在当前 Team 的邀请记录中（限定 Team 维度）
+    # 5. 检查是否在当前 Team 的邀请记录中（限定 Team 维度）
     invite_record = db.query(InviteRecord).filter(
         InviteRecord.team_id == team_id,  # ← 关键：限定在当前 Team
         InviteRecord.email == normalized_email,
@@ -98,8 +112,11 @@ def get_authorized_emails_for_team(team_id: int, db: Session) -> Set[str]:
     for inv in invites:
         authorized_emails.add(inv.email.lower().strip())
 
-    # 2. 系统管理员邮箱
-    admins = db.query(User).filter(User.is_active == True).all()
+    # 2. 系统管理员邮箱（仅 Admin 角色）
+    admins = db.query(User).filter(
+        User.is_active == True,
+        User.role == UserRole.ADMIN
+    ).all()
     for admin in admins:
         authorized_emails.add(admin.email.lower().strip())
 

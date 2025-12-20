@@ -68,12 +68,13 @@ async def get_queue_status() -> dict:
 async def process_invite_batch(batch: List[Dict]):
     """
     批量处理邀请 - 使用智能分配算法
-    
+
     改进点：
     1. 使用 SeatCalculator 精确计算可用座位（包含 pending 邀请）
     2. 使用 BatchAllocator 智能分配到多个 Team
     3. 使用数据库锁防止并发超载
-    
+    4. 【P0-1】支持预占座位：reserved_team_id 直接使用，跳过分配
+
     Requirements: 1.1, 2.1, 2.2, 2.3, 2.4, 3.1, 3.2, 3.3
     """
     from app.services.chatgpt_api import ChatGPTAPI, ChatGPTAPIError
@@ -83,15 +84,29 @@ async def process_invite_batch(batch: List[Dict]):
     from app.services.seat_calculator import get_all_teams_with_seats, get_team_available_seats
     from app.services.batch_allocator import BatchAllocator, InviteTask
     from sqlalchemy import text
-    
+
     if not batch:
         return
-    
+
     db = SessionLocal()
     try:
+        # P0-1: 分离有预占 Team 的和需要分配的
+        reserved_items = [item for item in batch if item.get("reserved_team_id")]
+        allocate_items = [item for item in batch if not item.get("reserved_team_id")]
+
+        # 处理预占的邀请（直接使用指定 Team，不走分配逻辑）
+        if reserved_items:
+            await _process_reserved_invites(db, reserved_items)
+
+        # 处理需要分配的邀请（原有逻辑）
+        if not allocate_items:
+            db.commit()
+            invalidate_seat_cache()
+            return
+
         # 按 group_id 分组
         groups: Dict[int, List[Dict]] = {}
-        for item in batch:
+        for item in allocate_items:
             gid = item.get("group_id") or 0
             if gid not in groups:
                 groups[gid] = []
@@ -172,6 +187,130 @@ async def process_invite_batch(batch: List[Dict]):
         traceback.print_exc()
     finally:
         db.close()
+
+
+async def _process_reserved_invites(db, items: List[Dict]):
+    """
+    处理预占座位的邀请（P0-1 核心逻辑）
+
+    当 API 层已经创建了 RESERVED 记录时，直接使用该 Team 发送邀请，
+    成功后将 RESERVED 状态更新为 SUCCESS。
+
+    Args:
+        db: 数据库会话
+        items: 带有 reserved_team_id 的邀请项列表
+    """
+    from app.services.chatgpt_api import ChatGPTAPI, ChatGPTAPIError
+    from app.models import Team, InviteRecord, InviteStatus, TeamStatus
+
+    # 按 team_id 分组
+    team_groups: Dict[int, List[Dict]] = {}
+    for item in items:
+        tid = item["reserved_team_id"]
+        if tid not in team_groups:
+            team_groups[tid] = []
+        team_groups[tid].append(item)
+
+    for team_id, team_items in team_groups.items():
+        try:
+            # 获取 Team（使用锁防止并发问题）
+            team = db.query(Team).filter(Team.id == team_id).with_for_update().first()
+
+            if not team:
+                logger.error(f"Reserved team {team_id} not found")
+                # 更新 RESERVED 记录为失败
+                for item in team_items:
+                    db.query(InviteRecord).filter(
+                        InviteRecord.email == item["email"],
+                        InviteRecord.redeem_code == item.get("redeem_code"),
+                        InviteRecord.status == InviteStatus.RESERVED,
+                        InviteRecord.team_id == team_id
+                    ).update({"status": InviteStatus.FAILED, "error_message": "Team not found"})
+                continue
+
+            # 二次校验 Team 健康状态
+            if not team.is_active or team.status != TeamStatus.ACTIVE:
+                logger.warning(f"Reserved team {team_id} is not healthy")
+                for item in team_items:
+                    db.query(InviteRecord).filter(
+                        InviteRecord.email == item["email"],
+                        InviteRecord.redeem_code == item.get("redeem_code"),
+                        InviteRecord.status == InviteStatus.RESERVED,
+                        InviteRecord.team_id == team_id
+                    ).update({"status": InviteStatus.FAILED, "error_message": f"Team {team.name} is not healthy"})
+                continue
+
+            # 发送邀请
+            emails = [item["email"] for item in team_items]
+            batch_id = f"reserved-{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+
+            try:
+                api = ChatGPTAPI(team.session_token, team.device_id or "")
+                await api.invite_members(team.account_id, emails)
+
+                # 成功：更新 RESERVED -> SUCCESS
+                for item in team_items:
+                    db.query(InviteRecord).filter(
+                        InviteRecord.email == item["email"],
+                        InviteRecord.redeem_code == item.get("redeem_code"),
+                        InviteRecord.status == InviteStatus.RESERVED,
+                        InviteRecord.team_id == team_id
+                    ).update({
+                        "status": InviteStatus.SUCCESS,
+                        "batch_id": batch_id,
+                        "is_rebind": item.get("is_rebind", False)
+                    })
+
+                logger.info(f"Reserved invite success: {len(emails)} emails to {team.name}")
+
+                # 处理换车：踢出原 Team
+                for item in team_items:
+                    if item.get("is_rebind") and item.get("old_team_id") and item.get("old_team_chatgpt_user_id"):
+                        try:
+                            from app.services.batch_allocator import InviteTask
+                            task = InviteTask(
+                                email=item["email"],
+                                redeem_code=item.get("redeem_code"),
+                                group_id=item.get("group_id"),
+                                is_rebind=True,
+                                consume_rebind_count=item.get("consume_rebind_count", False),
+                                old_team_id=item.get("old_team_id"),
+                                old_team_chatgpt_user_id=item.get("old_team_chatgpt_user_id")
+                            )
+                            await _remove_from_old_team(db, task, team.name)
+                        except Exception as kick_err:
+                            logger.error(f"Failed to kick {item['email']} from old team: {kick_err}")
+
+                # 发送 Telegram 通知
+                rebind_items = [i for i in team_items if i.get("is_rebind")]
+                normal_items = [i for i in team_items if not i.get("is_rebind")]
+
+                if normal_items:
+                    from app.services.batch_allocator import InviteTask
+                    tasks = [InviteTask(email=i["email"], redeem_code=i.get("redeem_code"), group_id=i.get("group_id"))
+                             for i in normal_items]
+                    await send_batch_telegram_notify(db, tasks, team.name, is_rebind=False)
+                if rebind_items:
+                    from app.services.batch_allocator import InviteTask
+                    tasks = [InviteTask(email=i["email"], redeem_code=i.get("redeem_code"), group_id=i.get("group_id"), is_rebind=True)
+                             for i in rebind_items]
+                    await send_batch_telegram_notify(db, tasks, team.name, is_rebind=True)
+
+            except ChatGPTAPIError as e:
+                logger.error(f"Reserved invite to {team.name} failed: {e.message}")
+                # 更新 RESERVED 记录为失败
+                for item in team_items:
+                    db.query(InviteRecord).filter(
+                        InviteRecord.email == item["email"],
+                        InviteRecord.redeem_code == item.get("redeem_code"),
+                        InviteRecord.status == InviteStatus.RESERVED,
+                        InviteRecord.team_id == team_id
+                    ).update({"status": InviteStatus.FAILED, "error_message": str(e.message)[:200]})
+                raise  # 触发 Celery 重试
+
+        except Exception as e:
+            logger.error(f"Error processing reserved invites for team {team_id}: {e}")
+            raise  # 触发 Celery 重试
 
 
 async def _process_team_invites_with_lock(

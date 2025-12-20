@@ -1,6 +1,6 @@
-import { useState } from 'react'
-import { Form, Input, Button, Card, Alert, Result, Spin, message, Tag } from 'antd'
-import { SwapOutlined, MailOutlined, KeyOutlined, CheckCircleOutlined, CloseCircleOutlined, HomeOutlined, SearchOutlined, ClockCircleOutlined, TeamOutlined } from '@ant-design/icons'
+import { useState, useEffect, useCallback } from 'react'
+import { Input, Button, Card, Alert, Result, Spin, message, Tag } from 'antd'
+import { SwapOutlined, KeyOutlined, CheckCircleOutlined, CloseCircleOutlined, HomeOutlined, ClockCircleOutlined, TeamOutlined, MailOutlined, LoadingOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { publicApi } from '../api'
 
@@ -22,55 +22,65 @@ interface RebindResponse {
 }
 
 export default function Rebind() {
-  const [form] = Form.useForm()
+  const [code, setCode] = useState('')
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<RebindResponse | null>(null)
-  const navigate = useNavigate()
-
-  // 状态查询相关
-  const [queryEmail, setQueryEmail] = useState('')
   const [querying, setQuerying] = useState(false)
   const [statusResult, setStatusResult] = useState<StatusResult | null>(null)
+  const navigate = useNavigate()
 
   // 计算剩余天数颜色
   const getDaysColor = (days: number | null | undefined) => {
     if (days === null || days === undefined) return '#86868b'
-    if (days > 15) return '#34c759'  // 绿色
-    if (days > 5) return '#ff9500'   // 橙色
-    return '#ff3b30'                  // 红色
+    if (days > 15) return '#34c759'
+    if (days > 5) return '#ff9500'
+    return '#ff3b30'
   }
 
-  // 查询用户状态
-  const handleQueryStatus = async () => {
-    if (!queryEmail || !queryEmail.includes('@')) {
-      message.error('请输入有效的邮箱地址')
+  // 防抖查询状态
+  const queryStatus = useCallback(async (codeValue: string) => {
+    const trimmedCode = codeValue.trim().toUpperCase()
+    if (trimmedCode.length < 6) {
+      setStatusResult(null)
       return
     }
 
     setQuerying(true)
     try {
-      const res: any = await publicApi.getStatus({ email: queryEmail.trim().toLowerCase() })
+      const res: any = await publicApi.getStatus({ code: trimmedCode })
       setStatusResult(res)
-      if (res.found) {
-        // 自动填充表单
-        form.setFieldsValue({ email: queryEmail.trim().toLowerCase() })
-      }
-    } catch (error: any) {
-      message.error('查询失败')
+    } catch {
+      setStatusResult(null)
     } finally {
       setQuerying(false)
     }
-  }
+  }, [])
 
-  const handleSubmit = async (values: { email: string; code: string }) => {
+  // 输入变化时延迟查询
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (code.trim().length >= 6) {
+        queryStatus(code)
+      } else {
+        setStatusResult(null)
+      }
+    }, 500)
+
+    return () => clearTimeout(timer)
+  }, [code, queryStatus])
+
+  const handleSubmit = async () => {
+    const trimmedCode = code.trim().toUpperCase()
+    if (trimmedCode.length < 6) {
+      message.error('请输入有效的兑换码')
+      return
+    }
+
     setLoading(true)
     setResult(null)
 
     try {
-      const res: any = await publicApi.rebind({
-        email: values.email.trim().toLowerCase(),
-        code: values.code.trim().toUpperCase()
-      })
+      const res: any = await publicApi.rebind({ code: trimmedCode })
       setResult(res)
       if (res.success) {
         message.success('换车请求已提交！')
@@ -91,6 +101,8 @@ export default function Rebind() {
       setLoading(false)
     }
   }
+
+  const canSubmit = statusResult?.found && statusResult?.can_rebind
 
   return (
     <div style={{
@@ -157,138 +169,9 @@ export default function Rebind() {
             color: '#86868b',
             margin: 0
           }}>
-            使用兑换码自由切换 Team 座位
+            输入兑换码即可切换 Team 座位
           </p>
         </div>
-
-        {/* 状态查询卡片 */}
-        <Card
-          style={{
-            background: 'rgba(255, 255, 255, 0.9)',
-            backdropFilter: 'blur(20px)',
-            borderRadius: 16,
-            border: 'none',
-            boxShadow: '0 4px 16px rgba(0, 0, 0, 0.06)',
-            marginBottom: 16
-          }}
-          bodyStyle={{ padding: 20 }}
-        >
-          <div style={{ fontWeight: 600, color: '#1d1d1f', marginBottom: 12, fontSize: 14 }}>
-            <SearchOutlined style={{ marginRight: 8 }} />
-            查询当前状态
-          </div>
-          <div style={{ display: 'flex', gap: 8 }}>
-            <Input
-              placeholder="输入邮箱查询"
-              value={queryEmail}
-              onChange={e => setQueryEmail(e.target.value)}
-              onPressEnter={handleQueryStatus}
-              style={{ flex: 1, borderRadius: 8 }}
-            />
-            <Button
-              onClick={handleQueryStatus}
-              loading={querying}
-              style={{ borderRadius: 8 }}
-            >
-              查询
-            </Button>
-          </div>
-
-          {/* 查询结果 */}
-          {statusResult && (
-            <div style={{ marginTop: 16 }}>
-              {statusResult.found ? (
-                <div style={{
-                  padding: 16,
-                  background: 'rgba(0, 122, 255, 0.04)',
-                  borderRadius: 12,
-                  fontSize: 13
-                }}>
-                  {/* Team 信息 */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                    <TeamOutlined style={{ color: '#007aff' }} />
-                    <span style={{ fontWeight: 500 }}>当前 Team：</span>
-                    <span style={{ color: '#1d1d1f' }}>{statusResult.team_name || '未知'}</span>
-                    {statusResult.team_active !== undefined && (
-                      <Tag color={statusResult.team_active ? 'success' : 'error'} style={{ marginLeft: 4 }}>
-                        {statusResult.team_active ? '正常' : '异常'}
-                      </Tag>
-                    )}
-                  </div>
-
-                  {/* 有效期信息 */}
-                  {statusResult.remaining_days !== null && statusResult.remaining_days !== undefined && (
-                    <div style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: 8,
-                      marginBottom: 12,
-                      padding: '8px 12px',
-                      background: 'rgba(255, 255, 255, 0.8)',
-                      borderRadius: 8
-                    }}>
-                      <ClockCircleOutlined style={{ color: getDaysColor(statusResult.remaining_days) }} />
-                      <span style={{ fontWeight: 500 }}>有效期：</span>
-                      <span style={{
-                        color: getDaysColor(statusResult.remaining_days),
-                        fontWeight: 600
-                      }}>
-                        剩余 {statusResult.remaining_days} 天
-                      </span>
-                      {statusResult.expires_at && (
-                        <span style={{ color: '#86868b', fontSize: 12 }}>
-                          （{new Date(statusResult.expires_at).toLocaleDateString('zh-CN')} 到期）
-                        </span>
-                      )}
-                    </div>
-                  )}
-
-                  {/* 兑换码信息 */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
-                    <KeyOutlined style={{ color: '#86868b' }} />
-                    <span style={{ fontWeight: 500 }}>绑定码：</span>
-                    <code style={{
-                      background: 'rgba(0, 0, 0, 0.04)',
-                      padding: '2px 8px',
-                      borderRadius: 4,
-                      fontFamily: 'monospace'
-                    }}>
-                      {statusResult.code}
-                    </code>
-                  </div>
-
-                  {/* 换车能力 */}
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 8,
-                    padding: '8px 12px',
-                    background: statusResult.can_rebind ? 'rgba(52, 199, 89, 0.1)' : 'rgba(255, 59, 48, 0.1)',
-                    borderRadius: 8
-                  }}>
-                    <SwapOutlined style={{ color: statusResult.can_rebind ? '#34c759' : '#ff3b30' }} />
-                    <span style={{
-                      color: statusResult.can_rebind ? '#34c759' : '#ff3b30',
-                      fontWeight: 500
-                    }}>
-                      {statusResult.can_rebind ? '可以换车' : '暂时无法换车'}
-                    </span>
-                  </div>
-                </div>
-              ) : (
-                <div style={{
-                  padding: 16,
-                  background: 'rgba(0, 0, 0, 0.02)',
-                  borderRadius: 12,
-                  textAlign: 'center',
-                  color: '#86868b'
-                }}>
-                  未找到该邮箱的绑定记录
-                </div>
-              )}
-            </div>
-          )}
-        </Card>
 
         {/* 主卡片 */}
         <Card
@@ -307,11 +190,10 @@ export default function Rebind() {
               <Alert
                 message="换车说明"
                 description={
-                  <ul style={{ margin: '8px 0 0', paddingLeft: 20 }}>
-                    <li>每个兑换码最多可换车 3 次</li>
-                    <li>换车后原 Team 邀请失效</li>
-                    <li>新邀请将在几秒内发送到邮箱</li>
-                    <li>兑换码过期后无法换车</li>
+                  <ul style={{ margin: '8px 0 0', paddingLeft: 20, fontSize: 13 }}>
+                    <li>输入兑换码后自动查询绑定信息</li>
+                    <li>仅当原 Team 被封禁时才能换车</li>
+                    <li>换车后新邀请将发送到绑定邮箱</li>
                   </ul>
                 }
                 type="info"
@@ -324,75 +206,135 @@ export default function Rebind() {
                 }}
               />
 
-              {/* 表单 */}
+              {/* 兑换码输入 */}
+              <div style={{ marginBottom: 20 }}>
+                <div style={{ fontWeight: 600, color: '#1d1d1f', marginBottom: 8 }}>
+                  <KeyOutlined style={{ marginRight: 8 }} />
+                  兑换码
+                </div>
+                <Input
+                  value={code}
+                  onChange={e => setCode(e.target.value.toUpperCase())}
+                  placeholder="请输入您的兑换码"
+                  size="large"
+                  suffix={querying ? <LoadingOutlined style={{ color: '#007aff' }} /> : null}
+                  style={{
+                    borderRadius: 12,
+                    fontSize: 15,
+                    fontFamily: 'monospace',
+                    letterSpacing: 1
+                  }}
+                />
+              </div>
+
+              {/* 状态显示区域 */}
+              {statusResult && (
+                <div style={{
+                  padding: 16,
+                  background: statusResult.found ? 'rgba(0, 122, 255, 0.04)' : 'rgba(0, 0, 0, 0.02)',
+                  borderRadius: 12,
+                  marginBottom: 20
+                }}>
+                  {statusResult.found ? (
+                    <>
+                      {/* 绑定邮箱 */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                        <MailOutlined style={{ color: '#007aff' }} />
+                        <span style={{ fontWeight: 500, fontSize: 13 }}>绑定邮箱：</span>
+                        <span style={{ color: '#1d1d1f', fontFamily: 'monospace' }}>
+                          {statusResult.email || '未绑定'}
+                        </span>
+                      </div>
+
+                      {/* Team 信息 */}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                        <TeamOutlined style={{ color: '#007aff' }} />
+                        <span style={{ fontWeight: 500, fontSize: 13 }}>当前 Team：</span>
+                        <span style={{ color: '#1d1d1f' }}>{statusResult.team_name || '未知'}</span>
+                        {statusResult.team_active !== undefined && (
+                          <Tag color={statusResult.team_active ? 'success' : 'error'} style={{ marginLeft: 4 }}>
+                            {statusResult.team_active ? '正常' : '已封禁'}
+                          </Tag>
+                        )}
+                      </div>
+
+                      {/* 有效期信息 */}
+                      {statusResult.remaining_days !== null && statusResult.remaining_days !== undefined && (
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          marginBottom: 12,
+                          padding: '8px 12px',
+                          background: 'rgba(255, 255, 255, 0.8)',
+                          borderRadius: 8
+                        }}>
+                          <ClockCircleOutlined style={{ color: getDaysColor(statusResult.remaining_days) }} />
+                          <span style={{ fontWeight: 500, fontSize: 13 }}>有效期：</span>
+                          <span style={{
+                            color: getDaysColor(statusResult.remaining_days),
+                            fontWeight: 600
+                          }}>
+                            剩余 {statusResult.remaining_days} 天
+                          </span>
+                          {statusResult.expires_at && (
+                            <span style={{ color: '#86868b', fontSize: 12 }}>
+                              （{new Date(statusResult.expires_at).toLocaleDateString('zh-CN')} 到期）
+                            </span>
+                          )}
+                        </div>
+                      )}
+
+                      {/* 换车状态提示 */}
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 8,
+                        padding: '10px 12px',
+                        background: statusResult.can_rebind ? 'rgba(52, 199, 89, 0.1)' : 'rgba(255, 149, 0, 0.1)',
+                        borderRadius: 8
+                      }}>
+                        <SwapOutlined style={{ color: statusResult.can_rebind ? '#34c759' : '#ff9500' }} />
+                        <span style={{
+                          color: statusResult.can_rebind ? '#34c759' : '#ff9500',
+                          fontWeight: 500,
+                          fontSize: 13
+                        }}>
+                          {statusResult.can_rebind
+                            ? '当前 Team 已封禁，可以换车'
+                            : '当前 Team 正常运行，无需换车'}
+                        </span>
+                      </div>
+                    </>
+                  ) : (
+                    <div style={{ textAlign: 'center', color: '#86868b', padding: '8px 0' }}>
+                      未找到此兑换码的绑定记录
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* 提交按钮 */}
               <Spin spinning={loading}>
-                <Form
-                  form={form}
-                  layout="vertical"
-                  onFinish={handleSubmit}
-                  requiredMark={false}
+                <Button
+                  type="primary"
+                  icon={<SwapOutlined />}
+                  size="large"
+                  block
+                  onClick={handleSubmit}
+                  loading={loading}
+                  disabled={!canSubmit}
+                  style={{
+                    height: 52,
+                    borderRadius: 12,
+                    fontSize: 16,
+                    fontWeight: 600,
+                    background: canSubmit ? '#007aff' : '#d1d1d6',
+                    border: 'none'
+                  }}
                 >
-                  <Form.Item
-                    name="email"
-                    label={<span style={{ fontWeight: 600, color: '#1d1d1f' }}>邮箱地址</span>}
-                    rules={[
-                      { required: true, message: '请输入邮箱地址' },
-                      { type: 'email', message: '请输入有效的邮箱地址' }
-                    ]}
-                  >
-                    <Input
-                      prefix={<MailOutlined style={{ color: '#86868b' }} />}
-                      placeholder="your@email.com"
-                      size="large"
-                      style={{
-                        borderRadius: 12,
-                        fontSize: 15
-                      }}
-                    />
-                  </Form.Item>
-
-                  <Form.Item
-                    name="code"
-                    label={<span style={{ fontWeight: 600, color: '#1d1d1f' }}>兑换码</span>}
-                    rules={[
-                      { required: true, message: '请输入兑换码' },
-                      { min: 6, message: '兑换码长度至少为 6 位' }
-                    ]}
-                  >
-                    <Input
-                      prefix={<KeyOutlined style={{ color: '#86868b' }} />}
-                      placeholder="请输入您的兑换码"
-                      size="large"
-                      style={{
-                        borderRadius: 12,
-                        fontSize: 15,
-                        fontFamily: 'monospace',
-                        letterSpacing: 1
-                      }}
-                    />
-                  </Form.Item>
-
-                  <Form.Item style={{ marginTop: 28, marginBottom: 0 }}>
-                    <Button
-                      type="primary"
-                      htmlType="submit"
-                      icon={<SwapOutlined />}
-                      size="large"
-                      block
-                      loading={loading}
-                      style={{
-                        height: 52,
-                        borderRadius: 12,
-                        fontSize: 16,
-                        fontWeight: 600,
-                        background: '#007aff',
-                        border: 'none'
-                      }}
-                    >
-                      {loading ? '换车中...' : '立即换车'}
-                    </Button>
-                  </Form.Item>
-                </Form>
+                  {loading ? '换车中...' : canSubmit ? '立即换车' : '输入兑换码查询状态'}
+                </Button>
               </Spin>
 
               {/* 返回首页按钮 */}
@@ -452,9 +394,8 @@ export default function Rebind() {
                     返回首页
                   </Button>
                 ) : (
-                  <div style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
+                  <div key="actions" style={{ display: 'flex', gap: 12, justifyContent: 'center' }}>
                     <Button
-                      key="retry"
                       type="primary"
                       icon={<SwapOutlined />}
                       size="large"
@@ -471,7 +412,6 @@ export default function Rebind() {
                       重新尝试
                     </Button>
                     <Button
-                      key="home"
                       icon={<HomeOutlined />}
                       size="large"
                       onClick={() => navigate('/')}

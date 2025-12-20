@@ -2,7 +2,7 @@
 import logging
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from sqlalchemy.orm import Session
 from sqlalchemy import func, and_, not_
 
@@ -68,12 +68,13 @@ def get_team_available_seats(db: Session, team_id: int) -> TeamSeatInfo:
     ).all()
     member_email_set = {e[0].lower() for e in member_emails}
     
-    # 3. 统计 pending 邀请数（24h 内，status=SUCCESS，email 不在 TeamMember 中）
+    # 3. 统计 pending 邀请数（24h 内，status=SUCCESS 或 RESERVED，email 不在 TeamMember 中）
+    # RESERVED: 座位已预占，等待 Celery 处理（防止超员核心逻辑）
     cutoff_time = get_pending_invite_cutoff()
-    
+
     pending_query = db.query(func.count(func.distinct(InviteRecord.email))).filter(
         InviteRecord.team_id == team_id,
-        InviteRecord.status == InviteStatus.SUCCESS,
+        InviteRecord.status.in_([InviteStatus.SUCCESS, InviteStatus.RESERVED]),
         InviteRecord.created_at >= cutoff_time
     )
     
@@ -163,16 +164,17 @@ def get_all_teams_with_seats(
             team_member_emails[team_id] = set()
         team_member_emails[team_id].add(email)
     
-    # 4. 批量查询 pending 邀请数
+    # 4. 批量查询 pending 邀请数（包含 SUCCESS 和 RESERVED 状态）
+    # RESERVED: 座位已预占，等待 Celery 处理（防止超员核心逻辑）
     cutoff_time = get_pending_invite_cutoff()
-    
-    # 获取所有 24h 内的成功邀请
+
+    # 获取所有 24h 内的成功邀请或预占邀请
     pending_invites = db.query(
         InviteRecord.team_id,
         func.lower(InviteRecord.email).label('email')
     ).filter(
         InviteRecord.team_id.in_(team_ids),
-        InviteRecord.status == InviteStatus.SUCCESS,
+        InviteRecord.status.in_([InviteStatus.SUCCESS, InviteStatus.RESERVED]),
         InviteRecord.created_at >= cutoff_time
     ).distinct().all()
     
@@ -238,15 +240,152 @@ def get_total_seat_stats(
     Requirements: 4.1, 4.2
     """
     teams = get_all_teams_with_seats(db, group_id=group_id)
-    
+
     total_seats = sum(t.max_seats for t in teams)
     confirmed = sum(t.confirmed_members for t in teams)
     pending = sum(t.pending_invites for t in teams)
     available = sum(t.available_seats for t in teams)
-    
+
     return {
         "total_seats": total_seats,
         "confirmed_members": confirmed,
         "pending_invites": pending,
         "available_seats": available
     }
+
+
+def reserve_seat_atomically(
+    db: Session,
+    email: str,
+    redeem_code: str,
+    group_id: Optional[int] = None
+) -> Tuple[bool, Optional[int], Optional[str]]:
+    """
+    原子性座位预占（核心防超员逻辑）
+
+    流程：
+    1. 使用 SELECT FOR UPDATE 锁定候选 Team（按 ID 升序，避免死锁）
+    2. 重新计算可用座位（锁内确保一致性）
+    3. 找到第一个有空位的 Team，创建 RESERVED 状态的 InviteRecord
+    4. 返回预占结果
+
+    Args:
+        db: 数据库会话
+        email: 用户邮箱
+        redeem_code: 兑换码
+        group_id: 可选的分组 ID
+
+    Returns:
+        Tuple[成功标志, Team ID, Team 名称]
+        失败时返回 (False, None, None)
+
+    Note:
+        - 调用者需要在事务内调用此函数
+        - 成功后调用者负责提交事务
+        - 失败时调用者负责回滚事务
+    """
+    # 1. 查询候选 Team（只查询健康的 Team）
+    team_query = db.query(Team).filter(
+        Team.is_active == True,
+        Team.status == TeamStatus.ACTIVE
+    )
+
+    if group_id:
+        team_query = team_query.filter(Team.group_id == group_id)
+
+    # 按 ID 升序排列，避免并发时产生死锁
+    team_query = team_query.order_by(Team.id.asc())
+
+    # 2. 使用 FOR UPDATE 锁定所有候选 Team（按 ID 顺序，避免死锁）
+    # PostgreSQL 支持 with_for_update()，MySQL 需要确保事务隔离级别
+    teams = team_query.with_for_update().all()
+
+    if not teams:
+        logger.warning("No active teams available for seat reservation")
+        return (False, None, None)
+
+    team_ids = [t.id for t in teams]
+
+    # 3. 批量获取各 Team 的成员数（锁内查询，保证一致性）
+    member_counts = db.query(
+        TeamMember.team_id,
+        func.count(TeamMember.id).label('count')
+    ).filter(
+        TeamMember.team_id.in_(team_ids)
+    ).group_by(TeamMember.team_id).all()
+
+    member_count_map = {row[0]: row[1] for row in member_counts}
+
+    # 4. 批量获取成员邮箱（用于排除已在 Team 中的 pending 邀请）
+    member_emails_query = db.query(
+        TeamMember.team_id,
+        func.lower(TeamMember.email)
+    ).filter(
+        TeamMember.team_id.in_(team_ids)
+    ).all()
+
+    team_member_emails = {}
+    for team_id, em in member_emails_query:
+        if team_id not in team_member_emails:
+            team_member_emails[team_id] = set()
+        team_member_emails[team_id].add(em)
+
+    # 5. 批量查询 pending 邀请数（包含 SUCCESS 和 RESERVED 状态）
+    cutoff_time = get_pending_invite_cutoff()
+
+    pending_invites = db.query(
+        InviteRecord.team_id,
+        func.lower(InviteRecord.email).label('email')
+    ).filter(
+        InviteRecord.team_id.in_(team_ids),
+        InviteRecord.status.in_([InviteStatus.SUCCESS, InviteStatus.RESERVED]),
+        InviteRecord.created_at >= cutoff_time
+    ).distinct().all()
+
+    # 按 Team 分组并计数（排除已在 TeamMember 中的）
+    pending_count_map = {}
+    for team_id, em in pending_invites:
+        member_set = team_member_emails.get(team_id, set())
+        if em not in member_set:
+            pending_count_map[team_id] = pending_count_map.get(team_id, 0) + 1
+
+    # 6. 遍历 Team，找到第一个有空位的
+    selected_team = None
+    for team in teams:
+        confirmed = member_count_map.get(team.id, 0)
+        pending = pending_count_map.get(team.id, 0)
+        available = team.max_seats - confirmed - pending
+
+        if available > 0:
+            selected_team = team
+            break
+
+    if not selected_team:
+        logger.warning(f"No available seats for reservation", extra={
+            "email": email,
+            "group_id": group_id
+        })
+        return (False, None, None)
+
+    # 7. 创建 RESERVED 状态的 InviteRecord（预占座位）
+    invite_record = InviteRecord(
+        team_id=selected_team.id,
+        email=email.lower().strip(),
+        redeem_code=redeem_code,
+        status=InviteStatus.RESERVED,
+        is_rebind=False
+    )
+    db.add(invite_record)
+
+    # 注意：不在这里 commit，让调用者决定
+    # db.flush() 让记录可见但不提交
+    db.flush()
+
+    logger.info(f"Seat reserved successfully", extra={
+        "email": email,
+        "team_id": selected_team.id,
+        "team_name": selected_team.name,
+        "invite_record_id": invite_record.id
+    })
+
+    return (True, selected_team.id, selected_team.name)

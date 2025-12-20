@@ -70,6 +70,26 @@ async def send_invite_telegram_notify(db: Session, email: str, team_name: str, r
 
 
 # ========== 站点配置 ==========
+from typing import List
+import json
+
+# Features 配置限制
+ALLOWED_FEATURE_ICONS = {
+    "SafetyOutlined", "ThunderboltOutlined", "TeamOutlined",
+    "CustomerServiceOutlined", "StarOutlined", "RocketOutlined",
+}
+MAX_FEATURES_JSON_CHARS = 10_000
+MAX_FEATURES = 12
+MAX_FEATURE_TEXT_LEN = 200
+
+
+class FeatureItem(BaseModel):
+    """首页特性项"""
+    icon: str = "StarOutlined"
+    title: str = ""
+    description: str = ""
+
+
 class SiteConfig(BaseModel):
     site_title: str = "ChatGPT Team 自助上车"
     site_description: str = "使用兑换码加入 Team"
@@ -77,13 +97,56 @@ class SiteConfig(BaseModel):
     success_message: str = "邀请已发送！请查收邮箱并接受邀请"
     footer_text: str = ""  # 页脚文字
     redeem_only: bool = False  # 是否为分销商白标域名（只兑换，不购买）
+    # 左侧面板配置
+    hero_title: Optional[str] = None  # 大标题
+    hero_subtitle: Optional[str] = None  # 副标题
+    features: Optional[List[FeatureItem]] = None  # 特性列表
+
+
+def _parse_features(features_json: Optional[str]) -> Optional[List[FeatureItem]]:
+    """解析 features JSON 字符串（带安全限制）"""
+    if not features_json:
+        return None
+
+    # 长度限制
+    if len(features_json) > MAX_FEATURES_JSON_CHARS:
+        logger.warning("features JSON too large; ignored")
+        return None
+
+    try:
+        data = json.loads(features_json)
+    except json.JSONDecodeError:
+        return None
+
+    if not isinstance(data, list):
+        return None
+
+    items: List[FeatureItem] = []
+    for raw in data[:MAX_FEATURES]:
+        if not isinstance(raw, dict):
+            continue
+
+        # 图标白名单
+        icon = str(raw.get("icon") or "StarOutlined").strip()
+        if icon not in ALLOWED_FEATURE_ICONS:
+            icon = "StarOutlined"
+
+        # 文本长度限制
+        title = str(raw.get("title") or "").strip()[:MAX_FEATURE_TEXT_LEN]
+        description = str(raw.get("description") or "").strip()[:MAX_FEATURE_TEXT_LEN]
+
+        if not title or not description:
+            continue
+
+        items.append(FeatureItem(icon=icon, title=title, description=description))
+
+    return items or None
 
 
 @router.get("/site-config", response_model=SiteConfig)
 async def get_site_config(request: Request, db: Session = Depends(get_db)):
     """获取站点配置（公开，带缓存）"""
     from app.cache import get_site_config_cache, set_site_config_cache
-    import re
 
     # 检测是否是分销商白标域名
     hostname = (request.url.hostname or "").strip().lower().rstrip('.')  # 移除尾点
@@ -98,7 +161,10 @@ async def get_site_config(request: Request, db: Session = Depends(get_db)):
             home_notice=get_config(db, "home_notice") or "",
             success_message=get_config(db, "success_message") or "邀请已发送！请查收邮箱并接受邀请",
             footer_text=get_config(db, "footer_text") or "",
-            redeem_only=True  # 分销商域名：只允许兑换
+            redeem_only=True,  # 分销商域名：只允许兑换
+            hero_title=get_config(db, "hero_title"),
+            hero_subtitle=get_config(db, "hero_subtitle"),
+            features=_parse_features(get_config(db, "features"))
         )
         return result
 
@@ -114,9 +180,12 @@ async def get_site_config(request: Request, db: Session = Depends(get_db)):
         home_notice=get_config(db, "home_notice") or "",
         success_message=get_config(db, "success_message") or "邀请已发送！请查收邮箱并接受邀请",
         footer_text=get_config(db, "footer_text") or "",
-        redeem_only=False  # 主站点：允许购买
+        redeem_only=False,  # 主站点：允许购买
+        hero_title=get_config(db, "hero_title"),
+        hero_subtitle=get_config(db, "hero_subtitle"),
+        features=_parse_features(get_config(db, "features"))
     )
-    
+
     # 写入缓存
     set_site_config_cache(result.model_dump())
     return result
@@ -269,9 +338,11 @@ async def _do_direct_redeem(data: DirectRedeemRequest, db: Session):
     2. 首次使用时绑定邮箱并开始计算有效期
     3. 非首次使用时校验邮箱一致性
     4. 检查用户有效期（30天）
+    5. 【P0-1 防超员】使用 DB 预占方案，确保座位可用后才返回成功
     """
     from app.tasks_celery import process_invite_task
     from app.metrics import redeem_requests_total, errors_total
+    from app.services.seat_calculator import reserve_seat_atomically
     from sqlalchemy import update
 
     email = data.email.lower().strip()
@@ -317,6 +388,7 @@ async def _do_direct_redeem(data: DirectRedeemRequest, db: Session):
     # 6. 使用 Redis 令牌桶扣减（避免数据库热点）
     # 注意：不限量码（max_uses == 0）不使用 Redis，直接走数据库路径
     redis_client = get_redis()
+    used_redis = False  # 跟踪是否使用了 Redis 令牌桶
     if redis_client and code.max_uses > 0:
         limiter = RedeemLimiter(redis_client)
 
@@ -330,6 +402,8 @@ async def _do_direct_redeem(data: DirectRedeemRequest, db: Session):
                 if not limiter.try_redeem(code.code):
                     errors_total.labels(error_type="code_exhausted", endpoint="direct_redeem").inc()
                     raise HTTPException(status_code=400, detail="兑换码已用完")
+                else:
+                    used_redis = True  # 成功使用了 Redis
             else:
                 errors_total.labels(error_type="code_exhausted", endpoint="direct_redeem").inc()
                 raise HTTPException(status_code=400, detail="兑换码已用完")
@@ -337,11 +411,35 @@ async def _do_direct_redeem(data: DirectRedeemRequest, db: Session):
         # 异步回写数据库（修复：传递 code.id 而非 code.code 字符串）
         from app.tasks_celery import sync_redeem_count_task
         sync_redeem_count_task.apply_async(args=[code.id], countdown=5)
+        used_redis = True  # 成功使用了 Redis 令牌桶
     else:
         # Redis 不可用时回退到数据库（max_uses == 0 表示不限量）
         if code.max_uses > 0 and code.used_count >= code.max_uses:
             errors_total.labels(error_type="code_exhausted", endpoint="direct_redeem").inc()
             raise HTTPException(status_code=400, detail="兑换码已用完")
+
+    # ========== P0-1 核心修改：座位预占 ==========
+    # 在继续处理之前，先原子性预占座位
+    # 如果座位已满，直接返回错误，而不是让用户进入等待队列
+    success, team_id, team_name = reserve_seat_atomically(
+        db=db,
+        email=email,
+        redeem_code=code.code,
+        group_id=code.group_id
+    )
+
+    if not success:
+        # 回滚 Redis 令牌桶（如果使用了的话）
+        if used_redis and redis_client and code.max_uses > 0:
+            limiter = RedeemLimiter(redis_client)
+            limiter.refund(code.code)
+            logger.info(f"Refunded Redis token for code {code.code} due to no available seats")
+
+        errors_total.labels(error_type="no_seats", endpoint="direct_redeem").inc()
+        raise HTTPException(
+            status_code=503,
+            detail="当前座位已满，请稍后重试或联系管理员"
+        )
 
     # 7. 首次使用：绑定邮箱和记录激活时间
     if is_first_use:
@@ -380,12 +478,31 @@ async def _do_direct_redeem(data: DirectRedeemRequest, db: Session):
                     status_code=400,
                     detail=f"此兑换码已绑定邮箱 {_mask_email(code.bound_email)}"
                 )
+
+            # 邮箱相同但首次激活被其他请求抢先完成，需要单独增加 used_count
+            # 注意：Redis 路径已在前面扣减，这里只处理非 Redis 路径
+            if not redis_client or code.max_uses == 0:
+                # 未使用 Redis 时，需要手动增加 used_count
+                add_result = db.execute(
+                    update(RedeemCode)
+                    .where(RedeemCode.id == code.id)
+                    .where(
+                        (RedeemCode.max_uses == 0) |
+                        (RedeemCode.used_count < RedeemCode.max_uses)
+                    )
+                    .values(used_count=RedeemCode.used_count + 1)
+                )
+                if add_result.rowcount == 0 and code.max_uses > 0:
+                    # 并发下已达上限
+                    errors_total.labels(error_type="code_exhausted", endpoint="direct_redeem").inc()
+                    raise HTTPException(status_code=400, detail="兑换码已用完")
         db.commit()
         db.refresh(code)
     else:
         # 非首次使用：只增加使用次数
-        if not redis_client:
-            db.execute(
+        # 注意：不限量码 (max_uses == 0) 也需要走数据库路径统计 used_count
+        if not redis_client or code.max_uses == 0:
+            add_result = db.execute(
                 update(RedeemCode)
                 .where(RedeemCode.id == code.id)
                 .where(
@@ -394,16 +511,22 @@ async def _do_direct_redeem(data: DirectRedeemRequest, db: Session):
                 )
                 .values(used_count=RedeemCode.used_count + 1)
             )
+            if add_result.rowcount == 0 and code.max_uses > 0:
+                # 并发下已达上限
+                errors_total.labels(error_type="code_exhausted", endpoint="direct_redeem").inc()
+                raise HTTPException(status_code=400, detail="兑换码已用完")
             db.commit()
             db.refresh(code)
 
-    # 8. 提交 Celery 邀请任务
+    # 8. 提交 Celery 邀请任务（座位已预占，状态为 RESERVED）
     try:
         process_invite_task.delay(
             email=email,
             redeem_code=code.code,
             group_id=code.group_id,
-            is_rebind=False
+            is_rebind=False,
+            used_redis=used_redis,
+            reserved_team_id=team_id  # 传递预占的 Team ID
         )
 
         redeem_requests_total.labels(status="success", code_type="direct").inc()
@@ -411,7 +534,7 @@ async def _do_direct_redeem(data: DirectRedeemRequest, db: Session):
         return DirectRedeemResponse(
             success=True,
             message="已加入队列，邀请将在几秒内发送，请查收邮箱",
-            team_name=None,
+            team_name=team_name,
             expires_at=code.user_expires_at,
             remaining_days=code.remaining_days,
             is_first_use=is_first_use
@@ -435,7 +558,7 @@ async def _do_direct_redeem(data: DirectRedeemRequest, db: Session):
             return DirectRedeemResponse(
                 success=True,
                 message="已加入队列，邀请将在几秒内发送，请查收邮箱",
-                team_name=None,
+                team_name=team_name,
                 expires_at=code.user_expires_at,
                 remaining_days=code.remaining_days,
                 is_first_use=is_first_use
@@ -443,7 +566,7 @@ async def _do_direct_redeem(data: DirectRedeemRequest, db: Session):
         except Exception as fallback_err:
             logger.error(f"Fallback to async queue also failed: {fallback_err}")
 
-            # 回滚（补偿事务）
+            # 回滚（补偿事务）- 需要删除 RESERVED 记录
             try:
                 # 仅当本次确实使用了 Redis 令牌桶时才回滚
                 if redis_client and code.max_uses > 0:
@@ -451,19 +574,29 @@ async def _do_direct_redeem(data: DirectRedeemRequest, db: Session):
                     limiter.refund(code.code)
                     logger.info(f"Refunded Redis token for code {code.code}")
 
-                # 如果是首次使用，还需要清除绑定信息
+                # 删除 RESERVED 记录
+                db.query(InviteRecord).filter(
+                    InviteRecord.email == email,
+                    InviteRecord.redeem_code == code.code,
+                    InviteRecord.status == InviteStatus.RESERVED,
+                    InviteRecord.team_id == team_id
+                ).delete()
+
+                # 如果是首次使用，还需要清除绑定信息（加条件保护防止误操作）
                 if is_first_use:
                     db.execute(
                         update(RedeemCode)
                         .where(RedeemCode.id == code.id)
+                        .where(RedeemCode.used_count > 0)  # 保护：防止减到负数
+                        .where(RedeemCode.bound_email == email)  # 保护：只清除自己绑定的
                         .values(
                             used_count=RedeemCode.used_count - 1,
                             activated_at=None,
                             bound_email=None
                         )
                     )
-                    db.commit()
-                    logger.info(f"Rolled back first use for code {code.code}")
+                db.commit()
+                logger.info(f"Rolled back first use for code {code.code}")
             except Exception as rollback_error:
                 logger.error(f"Failed to rollback code {code.code}: {rollback_error}")
 
@@ -504,40 +637,50 @@ async def redeem(request: Request, data: RedeemRequest, db: Session = Depends(ge
 
 
 async def _do_redeem(data: RedeemRequest, db: Session) -> RedeemResponse:
-    """执行商业版兑换逻辑"""
+    """
+    执行商业版兑换逻辑
+
+    核心规则（与 _do_direct_redeem 一致）：
+    1. 一个兑换码只能绑定一个邮箱
+    2. 首次使用时绑定邮箱并开始计算有效期
+    3. 非首次使用时校验邮箱一致性
+    4. 检查用户有效期（30天）
+    5. 【P0-1 防超员】使用 DB 预占方案，确保座位可用后才返回成功
+    """
     from app.tasks_celery import process_invite_task
     from sqlalchemy import update
     from app.metrics import redeem_requests_total, errors_total
-    
+    from app.services.seat_calculator import reserve_seat_atomically
+
     email = data.email.lower().strip()
     code_str = data.code.strip().upper()
-    
+
     # 1. 查找兑换码
     redeem_code = db.query(RedeemCode).filter(
         RedeemCode.code == code_str,
         RedeemCode.is_active == True
     ).first()
-    
+
     if not redeem_code:
         raise HTTPException(
-            status_code=400, 
+            status_code=400,
             detail={"error": RedeemError.INVALID_CODE, "message": "兑换码无效或不存在"}
         )
-    
+
     # 2. 检查管理员设置的过期时间
     if redeem_code.expires_at and redeem_code.expires_at < datetime.utcnow():
         raise HTTPException(
             status_code=400,
             detail={"error": RedeemError.CODE_EXPIRED, "message": "兑换码已过期"}
         )
-    
+
     # 3. 检查使用次数（max_uses == 0 表示不限量）
     if redeem_code.max_uses > 0 and redeem_code.used_count >= redeem_code.max_uses:
         raise HTTPException(
             status_code=400,
             detail={"error": RedeemError.CODE_USED_UP, "message": "兑换码已用完"}
         )
-    
+
     # 4. 检查邮箱绑定一致性 (Requirements 4.1, 4.2)
     if redeem_code.bound_email:
         # 已绑定邮箱，检查是否匹配
@@ -549,7 +692,7 @@ async def _do_redeem(data: RedeemRequest, db: Session) -> RedeemResponse:
                     "message": f"此兑换码已绑定邮箱 {_mask_email(redeem_code.bound_email)}，请使用绑定的邮箱"
                 }
             )
-        
+
         # 5. 检查用户有效期 (Requirements 2.2)
         if redeem_code.is_user_expired:
             raise HTTPException(
@@ -559,10 +702,28 @@ async def _do_redeem(data: RedeemRequest, db: Session) -> RedeemResponse:
                     "message": f"兑换码已于 {redeem_code.user_expires_at.strftime('%Y-%m-%d')} 过期"
                 }
             )
-    
-    # 6. 首次使用：绑定邮箱和记录激活时间 (Requirements 2.1, 4.1)
+
+    # 6. 判断是否首次使用
     is_first_use = redeem_code.activated_at is None
-    
+
+    # ========== P0-1 核心修改：座位预占 ==========
+    # 在继续处理之前，先原子性预占座位
+    # 如果座位已满，直接返回错误，而不是让用户进入等待队列
+    success, team_id, team_name = reserve_seat_atomically(
+        db=db,
+        email=email,
+        redeem_code=redeem_code.code,
+        group_id=redeem_code.group_id
+    )
+
+    if not success:
+        errors_total.labels(error_type="no_seats", endpoint="redeem").inc()
+        raise HTTPException(
+            status_code=503,
+            detail={"error": RedeemError.NO_AVAILABLE_TEAM, "message": "当前座位已满，请稍后重试或联系管理员"}
+        )
+
+    # 7. 首次使用：绑定邮箱和记录激活时间 (Requirements 2.1, 4.1)
     if is_first_use:
         # 原子性更新：绑定邮箱、激活时间、增加使用次数
         result = db.execute(
@@ -599,6 +760,23 @@ async def _do_redeem(data: RedeemRequest, db: Session) -> RedeemResponse:
                         "message": f"此兑换码已绑定邮箱 {_mask_email(redeem_code.bound_email)}"
                     }
                 )
+
+            # 邮箱相同但首次激活被其他请求抢先完成，需要单独增加 used_count
+            add_result = db.execute(
+                update(RedeemCode)
+                .where(RedeemCode.id == redeem_code.id)
+                .where(
+                    (RedeemCode.max_uses == 0) |
+                    (RedeemCode.used_count < RedeemCode.max_uses)
+                )
+                .values(used_count=RedeemCode.used_count + 1)
+            )
+            if add_result.rowcount == 0 and redeem_code.max_uses > 0:
+                # 并发下已达上限
+                raise HTTPException(
+                    status_code=400,
+                    detail={"error": RedeemError.CODE_USED_UP, "message": "兑换码已用完"}
+                )
     else:
         # 非首次使用：只增加使用次数
         result = db.execute(
@@ -619,14 +797,16 @@ async def _do_redeem(data: RedeemRequest, db: Session) -> RedeemResponse:
     
     db.commit()
     db.refresh(redeem_code)
-    
-    # 7. 发送邀请
+
+    # 9. 提交 Celery 邀请任务（座位已预占，状态为 RESERVED）
     try:
         process_invite_task.delay(
             email=email,
             redeem_code=redeem_code.code,
             group_id=redeem_code.group_id,
-            is_rebind=False
+            is_rebind=False,
+            used_redis=False,  # redeem 接口不使用 Redis 令牌桶
+            reserved_team_id=team_id  # 传递预占的 Team ID
         )
 
         redeem_requests_total.labels(status="success", code_type="linuxdo").inc()
@@ -634,7 +814,7 @@ async def _do_redeem(data: RedeemRequest, db: Session) -> RedeemResponse:
         return RedeemResponse(
             success=True,
             message="已加入队列，邀请将在几秒内发送，请查收邮箱",
-            team_name=None,  # 队列模式下不知道具体 Team
+            team_name=team_name,  # P0-1: 现在知道具体 Team（座位预占）
             expires_at=redeem_code.user_expires_at,
             remaining_days=redeem_code.remaining_days
         )
@@ -657,18 +837,28 @@ async def _do_redeem(data: RedeemRequest, db: Session) -> RedeemResponse:
             return RedeemResponse(
                 success=True,
                 message="已加入队列，邀请将在几秒内发送，请查收邮箱",
-                team_name=None,
+                team_name=team_name,  # P0-1: 现在知道具体 Team
                 expires_at=redeem_code.user_expires_at,
                 remaining_days=redeem_code.remaining_days
             )
         except Exception as fallback_err:
             logger.error(f"Fallback to async queue also failed: {fallback_err}")
 
-            # 回滚使用次数（补偿事务）
+            # 回滚（补偿事务）- 需要删除 RESERVED 记录
             try:
+                # 删除 RESERVED 记录
+                db.query(InviteRecord).filter(
+                    InviteRecord.email == email,
+                    InviteRecord.redeem_code == redeem_code.code,
+                    InviteRecord.status == InviteStatus.RESERVED,
+                    InviteRecord.team_id == team_id
+                ).delete()
+
+                # 回滚使用次数（加条件保护）
                 db.execute(
                     update(RedeemCode)
                     .where(RedeemCode.id == redeem_code.id)
+                    .where(RedeemCode.used_count > 0)  # 保护：防止减到负数
                     .values(used_count=RedeemCode.used_count - 1)
                 )
                 # 如果是首次使用，还需要清除绑定信息
@@ -676,13 +866,14 @@ async def _do_redeem(data: RedeemRequest, db: Session) -> RedeemResponse:
                     db.execute(
                         update(RedeemCode)
                         .where(RedeemCode.id == redeem_code.id)
+                        .where(RedeemCode.bound_email == email)  # 保护：只清除自己绑定的
                         .values(
                             activated_at=None,
                             bound_email=None
                         )
                     )
                 db.commit()
-                logger.info(f"Rolled back redeem code {redeem_code.code} after all failures")
+                logger.info(f"Rolled back redeem code {redeem_code.code} and RESERVED record after all failures")
             except Exception as rollback_error:
                 logger.error(f"Failed to rollback redeem code: {rollback_error}")
 
@@ -978,13 +1169,12 @@ async def get_invite_status(email: str, db: Session = Depends(get_db)):
 
 
 async def _do_rebind(data: RebindRequest, db: Session) -> RebindResponse:
-    """执行换车逻辑（支持自由换车）"""
+    """执行换车逻辑（支持自由换车，简化版只需兑换码）"""
     from app.tasks_celery import process_invite_task
     from app.metrics import rebind_requests_total, errors_total
     from app.models import RebindHistory
     from sqlalchemy import update
 
-    email = data.email.lower().strip()
     code_str = data.code.strip().upper()
 
     # 1. 查找兑换码（使用悲观锁防止并发问题）
@@ -999,14 +1189,19 @@ async def _do_rebind(data: RebindRequest, db: Session) -> RebindResponse:
             detail={"error": RebindError.INVALID_CODE, "message": "兑换码无效或不存在"}
         )
 
-    # 2. 检查邮箱绑定一致性
-    if not redeem_code.bound_email:
+    # 2. 获取邮箱：优先使用请求中的邮箱，否则使用绑定邮箱
+    if data.email:
+        email = data.email.lower().strip()
+    elif redeem_code.bound_email:
+        email = redeem_code.bound_email.lower().strip()
+    else:
         raise HTTPException(
             status_code=400,
             detail={"error": RebindError.INVALID_CODE, "message": "此兑换码尚未激活，请先使用兑换功能"}
         )
 
-    if redeem_code.bound_email.lower() != email:
+    # 3. 检查邮箱绑定一致性（如果请求中提供了邮箱）
+    if data.email and redeem_code.bound_email and redeem_code.bound_email.lower() != email:
         raise HTTPException(
             status_code=400,
             detail={
@@ -1142,7 +1337,8 @@ async def _do_rebind(data: RebindRequest, db: Session) -> RebindResponse:
             is_rebind=True,  # 标记为换车操作
             consume_rebind_count=consume_rebind_count,  # 是否消耗次数（用于回滚）
             old_team_id=current_team_id,  # 原 Team ID（用于踢人）
-            old_team_chatgpt_user_id=old_team_chatgpt_user_id  # 原 chatgpt_user_id
+            old_team_chatgpt_user_id=old_team_chatgpt_user_id,  # 原 chatgpt_user_id
+            used_redis=False  # 换车操作不使用 Redis 令牌桶
         )
 
         rebind_requests_total.labels(status="success").inc()

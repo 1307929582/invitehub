@@ -111,4 +111,14 @@ celery_app.conf.beat_schedule = {
         'task': 'app.tasks_celery.send_expiration_warnings',
         'schedule': 86400.0,  # 24小时（每天执行一次）
     },
+    # 每30分钟检测孤儿用户
+    'detect-orphan-users': {
+        'task': 'app.tasks_celery.detect_orphan_users',
+        'schedule': 1800.0,  # 30分钟
+    },
+    # 每15分钟清理过期的 RESERVED 记录（P0-1 防超员）
+    'cleanup-stale-reserved': {
+        'task': 'app.tasks_celery.cleanup_stale_reserved_records',
+        'schedule': 900.0,  # 15分钟
+    },
 }

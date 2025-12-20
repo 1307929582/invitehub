@@ -54,7 +54,9 @@ def process_invite_task(
     is_rebind: bool = False,
     consume_rebind_count: bool = False,  # 是否消耗换车次数（用于回滚）
     old_team_id: int = None,  # 原 Team ID（用于踢人）
-    old_team_chatgpt_user_id: str = None  # 原 chatgpt_user_id（用于踢人）
+    old_team_chatgpt_user_id: str = None,  # 原 chatgpt_user_id（用于踢人）
+    used_redis: bool = False,  # 是否使用了 Redis 令牌桶（用于回滚判断）
+    reserved_team_id: int = None  # P0-1: 预占的 Team ID（已在 API 层预占座位）
 ):
     """
     处理单个邀请请求（Celery 任务）
@@ -67,12 +69,14 @@ def process_invite_task(
         consume_rebind_count: 是否消耗换车次数（用于回滚判断）
         old_team_id: 原 Team ID（换车时踢出原 Team）
         old_team_chatgpt_user_id: 原 chatgpt_user_id（换车时踢出原 Team）
+        used_redis: 是否使用了 Redis 令牌桶（用于回滚判断）
+        reserved_team_id: 预占的 Team ID（P0-1 核心：API 层已预占座位，Celery 直接使用）
 
     Raises:
         Retry: 失败时自动重试（最多3次）
     """
     try:
-        logger.info(f"Processing invite task: {email}, is_rebind: {is_rebind}, consume_count: {consume_rebind_count}")
+        logger.info(f"Processing invite task: {email}, is_rebind: {is_rebind}, reserved_team_id: {reserved_team_id}, used_redis: {used_redis}")
 
         # 复用现有的批量处理逻辑
         from app.tasks import process_invite_batch
@@ -90,6 +94,7 @@ def process_invite_task(
                 "consume_rebind_count": consume_rebind_count,
                 "old_team_id": old_team_id,
                 "old_team_chatgpt_user_id": old_team_chatgpt_user_id,
+                "reserved_team_id": reserved_team_id,  # P0-1: 传递预占的 Team ID
                 "created_at": datetime.utcnow()
             }]))
         finally:
@@ -119,10 +124,10 @@ def process_invite_task(
         except Exception as db_err:
             logger.error(f"Failed to record error: {db_err}")
 
-        # 最终失败时回滚兑换码使用次数
+        # 最终失败时回滚兑换码使用次数和 RESERVED 记录
         if is_final_failure and redeem_code:
             try:
-                _rollback_redeem_code_usage(self.db, redeem_code, email, is_rebind, consume_rebind_count)
+                _rollback_redeem_code_usage(self.db, redeem_code, email, is_rebind, consume_rebind_count, used_redis, reserved_team_id)
                 logger.info(f"Rolled back redeem code usage for {redeem_code} after final failure")
             except Exception as rollback_err:
                 logger.error(f"Failed to rollback redeem code: {rollback_err}")
@@ -131,11 +136,11 @@ def process_invite_task(
         raise self.retry(exc=e)
 
 
-def _rollback_redeem_code_usage(db: Session, code_str: str, email: str, is_rebind: bool, consume_rebind_count: bool = False):
+def _rollback_redeem_code_usage(db: Session, code_str: str, email: str, is_rebind: bool, consume_rebind_count: bool = False, used_redis: bool = False, reserved_team_id: int = None):
     """
-    回滚兑换码使用次数
+    回滚兑换码使用次数和 RESERVED 记录
 
-    当邀请最终失败时，回滚 Redis 令牌桶和数据库中的使用计数。
+    当邀请最终失败时，回滚 Redis 令牌桶、数据库中的使用计数和 RESERVED 记录。
 
     Args:
         db: 数据库会话
@@ -143,32 +148,57 @@ def _rollback_redeem_code_usage(db: Session, code_str: str, email: str, is_rebin
         email: 用户邮箱
         is_rebind: 是否为换车操作
         consume_rebind_count: 是否消耗了换车次数（只有 True 时才回滚 rebind_count）
+        used_redis: 是否使用了 Redis 令牌桶（只有 True 时才回滚 Redis）
+        reserved_team_id: 预占的 Team ID（用于删除 RESERVED 记录）
     """
     from sqlalchemy import update
     from app.cache import get_redis
     from app.services.redeem_limiter import RedeemLimiter
 
-    # 1. 回滚 Redis 令牌桶
+    # 先查询兑换码，获取 max_uses 信息
+    code = db.query(RedeemCode).filter(RedeemCode.code == code_str).first()
+    if not code:
+        logger.warning(f"RedeemCode {code_str} not found for rollback")
+        return
+
+    # 0. 删除 RESERVED 记录（P0-1 新增）
+    if reserved_team_id:
+        try:
+            deleted = db.query(InviteRecord).filter(
+                InviteRecord.email == email.lower().strip(),
+                InviteRecord.redeem_code == code_str,
+                InviteRecord.status == InviteStatus.RESERVED,
+                InviteRecord.team_id == reserved_team_id
+            ).delete()
+            if deleted > 0:
+                db.commit()
+                logger.info(f"Deleted RESERVED record for {email} in team {reserved_team_id}")
+        except Exception as e:
+            logger.error(f"Failed to delete RESERVED record: {e}")
+
+    # 1. 回滚 Redis 令牌桶（仅当确实使用了 Redis 时才回滚）
     redis_client = get_redis()
-    if redis_client:
+    if redis_client and used_redis and code.max_uses > 0:
         limiter = RedeemLimiter(redis_client)
         limiter.refund(code_str)
         logger.info(f"Refunded Redis token for code {code_str}")
 
-    # 2. 回滚数据库使用计数
-    code = db.query(RedeemCode).filter(RedeemCode.code == code_str).first()
-    if code and code.used_count > 0:
+    # 2. 回滚数据库使用计数（仅当 bound_email 匹配时才回滚，防止误回滚他人的码）
+    if code.used_count > 0 and code.bound_email and code.bound_email.lower() == email.lower():
         db.execute(
             update(RedeemCode)
             .where(RedeemCode.code == code_str)
             .where(RedeemCode.used_count > 0)
+            .where(RedeemCode.bound_email == code.bound_email)  # 保护：确保是绑定邮箱的码
             .values(used_count=RedeemCode.used_count - 1)
         )
         db.commit()
         logger.info(f"Rolled back database used_count for code {code_str}")
+    elif code.used_count > 0:
+        logger.warning(f"Skip rollback used_count: bound_email mismatch for code {code_str}, email={email}, bound={code.bound_email}")
 
     # 3. 如果是换车操作且消耗了次数，回滚换车计数
-    if is_rebind and consume_rebind_count and code and code.rebind_count and code.rebind_count > 0:
+    if is_rebind and consume_rebind_count and code.rebind_count and code.rebind_count > 0:
         db.execute(
             update(RedeemCode)
             .where(RedeemCode.code == code_str)
@@ -1201,5 +1231,153 @@ async def _send_orphan_alert(orphan_users: list):
 
     except Exception as e:
         logger.error(f"Failed to send orphan alert: {e}")
+    finally:
+        db.close()
+
+
+@celery_app.task(bind=True, base=DatabaseTask)
+def cleanup_stale_reserved_records(self):
+    """
+    清理过期的 RESERVED 记录（P0-1 防超员补充逻辑）
+
+    定时任务：每 15 分钟执行一次
+    处理逻辑：
+    1. 查找 1 小时前创建的 RESERVED 状态记录（这些记录应该已经被处理）
+    2. 删除这些过期记录，释放预占的座位
+    3. 记录清理日志
+
+    Note: RESERVED 记录正常情况下会在 Celery 任务中被更新为 SUCCESS 或 FAILED。
+    如果长时间保持 RESERVED 状态，说明 Celery 任务执行失败且未正确回滚。
+    """
+    from app.cache import get_redis, invalidate_seat_cache
+    from datetime import timedelta
+
+    # 使用 Redis 分布式锁防止重复执行
+    redis_client = get_redis()
+    if not redis_client:
+        logger.warning("Redis not available, skipping stale RESERVED cleanup")
+        return
+
+    lock_key = "celery:cleanup_stale_reserved:lock"
+    lock = redis_client.lock(lock_key, timeout=300, blocking_timeout=1)
+
+    if not lock.acquire(blocking=False):
+        logger.info("Another stale RESERVED cleanup task is running, skipping")
+        return
+
+    try:
+        logger.info("Starting stale RESERVED records cleanup")
+
+        # 1 小时前的记录被视为过期
+        stale_cutoff = datetime.utcnow() - timedelta(hours=1)
+
+        # 查找过期的 RESERVED 记录
+        stale_records = self.db.query(InviteRecord).filter(
+            InviteRecord.status == InviteStatus.RESERVED,
+            InviteRecord.created_at < stale_cutoff
+        ).all()
+
+        if not stale_records:
+            logger.info("No stale RESERVED records found")
+            return
+
+        logger.warning(f"Found {len(stale_records)} stale RESERVED records to clean up")
+
+        cleaned_count = 0
+        failed_count = 0
+
+        for record in stale_records:
+            try:
+                # 记录日志
+                logger.info(f"Cleaning stale RESERVED: email={record.email}, "
+                           f"team_id={record.team_id}, code={record.redeem_code}, "
+                           f"created_at={record.created_at}")
+
+                # 尝试回滚兑换码使用次数（如果有关联的兑换码）
+                if record.redeem_code:
+                    try:
+                        code = self.db.query(RedeemCode).filter(
+                            RedeemCode.code == record.redeem_code
+                        ).first()
+
+                        if code and code.used_count > 0:
+                            # 回滚 used_count（只有当 bound_email 匹配时才回滚）
+                            if code.bound_email and code.bound_email.lower() == record.email.lower():
+                                code.used_count = max(0, code.used_count - 1)
+                                logger.info(f"Rolled back used_count for code {code.code}")
+                    except Exception as rollback_err:
+                        logger.warning(f"Failed to rollback code usage: {rollback_err}")
+
+                # 删除 RESERVED 记录
+                self.db.delete(record)
+                cleaned_count += 1
+
+            except Exception as e:
+                logger.error(f"Failed to clean RESERVED record {record.id}: {e}")
+                failed_count += 1
+
+        # 提交更改
+        self.db.commit()
+
+        # 清除座位缓存
+        invalidate_seat_cache()
+
+        logger.info(f"Stale RESERVED cleanup completed: cleaned={cleaned_count}, failed={failed_count}")
+
+        # 发送告警（如果清理了大量记录，可能存在系统问题）
+        if cleaned_count >= 5:
+            try:
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(
+                        _send_stale_reserved_alert(cleaned_count, failed_count)
+                    )
+                finally:
+                    loop.close()
+            except Exception as e:
+                logger.warning(f"Failed to send stale RESERVED alert: {e}")
+
+    except Exception as e:
+        logger.exception(f"Stale RESERVED cleanup task failed: {e}")
+    finally:
+        lock.release()
+
+
+async def _send_stale_reserved_alert(cleaned_count: int, failed_count: int):
+    """发送过期 RESERVED 记录清理告警到 Telegram"""
+    from app.models import SystemConfig
+    from app.services.telegram import send_telegram_message
+
+    db = SessionLocal()
+    try:
+        tg_enabled = db.query(SystemConfig).filter(SystemConfig.key == "telegram_enabled").first()
+        if not tg_enabled or tg_enabled.value != "true":
+            return
+
+        bot_token = db.query(SystemConfig).filter(SystemConfig.key == "telegram_bot_token").first()
+        chat_id = db.query(SystemConfig).filter(SystemConfig.key == "telegram_chat_id").first()
+
+        if not bot_token or not chat_id:
+            return
+
+        message = f"""
+⚠️ **RESERVED 记录清理告警**
+
+🧹 清理了 {cleaned_count} 条过期 RESERVED 记录
+❌ 失败: {failed_count} 条
+
+这些记录在创建 1 小时后仍未被处理，可能原因：
+- Celery 任务执行失败
+- 系统重启导致任务丢失
+- 网络或 API 故障
+
+请检查 Celery 日志和系统健康状态。
+        """
+
+        await send_telegram_message(bot_token.value, chat_id.value, message)
+
+    except Exception as e:
+        logger.error(f"Failed to send stale RESERVED alert: {e}")
     finally:
         db.close()

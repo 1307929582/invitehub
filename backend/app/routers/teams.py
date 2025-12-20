@@ -8,7 +8,7 @@ import csv
 import io
 
 from app.database import get_db
-from app.models import Team, TeamMember, User, TeamGroup, TeamStatus, InviteRecord, InviteStatus
+from app.models import Team, TeamMember, User, TeamGroup, TeamStatus, InviteRecord, InviteStatus, SystemConfig
 from app.schemas import (
     TeamCreate, TeamUpdate, TeamResponse, TeamListResponse,
     TeamMemberResponse, TeamMemberListResponse, MessageResponse,
@@ -20,6 +20,7 @@ from app.schemas import (
 from app.services.auth import get_current_user
 from app.utils.timezone import to_beijing_iso
 from app.services.chatgpt_api import ChatGPTAPI, ChatGPTAPIError, TokenInvalidError, TeamBannedError
+from pydantic import BaseModel
 
 router = APIRouter(prefix="/teams", tags=["Team 管理"])
 
@@ -187,11 +188,15 @@ async def sync_all_teams(
                 InviteRecord.status == InviteStatus.SUCCESS,
                 InviteRecord.accepted_at == None
             ).all()
-            
+
             for invite in pending_invites:
                 if invite.email.lower().strip() in member_emails:
                     invite.accepted_at = datetime.utcnow()
-            
+
+            # ✅ 保存旧的授权状态（防止同步覆盖管理员手动授权）
+            old_members = db.query(TeamMember).filter(TeamMember.team_id == team.id).all()
+            old_auth_state = {m.email.lower().strip(): m.is_unauthorized for m in old_members}
+
             # 清除旧成员数据
             db.query(TeamMember).filter(TeamMember.team_id == team.id).delete()
 
@@ -208,12 +213,20 @@ async def sync_all_teams(
                 role = m.get("role", "member")
 
                 # ✅ 使用统一函数检查是否未授权（限定当前 Team）
-                is_unauthorized = check_is_unauthorized(
+                computed_unauthorized = check_is_unauthorized(
                     email=email,
                     team_id=team.id,
                     role=role,
                     db=db
                 )
+
+                # ✅ 保留已确认授权的状态（防止同步覆盖管理员手动授权）
+                # 如果历史状态为 False（已授权），则保留，不被重新计算覆盖
+                old_state = old_auth_state.get(email)
+                if old_state is False:
+                    is_unauthorized = False  # 保留管理员手动授权
+                else:
+                    is_unauthorized = computed_unauthorized
 
                 if is_unauthorized:
                     unauthorized_members.append(email)
@@ -502,6 +515,10 @@ async def sync_team_members(
     
     print(f"[Sync] Team {team.name}: 更新了 {updated_count} 条邀请记录")
 
+    # ✅ 保存旧的授权状态（防止同步覆盖管理员手动授权）
+    old_members = db.query(TeamMember).filter(TeamMember.team_id == team_id).all()
+    old_auth_state = {m.email.lower().strip(): m.is_unauthorized for m in old_members}
+
     # 清除旧成员数据
     db.query(TeamMember).filter(TeamMember.team_id == team_id).delete()
 
@@ -519,12 +536,20 @@ async def sync_team_members(
         role = m.get("role", "member")
 
         # ✅ 使用统一函数检查是否未授权（限定当前 Team）
-        is_unauthorized = check_is_unauthorized(
+        computed_unauthorized = check_is_unauthorized(
             email=email,
             team_id=team_id,
             role=role,
             db=db
         )
+
+        # ✅ 保留已确认授权的状态（防止同步覆盖管理员手动授权）
+        # 如果历史状态为 False（已授权），则保留，不被重新计算覆盖
+        old_state = old_auth_state.get(email)
+        if old_state is False:
+            is_unauthorized = False  # 保留管理员手动授权
+        else:
+            is_unauthorized = computed_unauthorized
 
         if is_unauthorized:
             unauthorized_members.append(email)
@@ -780,6 +805,81 @@ async def remove_unauthorized_members(
         )
     
     return MessageResponse(message=f"已删除 {success_count} 个未授权成员，失败 {fail_count} 个")
+
+
+class AuthorizeMemberRequest(BaseModel):
+    """授权成员请求"""
+    email: str
+    add_to_whitelist: bool = False  # 是否同时加入白名单（永久授权）
+
+
+@router.post("/{team_id}/members/authorize", response_model=MessageResponse)
+async def authorize_member(
+    team_id: int,
+    data: AuthorizeMemberRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """
+    标记成员为已授权（仅管理员）
+
+    管理员手动添加的成员可能被误标记为未授权，使用此 API 手动授权。
+    可选：同时将邮箱加入白名单，使其在后续同步中自动保持授权状态。
+    """
+    from app.cache import invalidate_team_cache
+    from app.models import UserRole
+
+    # ✅ 权限检查：仅管理员可操作
+    if current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=403, detail="仅管理员可执行此操作")
+
+    team = db.query(Team).filter(Team.id == team_id).first()
+    if not team:
+        raise HTTPException(status_code=404, detail="Team 不存在")
+
+    email = data.email.lower().strip()
+
+    # 查找成员
+    member = db.query(TeamMember).filter(
+        TeamMember.team_id == team_id,
+        TeamMember.email == email
+    ).first()
+
+    if not member:
+        raise HTTPException(status_code=404, detail="成员不存在")
+
+    # 更新授权状态
+    member.is_unauthorized = False
+    db.commit()
+
+    # 如果需要加入白名单
+    if data.add_to_whitelist:
+        whitelist_config = db.query(SystemConfig).filter(
+            SystemConfig.key == "authorized_email_whitelist"
+        ).first()
+
+        if whitelist_config:
+            existing_emails = set(e.strip().lower() for e in whitelist_config.value.split(",") if e.strip())
+            if email not in existing_emails:
+                existing_emails.add(email)
+                whitelist_config.value = ",".join(sorted(existing_emails))
+        else:
+            whitelist_config = SystemConfig(
+                key="authorized_email_whitelist",
+                value=email
+            )
+            db.add(whitelist_config)
+
+        db.commit()
+
+    # 清除缓存
+    invalidate_team_cache(team_id)
+
+    msg = f"成员 {email} 已授权"
+    if data.add_to_whitelist:
+        msg += "（已加入白名单）"
+
+    return MessageResponse(message=msg)
 
 
 # ========== 导出 API ==========

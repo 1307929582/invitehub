@@ -1,18 +1,31 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'react-router-dom'
-import { Card, Input, Button, message, Spin, Result, Tag, Tabs, Radio } from 'antd'
+import { Card, Input, Button, message, Spin, Result, Tag, Tabs, Radio, Row, Col, Grid, Space, Typography } from 'antd'
 import {
   MailOutlined, KeyOutlined, CheckCircleOutlined, ClockCircleOutlined,
-  SearchOutlined, RocketOutlined, SwapOutlined, TeamOutlined
+  SearchOutlined, RocketOutlined, SwapOutlined, TeamOutlined,
+  SafetyOutlined, ThunderboltOutlined, CustomerServiceOutlined, StarOutlined
 } from '@ant-design/icons'
 import axios from 'axios'
 import { publicApi } from '../api'
+
+const { useBreakpoint } = Grid
+const { Title, Paragraph, Text } = Typography
+
+interface Feature {
+  icon: string
+  title: string
+  description: string
+}
 
 interface SiteConfig {
   site_title: string
   site_description: string
   success_message: string
   footer_text: string
+  hero_title?: string
+  hero_subtitle?: string
+  features?: Feature[]
 }
 
 interface RedeemResult {
@@ -41,26 +54,45 @@ interface StatusResult {
   can_rebind?: boolean
 }
 
+const iconMap: { [key: string]: React.ReactNode } = {
+  SafetyOutlined: <SafetyOutlined />,
+  ThunderboltOutlined: <ThunderboltOutlined />,
+  TeamOutlined: <TeamOutlined />,
+  CustomerServiceOutlined: <CustomerServiceOutlined />,
+  StarOutlined: <StarOutlined />,
+  RocketOutlined: <RocketOutlined />,
+}
+
+const DynamicIcon = ({ name }: { name: string }) => iconMap[name] || <StarOutlined />
+
+const defaultFeatures: Feature[] = [
+  { icon: 'SafetyOutlined', title: '安全稳定', description: '官方 Team 账号，数据隔离，稳定可靠' },
+  { icon: 'ThunderboltOutlined', title: 'GPT-4 无限', description: 'Team 版本无消息限制，畅享强大能力' },
+  { icon: 'CustomerServiceOutlined', title: '自助换车', description: 'Team 失效时可自助换车，无需等待' },
+]
+
 export default function DirectInvite() {
   const { code: urlCode } = useParams<{ code: string }>()
+  const screens = useBreakpoint()
+
   const [loading, setLoading] = useState(true)
   const [siteConfig, setSiteConfig] = useState<SiteConfig | null>(null)
 
-  // 兑换相关
+  // 兑换状态
   const [email, setEmail] = useState('')
   const [code, setCode] = useState(urlCode?.toUpperCase() || '')
   const [submitting, setSubmitting] = useState(false)
   const [redeemSuccess, setRedeemSuccess] = useState(false)
   const [redeemResult, setRedeemResult] = useState<RedeemResult | null>(null)
 
-  // 换车相关
+  // 换车状态
   const [rebindEmail, setRebindEmail] = useState('')
   const [rebindCode, setRebindCode] = useState('')
   const [rebindSubmitting, setRebindSubmitting] = useState(false)
   const [rebindSuccess, setRebindSuccess] = useState(false)
   const [rebindResult, setRebindResult] = useState<RebindResult | null>(null)
 
-  // 状态查询相关
+  // 状态查询
   const [queryType, setQueryType] = useState<'email' | 'code'>('email')
   const [queryValue, setQueryValue] = useState('')
   const [querying, setQuerying] = useState(false)
@@ -73,21 +105,19 @@ export default function DirectInvite() {
     publicApi.getSiteConfig()
       .then((res: any) => {
         setSiteConfig(res)
-        if (res.site_title) {
-          document.title = res.site_title
-        }
+        if (res.site_title) document.title = res.site_title
       })
-      .catch(() => {})
+      .catch(() => { })
       .finally(() => setLoading(false))
   }, [])
 
   useEffect(() => {
     if (urlCode) {
       setCode(urlCode.toUpperCase())
+      setActiveTab('redeem')
     }
   }, [urlCode])
 
-  // 计算剩余天数颜色
   const getDaysColor = (days: number | null | undefined) => {
     if (days === null || days === undefined) return '#86868b'
     if (days > 15) return '#34c759'
@@ -95,17 +125,9 @@ export default function DirectInvite() {
     return '#ff3b30'
   }
 
-  // 兑换提交
   const handleRedeem = async () => {
-    if (!email || !email.includes('@')) {
-      message.error('请输入有效的邮箱地址')
-      return
-    }
-    if (!code || code.trim().length === 0) {
-      message.error('请输入兑换码')
-      return
-    }
-
+    if (!email || !email.includes('@')) { message.error('请输入有效的邮箱地址'); return }
+    if (!code || code.trim().length === 0) { message.error('请输入兑换码'); return }
     setSubmitting(true)
     try {
       const res = await axios.post('/api/v1/public/direct-redeem', {
@@ -122,17 +144,9 @@ export default function DirectInvite() {
     }
   }
 
-  // 换车提交
   const handleRebind = async () => {
-    if (!rebindEmail || !rebindEmail.includes('@')) {
-      message.error('请输入有效的邮箱地址')
-      return
-    }
-    if (!rebindCode || rebindCode.trim().length === 0) {
-      message.error('请输入兑换码')
-      return
-    }
-
+    if (!rebindEmail || !rebindEmail.includes('@')) { message.error('请输入有效的邮箱地址'); return }
+    if (!rebindCode || rebindCode.trim().length === 0) { message.error('请输入兑换码'); return }
     setRebindSubmitting(true)
     try {
       const res: any = await publicApi.rebind({
@@ -143,54 +157,31 @@ export default function DirectInvite() {
       setRebindResult(res)
     } catch (e: any) {
       const detail = e.response?.data?.detail
-      const errorMsg = typeof detail === 'object' ? detail.message : detail || '换车失败'
-      message.error(errorMsg)
+      message.error(typeof detail === 'object' ? detail.message : detail || '换车失败')
     } finally {
       setRebindSubmitting(false)
     }
   }
 
-  // 查询状态
   const handleQueryStatus = async () => {
     const value = queryValue.trim()
-    if (!value) {
-      message.error(queryType === 'email' ? '请输入邮箱地址' : '请输入兑换码')
-      return
-    }
-
-    if (queryType === 'email' && !value.includes('@')) {
-      message.error('请输入有效的邮箱地址')
-      return
-    }
-
+    if (!value) { message.error(queryType === 'email' ? '请输入邮箱地址' : '请输入兑换码'); return }
+    if (queryType === 'email' && !value.includes('@')) { message.error('请输入有效的邮箱地址'); return }
     setQuerying(true)
     setStatusResult(null)
     try {
-      const params = queryType === 'email'
-        ? { email: value.toLowerCase() }
-        : { code: value.toUpperCase() }
+      const params = queryType === 'email' ? { email: value.toLowerCase() } : { code: value.toUpperCase() }
       const res: any = await publicApi.getStatus(params)
       setStatusResult(res)
-      if (res.found && res.email) {
-        // 自动填充换车表单
-        setRebindEmail(res.email)
-      }
-    } catch (e: any) {
+      if (res.found && res.email) setRebindEmail(res.email)
+    } catch {
       message.error('查询失败')
     } finally {
       setQuerying(false)
     }
   }
 
-  if (loading) {
-    return (
-      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(180deg, #fafafa 0%, #f5f5f7 100%)' }}>
-        <Spin size="large" />
-      </div>
-    )
-  }
-
-  // 兑换成功结果
+  // 兑换成功
   const renderRedeemSuccess = () => (
     <Result
       status="success"
@@ -222,7 +213,7 @@ export default function DirectInvite() {
     />
   )
 
-  // 换车成功结果
+  // 换车成功
   const renderRebindSuccess = () => (
     <Result
       status="success"
@@ -285,11 +276,9 @@ export default function DirectInvite() {
   // 换车表单
   const renderRebindForm = () => (
     <div>
-      {/* 状态查询 */}
       <div style={{ marginBottom: 20, padding: 16, background: 'rgba(0, 0, 0, 0.02)', borderRadius: 12 }}>
         <div style={{ fontWeight: 600, color: '#1d1d1f', marginBottom: 12, fontSize: 14 }}>
-          <SearchOutlined style={{ marginRight: 8 }} />
-          查询当前状态
+          <SearchOutlined style={{ marginRight: 8 }} />查询当前状态
         </div>
         <Radio.Group
           value={queryType}
@@ -311,8 +300,6 @@ export default function DirectInvite() {
           />
           <Button onClick={handleQueryStatus} loading={querying} style={{ borderRadius: 8 }}>查询</Button>
         </div>
-
-        {/* 查询结果 */}
         {statusResult && (
           <div style={{ marginTop: 12 }}>
             {statusResult.found ? (
@@ -350,8 +337,6 @@ export default function DirectInvite() {
           </div>
         )}
       </div>
-
-      {/* 换车表单 */}
       <div style={{ marginBottom: 16 }}>
         <div style={{ marginBottom: 8, fontWeight: 500, color: '#1d1d1f' }}>邮箱地址</div>
         <Input
@@ -393,22 +378,97 @@ export default function DirectInvite() {
     </div>
   )
 
-  return (
+  // 左侧面板
+  const renderLeftPanel = () => (
     <div style={{
-      minHeight: '100vh',
+      padding: screens.lg ? '60px 50px' : '40px 24px',
+      height: '100%',
+      display: 'flex',
+      flexDirection: 'column',
+      justifyContent: 'space-between',
+      minHeight: screens.md ? '100vh' : 'auto',
+    }}>
+      <div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 40 }}>
+          <img src="/logo.jpg" alt="Logo" style={{ width: 48, height: 48, borderRadius: 12, objectFit: 'cover' }} />
+          <Title level={3} style={{ margin: 0, color: 'white', fontWeight: 700 }}>
+            {siteConfig?.site_title || 'ChatGPT Team'}
+          </Title>
+        </div>
+
+        <Title level={1} style={{
+          margin: '0 0 20px',
+          color: 'white',
+          fontWeight: 800,
+          fontSize: screens.lg ? 42 : 32,
+          letterSpacing: '-1px',
+        }}>
+          {siteConfig?.hero_title || '欢迎加入 Team'}
+        </Title>
+
+        <Paragraph style={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: screens.lg ? 18 : 16, lineHeight: 1.7, marginBottom: 40 }}>
+          {siteConfig?.hero_subtitle || '自助兑换服务，为您提供稳定、可靠的 ChatGPT Team 邀请。'}
+        </Paragraph>
+
+        <Space direction="vertical" size={28}>
+          {(siteConfig?.features || defaultFeatures).map((feature, index) => (
+            <div key={index} style={{ display: 'flex', alignItems: 'flex-start', gap: 20 }}>
+              <div style={{
+                width: 48,
+                height: 48,
+                borderRadius: 12,
+                background: 'rgba(255, 255, 255, 0.1)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: 22,
+                color: 'rgba(255, 255, 255, 0.9)',
+                flexShrink: 0,
+              }}>
+                <DynamicIcon name={feature.icon} />
+              </div>
+              <div>
+                <Text style={{ fontSize: 16, color: 'white', fontWeight: 600, display: 'block', marginBottom: 4 }}>
+                  {feature.title}
+                </Text>
+                <Text style={{ color: 'rgba(255, 255, 255, 0.6)', fontSize: 14 }}>
+                  {feature.description}
+                </Text>
+              </div>
+            </div>
+          ))}
+        </Space>
+      </div>
+
+      <div style={{ marginTop: 40, color: 'rgba(255, 255, 255, 0.4)', fontSize: 12 }}>
+        {siteConfig?.footer_text || '© 2024 ChatGPT Team. All rights reserved.'}
+      </div>
+    </div>
+  )
+
+  // 右侧面板
+  const renderRightPanel = () => (
+    <div style={{
+      height: '100%',
+      minHeight: screens.md ? '100vh' : 'auto',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      background: 'linear-gradient(180deg, #fafafa 0%, #f5f5f7 100%)',
-      padding: 20,
+      padding: screens.md ? 40 : 20,
+      position: 'relative',
     }}>
       {/* 装饰光晕 */}
-      <div style={{ position: 'fixed', top: '-20%', right: '-10%', width: 600, height: 600, background: 'radial-gradient(circle, rgba(0, 122, 255, 0.08) 0%, transparent 70%)', borderRadius: '50%', zIndex: 0 }} />
-      <div style={{ position: 'fixed', bottom: '-15%', left: '-5%', width: 500, height: 500, background: 'radial-gradient(circle, rgba(88, 86, 214, 0.06) 0%, transparent 70%)', borderRadius: '50%', zIndex: 0 }} />
+      {screens.md && (
+        <>
+          <div style={{ position: 'absolute', top: '-10%', right: '-20%', width: 500, height: 500, background: 'radial-gradient(circle, rgba(0, 122, 255, 0.08) 0%, transparent 70%)', borderRadius: '50%', zIndex: 0 }} />
+          <div style={{ position: 'absolute', bottom: '-10%', left: '-10%', width: 400, height: 400, background: 'radial-gradient(circle, rgba(88, 86, 214, 0.06) 0%, transparent 70%)', borderRadius: '50%', zIndex: 0 }} />
+        </>
+      )}
 
       <Card style={{
-        width: 440,
-        background: 'rgba(255, 255, 255, 0.8)',
+        width: '100%',
+        maxWidth: 460,
+        background: 'rgba(255, 255, 255, 0.9)',
         backdropFilter: 'blur(20px)',
         WebkitBackdropFilter: 'blur(20px)',
         borderRadius: 24,
@@ -417,30 +477,15 @@ export default function DirectInvite() {
         position: 'relative',
         zIndex: 1,
       }}>
-        {/* Logo */}
-        <div style={{ textAlign: 'center', marginBottom: 20 }}>
-          <img
-            src="/logo.jpg"
-            alt="Logo"
-            style={{
-              width: 64,
-              height: 64,
-              borderRadius: 16,
-              objectFit: 'cover',
-              margin: '0 auto 16px',
-              boxShadow: '0 8px 24px rgba(0, 0, 0, 0.12)',
-              display: 'block',
-            }}
-          />
-          <h1 style={{ fontSize: 22, fontWeight: 700, margin: '0 0 4px', color: '#1d1d1f' }}>
-            {siteConfig?.site_title || 'ChatGPT Team'}
-          </h1>
-          <p style={{ color: '#86868b', fontSize: 14, margin: 0 }}>
-            自助兑换和换车服务
-          </p>
-        </div>
+        {/* 移动端显示 Logo */}
+        {!screens.md && (
+          <div style={{ textAlign: 'center', marginBottom: 20 }}>
+            <img src="/logo.jpg" alt="Logo" style={{ width: 64, height: 64, borderRadius: 16, objectFit: 'cover', margin: '0 auto 16px', boxShadow: '0 8px 24px rgba(0, 0, 0, 0.12)', display: 'block' }} />
+            <h1 style={{ fontSize: 22, fontWeight: 700, margin: '0 0 4px', color: '#1d1d1f' }}>{siteConfig?.site_title || 'ChatGPT Team'}</h1>
+            <p style={{ color: '#86868b', fontSize: 14, margin: 0 }}>自助兑换和换车服务</p>
+          </div>
+        )}
 
-        {/* Tabs */}
         <Tabs
           activeKey={activeTab}
           onChange={setActiveTab}
@@ -448,28 +493,17 @@ export default function DirectInvite() {
           items={[
             {
               key: 'redeem',
-              label: (
-                <span>
-                  <RocketOutlined style={{ marginRight: 6 }} />
-                  兑换上车
-                </span>
-              ),
+              label: <span><RocketOutlined style={{ marginRight: 6 }} />兑换上车</span>,
               children: redeemSuccess && redeemResult ? renderRedeemSuccess() : renderRedeemForm()
             },
             {
               key: 'rebind',
-              label: (
-                <span>
-                  <SwapOutlined style={{ marginRight: 6 }} />
-                  自助换车
-                </span>
-              ),
+              label: <span><SwapOutlined style={{ marginRight: 6 }} />自助换车</span>,
               children: rebindSuccess && rebindResult ? renderRebindSuccess() : renderRebindForm()
             }
           ]}
         />
 
-        {/* 使用说明 */}
         <div style={{ marginTop: 16, padding: 14, background: 'rgba(0, 122, 255, 0.04)', borderRadius: 12, fontSize: 12, color: '#86868b', lineHeight: 1.8 }}>
           <div style={{ fontWeight: 600, color: '#1d1d1f', marginBottom: 6 }}>使用说明</div>
           {activeTab === 'redeem' ? (
@@ -488,5 +522,39 @@ export default function DirectInvite() {
         </div>
       </Card>
     </div>
+  )
+
+  if (loading) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(180deg, #fafafa 0%, #f5f5f7 100%)' }}>
+        <Spin size="large" />
+      </div>
+    )
+  }
+
+  // 移动端：上下布局
+  if (!screens.md) {
+    return (
+      <div style={{ minHeight: '100vh' }}>
+        <div style={{ background: 'linear-gradient(160deg, #1a1a2e 0%, #16213e 100%)' }}>
+          {renderLeftPanel()}
+        </div>
+        <div style={{ background: 'linear-gradient(180deg, #fafafa 0%, #f5f5f7 100%)' }}>
+          {renderRightPanel()}
+        </div>
+      </div>
+    )
+  }
+
+  // 桌面端：左右布局
+  return (
+    <Row style={{ minHeight: '100vh' }}>
+      <Col span={12} style={{ background: 'linear-gradient(160deg, #1a1a2e 0%, #16213e 100%)' }}>
+        {renderLeftPanel()}
+      </Col>
+      <Col span={12} style={{ background: 'linear-gradient(180deg, #fafafa 0%, #f5f5f7 100%)' }}>
+        {renderRightPanel()}
+      </Col>
+    </Row>
   )
 }

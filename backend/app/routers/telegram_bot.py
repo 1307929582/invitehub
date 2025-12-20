@@ -503,11 +503,28 @@ async def handle_command(text: str, user_id: str, chat_id: str, db: Session, bot
                 api = ChatGPTAPI(team.session_token, team.device_id or "")
                 result = await api.get_members(team.account_id)
                 data = result.get("items", result.get("users", []))
+                # ✅ 保存旧的授权状态（防止同步覆盖管理员手动授权）
+                old_members = db.query(TeamMember).filter(TeamMember.team_id == team.id).all()
+                old_auth_state = {m.email.lower().strip(): m.is_unauthorized for m in old_members}
                 db.query(TeamMember).filter(TeamMember.team_id == team.id).delete()
+
+                from app.services.authorization import check_is_unauthorized
+                seen_emails = set()  # ✅ 去重
                 for m in data:
                     email = m.get("email", "").lower().strip()
-                    if email:
-                        db.add(TeamMember(team_id=team.id, email=email, name=m.get("name", ""), role=m.get("role", "member"), chatgpt_user_id=m.get("id", ""), synced_at=datetime.utcnow()))
+                    if email and email not in seen_emails:
+                        seen_emails.add(email)
+                        role = m.get("role", "member")
+                        # ✅ 保留已确认授权的状态，新成员需计算
+                        old_state = old_auth_state.get(email)
+                        if old_state is False:
+                            is_unauthorized = False  # 保留管理员手动授权
+                        elif old_state is True:
+                            is_unauthorized = True  # 保留之前的未授权状态
+                        else:
+                            # 新成员或之前为 None，需要重新计算
+                            is_unauthorized = check_is_unauthorized(email, team.id, role, db)
+                        db.add(TeamMember(team_id=team.id, email=email, name=m.get("name", ""), role=role, chatgpt_user_id=m.get("id", ""), synced_at=datetime.utcnow(), is_unauthorized=is_unauthorized))
                 db.commit()
                 results.append(f"✅ {team.name}: {len(data)}")
             except Exception as e:

@@ -93,10 +93,13 @@ export const teamApi = {
 
 // Invite API
 export const inviteApi = {
-  batchInvite: (teamId: number, emails: string[]) => 
+  batchInvite: (teamId: number, emails: string[]) =>
     api.post(`/teams/${teamId}/invites`, { emails }),
   getRecords: (teamId: number) => api.get(`/teams/${teamId}/invites`),
   getPending: (teamId: number) => api.get(`/teams/${teamId}/invites/pending`),
+  // 自动分配邀请（跨 Team）
+  autoAllocate: (data: { emails: string[]; group_id?: number }) =>
+    api.post('/invites/auto-allocate', data),
 }
 
 // Dashboard API
@@ -245,7 +248,7 @@ export const publicApi = {
     publicApiClient.post('/redeem', data),
   getStatus: (params: { email?: string; code?: string }) =>
     publicApiClient.get('/status', { params }),
-  rebind: (data: { email: string; code: string }) =>
+  rebind: (data: { code: string; email?: string }) =>
     publicApiClient.post('/rebind', data),
   getSeats: () => publicApiClient.get('/seats'),
   getSiteConfig: () => publicApiClient.get('/site-config'),

@@ -56,6 +56,10 @@ async def sync_all_teams():
                     if invite.email.lower().strip() in member_emails:
                         invite.accepted_at = datetime.utcnow()
 
+                # ✅ 保存旧的授权状态（防止同步覆盖管理员手动授权）
+                old_members = db.query(TeamMember).filter(TeamMember.team_id == team.id).all()
+                old_auth_state = {m.email.lower().strip(): m.is_unauthorized for m in old_members}
+
                 # 清除旧成员数据
                 db.query(TeamMember).filter(TeamMember.team_id == team.id).delete()
 
@@ -70,12 +74,19 @@ async def sync_all_teams():
                     role = m.get("role", "member")
 
                     # ✅ 使用统一函数检查是否未授权
-                    is_unauthorized = check_is_unauthorized(
+                    computed_unauthorized = check_is_unauthorized(
                         email=email,
                         team_id=team.id,
                         role=role,
                         db=db
                     )
+
+                    # ✅ 保留已确认授权的状态（防止同步覆盖管理员手动授权）
+                    old_state = old_auth_state.get(email)
+                    if old_state is False:
+                        is_unauthorized = False  # 保留管理员手动授权
+                    else:
+                        is_unauthorized = computed_unauthorized
 
                     member = TeamMember(
                         team_id=team.id,
@@ -395,6 +406,7 @@ app.include_router(shop.router, prefix=f"{settings.API_PREFIX}/public")  # 商�
 app.include_router(auth.router, prefix=settings.API_PREFIX)
 app.include_router(teams.router, prefix=settings.API_PREFIX)
 app.include_router(invites.router, prefix=settings.API_PREFIX)
+app.include_router(invites.auto_router, prefix=settings.API_PREFIX)  # 自动分配邀请
 app.include_router(dashboard.router, prefix=settings.API_PREFIX)
 app.include_router(redeem.router, prefix=settings.API_PREFIX)
 app.include_router(config.router, prefix=settings.API_PREFIX)

@@ -222,12 +222,12 @@ class StatusResponse(BaseModel):
 
 # ========== Rebind API (Commercial) ==========
 class RebindRequest(BaseModel):
-    """换车请求
-    
+    """换车请求（简化版：只需兑换码，邮箱从 bound_email 获取）
+
     Requirements: 3.1, 3.2, 3.3, 3.4, 3.5
     """
-    email: EmailStr
     code: str
+    email: Optional[EmailStr] = None  # 可选，向后兼容旧版前端
 
 
 class RebindResponse(BaseModel):

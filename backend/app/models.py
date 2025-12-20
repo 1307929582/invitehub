@@ -25,6 +25,7 @@ class UserApprovalStatus(str, enum.Enum):
 
 class InviteStatus(str, enum.Enum):
     PENDING = "pending"
+    RESERVED = "reserved"  # 座位已预占，等待 Celery 处理（防止超员）
     SUCCESS = "success"
     FAILED = "failed"
     REMOVED = "removed"  # 成员被分销商/管理员移除
