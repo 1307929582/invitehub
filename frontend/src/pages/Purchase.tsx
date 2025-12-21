@@ -1,8 +1,8 @@
 // 购买套餐页面
 import { useState, useEffect } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { Button, Typography, Spin, Result, Input, Tooltip, message, Modal, Radio, Space, Row, Col, Card, Tag, Divider, Table, Empty } from 'antd'
-import { ShoppingCartOutlined, CheckCircleFilled, CopyOutlined, ArrowRightOutlined, LoadingOutlined, AlipayCircleOutlined, WechatOutlined, ArrowLeftOutlined, SearchOutlined, GiftOutlined, ClockCircleOutlined } from '@ant-design/icons'
+import { Button, Typography, Spin, Result, Input, Tooltip, message, Modal, Radio, Space, Row, Col, Tag, Divider, Table, Empty } from 'antd'
+import { ShoppingCartOutlined, CheckCircleOutlined, CheckCircleFilled, CopyOutlined, ArrowRightOutlined, LoadingOutlined, AlipayCircleOutlined, WechatOutlined, ArrowLeftOutlined, SearchOutlined, GiftOutlined, CrownOutlined } from '@ant-design/icons'
 import { publicApi } from '../api'
 
 const { Title, Text, Paragraph } = Typography
@@ -45,33 +45,118 @@ interface OrderStatus {
   paid_at?: string
 }
 
-// 套餐卡片
-const PlanCard: React.FC<{ plan: Plan; selected: boolean; onSelect: () => void }> = ({ plan, selected, onSelect }) => {
+// 新设计的套餐卡片组件
+const PlanCard: React.FC<{ plan: Plan; onBuy: (plan: Plan) => void }> = ({ plan, onBuy }) => {
+  const isRecommended = plan.is_recommended
   const priceYuan = (plan.price / 100).toFixed(2)
+  const originalPriceYuan = plan.original_price ? (plan.original_price / 100).toFixed(2) : null
+  const features = plan.features ? plan.features.split(',').map(f => f.trim()) : ['全特性可用', '畅享体验']
 
   return (
-    <Card
-      hoverable
-      onClick={onSelect}
-      style={{
-        borderRadius: 16,
-        border: selected ? '2px solid #007aff' : plan.is_recommended ? '2px solid #ff9500' : '1px solid #e8e8e8',
-        background: selected ? 'rgba(0, 122, 255, 0.05)' : '#fff',
-        transition: 'all 0.2s',
-      }}
-      bodyStyle={{ padding: 20, textAlign: 'center' }}
-    >
-      {plan.is_recommended && (
-        <Tag color="orange" style={{ position: 'absolute', top: 12, right: 12 }}>推荐</Tag>
+    <div style={{
+      borderRadius: 20,
+      border: isRecommended ? '2px solid #10a37f' : '1px solid #e5e7eb',
+      boxShadow: isRecommended
+        ? '0 20px 40px -10px rgba(16, 163, 127, 0.15)'
+        : '0 4px 16px rgba(0, 0, 0, 0.04)',
+      background: '#fff',
+      display: 'flex',
+      flexDirection: 'column',
+      height: '100%',
+      position: 'relative',
+      overflow: 'hidden',
+      transition: 'all 0.3s ease',
+    }}>
+      {/* 推荐标签 */}
+      {isRecommended && (
+        <div style={{
+          position: 'absolute',
+          top: 16,
+          right: -32,
+          background: 'linear-gradient(135deg, #10a37f 0%, #0d8a6a 100%)',
+          color: 'white',
+          padding: '6px 40px',
+          fontSize: 12,
+          fontWeight: 600,
+          transform: 'rotate(45deg)',
+          boxShadow: '0 2px 8px rgba(16, 163, 127, 0.3)',
+        }}>
+          推荐
+        </div>
       )}
-      <Title level={5} style={{ margin: '0 0 8px', color: '#1d1d1f' }}>{plan.name}</Title>
-      <div>
-        <Text style={{ fontSize: 24, fontWeight: 700, color: selected ? '#007aff' : '#1d1d1f' }}>
-          ¥{priceYuan}
+
+      {/* 头部 */}
+      <div style={{
+        padding: '28px 24px 20px',
+        borderBottom: '1px solid #f3f4f6',
+        background: isRecommended ? 'linear-gradient(180deg, rgba(16, 163, 127, 0.04) 0%, transparent 100%)' : 'transparent',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 8 }}>
+          {isRecommended && <CrownOutlined style={{ color: '#10a37f', fontSize: 18 }} />}
+          <Title level={4} style={{ margin: 0, color: '#1f2937', fontWeight: 700 }}>{plan.name}</Title>
+        </div>
+        <Text type="secondary" style={{ fontSize: 14 }}>
+          {plan.description || `有效期 ${plan.validity_days} 天`}
         </Text>
       </div>
-      <Text type="secondary" style={{ fontSize: 13 }}>{plan.validity_days}天有效</Text>
-    </Card>
+
+      {/* 价格区域 */}
+      <div style={{ padding: '24px', flexGrow: 1, display: 'flex', flexDirection: 'column' }}>
+        <div style={{ marginBottom: 24 }}>
+          {originalPriceYuan && (
+            <Text delete type="secondary" style={{ fontSize: 18, marginRight: 8 }}>
+              ¥{originalPriceYuan}
+            </Text>
+          )}
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 4 }}>
+            <Text style={{ fontSize: 16, color: '#6b7280' }}>¥</Text>
+            <Text style={{ fontSize: 48, fontWeight: 800, color: isRecommended ? '#10a37f' : '#1f2937', lineHeight: 1 }}>
+              {priceYuan.split('.')[0]}
+            </Text>
+            <Text style={{ fontSize: 20, fontWeight: 600, color: isRecommended ? '#10a37f' : '#1f2937' }}>
+              .{priceYuan.split('.')[1]}
+            </Text>
+          </div>
+          <Text type="secondary" style={{ fontSize: 14 }}>/ {plan.validity_days} 天</Text>
+        </div>
+
+        {/* 特性列表 */}
+        <div style={{ flexGrow: 1, marginBottom: 24 }}>
+          <Space direction="vertical" size={12} style={{ width: '100%' }}>
+            {features.map((feature, index) => (
+              <div key={index} style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <CheckCircleOutlined style={{ color: '#10a37f', fontSize: 16 }} />
+                <Text style={{ color: '#4b5563', fontSize: 14 }}>{feature}</Text>
+              </div>
+            ))}
+          </Space>
+        </div>
+
+        {/* 购买按钮 */}
+        <Button
+          type="primary"
+          size="large"
+          block
+          icon={<ShoppingCartOutlined />}
+          onClick={() => onBuy(plan)}
+          style={{
+            height: 48,
+            fontSize: 16,
+            fontWeight: 600,
+            borderRadius: 12,
+            background: isRecommended
+              ? 'linear-gradient(135deg, #10a37f 0%, #0d8a6a 100%)'
+              : '#1f2937',
+            border: 'none',
+            boxShadow: isRecommended
+              ? '0 4px 14px rgba(16, 163, 127, 0.3)'
+              : '0 4px 14px rgba(0, 0, 0, 0.1)',
+          }}
+        >
+          立即购买
+        </Button>
+      </div>
+    </div>
   )
 }
 
@@ -128,12 +213,9 @@ export default function Purchase() {
     }).finally(() => setLoading(false))
   }, [])
 
-  // 打开支付弹窗
-  const handleBuyClick = async () => {
-    if (!selectedPlan) {
-      message.warning('请先选择套餐')
-      return
-    }
+  // 打开支付弹窗（新版：直接传入 plan）
+  const handleBuyClick = async (plan: Plan) => {
+    setSelectedPlan(plan)
     // 重置优惠码状态
     setCouponError(null)
     setAppliedCoupon(null)
@@ -147,8 +229,8 @@ export default function Purchase() {
       try {
         const response = await publicApi.checkCoupon({
           code: urlCoupon,
-          plan_id: selectedPlan.id,
-          amount: selectedPlan.price,
+          plan_id: plan.id,
+          amount: plan.price,
         }) as unknown as { valid: boolean; discount_amount: number; final_amount: number; message: string }
 
         if (response.valid && response.discount_amount > 0) {
@@ -339,54 +421,67 @@ export default function Purchase() {
   // 支付成功页面
   if (successOrder) {
     return (
-      <div style={{ minHeight: '100vh', background: 'linear-gradient(180deg, #fafafa 0%, #f5f5f7 100%)', padding: '60px 20px' }}>
-        <div style={{ maxWidth: 500, margin: '0 auto', textAlign: 'center' }}>
-          <CheckCircleFilled style={{ fontSize: 72, color: '#34c759', marginBottom: 24 }} />
-          <Title level={2} style={{ color: '#1d1d1f', marginBottom: 8 }}>支付成功！</Title>
-          <Paragraph style={{ color: '#ff3b30', fontWeight: 600, fontSize: 16, marginBottom: 32 }}>
+      <div style={{ minHeight: '100vh', background: 'linear-gradient(180deg, #f0fdfa 0%, #f8fafc 100%)', padding: '60px 20px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ maxWidth: 500, width: '100%', textAlign: 'center', background: '#fff', padding: '48px 40px', borderRadius: 24, boxShadow: '0 20px 60px rgba(0, 0, 0, 0.08)' }}>
+          <div style={{
+            width: 80,
+            height: 80,
+            borderRadius: '50%',
+            background: 'linear-gradient(135deg, #10a37f 0%, #0d8a6a 100%)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            margin: '0 auto 24px',
+          }}>
+            <CheckCircleOutlined style={{ fontSize: 40, color: '#fff' }} />
+          </div>
+          <Title level={2} style={{ color: '#1f2937', marginBottom: 8 }}>支付成功！</Title>
+          <Paragraph style={{ color: '#ef4444', fontWeight: 600, fontSize: 16, marginBottom: 32 }}>
             请立即保存您的兑换码，关闭后可通过邮箱查询
           </Paragraph>
 
           <div style={{
-            background: 'rgba(0, 122, 255, 0.08)',
-            padding: 24,
+            background: 'linear-gradient(135deg, rgba(16, 163, 127, 0.08) 0%, rgba(16, 163, 127, 0.04) 100%)',
+            padding: 28,
             borderRadius: 16,
             marginBottom: 32,
+            border: '1px solid rgba(16, 163, 127, 0.2)',
           }}>
             <div style={{ display: 'flex', justifyContent: 'center', marginBottom: 16 }}>
               <Input
                 value={successOrder.redeemCode}
                 readOnly
                 style={{
-                  width: 280,
+                  width: 240,
                   textAlign: 'center',
-                  fontSize: 20,
+                  fontSize: 22,
                   fontWeight: 700,
-                  letterSpacing: 2,
-                  color: '#007aff',
+                  letterSpacing: 3,
+                  color: '#10a37f',
                   background: '#fff',
                   borderRadius: '12px 0 0 12px',
+                  height: 48,
                 }}
               />
               <Tooltip title="复制">
                 <Button
                   icon={<CopyOutlined />}
                   onClick={() => handleCopy(successOrder.redeemCode)}
-                  style={{ height: 40, background: '#007aff', borderColor: '#007aff', color: '#fff', borderRadius: '0 12px 12px 0' }}
+                  style={{ height: 48, width: 48, background: '#10a37f', borderColor: '#10a37f', color: '#fff', borderRadius: '0 12px 12px 0' }}
                 />
               </Tooltip>
             </div>
-            <Paragraph style={{ color: '#86868b', margin: 0 }}>
+            <Paragraph style={{ color: '#6b7280', margin: 0 }}>
               有效期：{successOrder.validityDays} 天（从兑换激活时开始计算）
             </Paragraph>
           </div>
 
           <Space size="middle">
-            <Button size="large" onClick={() => { setSuccessOrder(null); setSelectedPlan(null) }}>
+            <Button size="large" onClick={() => { setSuccessOrder(null); setSelectedPlan(null) }} style={{ height: 48, borderRadius: 12 }}>
               继续购买
             </Button>
             <Button type="primary" size="large" icon={<ArrowRightOutlined />} onClick={() => navigate('/invite')}
-              style={{ background: '#007aff', borderColor: '#007aff' }}>
+              style={{ height: 48, borderRadius: 12, background: 'linear-gradient(135deg, #10a37f 0%, #0d8a6a 100%)', border: 'none' }}>
               前往兑换
             </Button>
           </Space>
@@ -398,37 +493,30 @@ export default function Purchase() {
   // 支付中页面
   if (payingOrder) {
     return (
-      <div style={{ minHeight: '100vh', background: 'linear-gradient(180deg, #fafafa 0%, #f5f5f7 100%)', padding: '60px 20px' }}>
-        <div style={{ maxWidth: 500, margin: '0 auto', textAlign: 'center' }}>
+      <div style={{ minHeight: '100vh', background: 'linear-gradient(180deg, #f0fdfa 0%, #f8fafc 100%)', padding: '60px 20px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        <div style={{ maxWidth: 500, width: '100%', textAlign: 'center', background: '#fff', padding: '48px 40px', borderRadius: 24, boxShadow: '0 20px 60px rgba(0, 0, 0, 0.08)' }}>
+          <Spin indicator={<LoadingOutlined style={{ fontSize: 56, color: '#10a37f' }} spin />} />
+          <Title level={3} style={{ color: '#1f2937', marginTop: 24 }}>等待支付确认</Title>
+          <Paragraph type="secondary">订单号：{payingOrder.orderNo}</Paragraph>
+          <Paragraph type="secondary">支付页面已在新窗口打开，请完成支付</Paragraph>
+
           <div style={{
-            background: 'rgba(255, 255, 255, 0.9)',
-            backdropFilter: 'blur(20px)',
-            borderRadius: 24,
-            padding: 48,
+            margin: '24px 0',
+            padding: '16px 32px',
+            background: 'linear-gradient(135deg, rgba(16, 163, 127, 0.08) 0%, rgba(16, 163, 127, 0.04) 100%)',
+            borderRadius: 12,
+            display: 'inline-block',
           }}>
-            <Spin indicator={<LoadingOutlined style={{ fontSize: 56 }} spin />} />
-            <Title level={3} style={{ color: '#1d1d1f', marginTop: 24 }}>等待支付确认</Title>
-            <Paragraph type="secondary">订单号：{payingOrder.orderNo}</Paragraph>
-            <Paragraph type="secondary">支付页面已在新窗口打开，请完成支付</Paragraph>
+            <Text>金额：</Text>
+            <Text style={{ fontSize: 32, fontWeight: 700, color: '#10a37f' }}>
+              ¥{(payingOrder.amount / 100).toFixed(2)}
+            </Text>
+          </div>
 
-            <div style={{
-              margin: '24px 0',
-              padding: '12px 32px',
-              background: 'rgba(255, 149, 0, 0.1)',
-              borderRadius: 12,
-              display: 'inline-block',
-            }}>
-              <Text>金额：</Text>
-              <Text style={{ fontSize: 28, fontWeight: 700, color: '#ff9500' }}>
-                ¥{(payingOrder.amount / 100).toFixed(2)}
-              </Text>
-            </div>
-
-            <div style={{ marginTop: 24 }}>
-              <Button onClick={() => window.open(payingOrder.payUrl, '_blank')}>
-                重新打开支付页面
-              </Button>
-            </div>
+          <div style={{ marginTop: 24 }}>
+            <Button onClick={() => window.open(payingOrder.payUrl, '_blank')} style={{ borderRadius: 10 }}>
+              重新打开支付页面
+            </Button>
           </div>
         </div>
       </div>
@@ -436,102 +524,58 @@ export default function Purchase() {
   }
 
   return (
-    <div style={{ minHeight: '100vh', background: 'linear-gradient(180deg, #fafafa 0%, #f5f5f7 100%)' }}>
+    <div style={{ minHeight: '100vh', background: 'linear-gradient(180deg, #f0fdfa 0%, #f8fafc 50%, #ffffff 100%)' }}>
       {/* 装饰 */}
-      <div style={{ position: 'fixed', top: '-20%', right: '-10%', width: 600, height: 600, background: 'radial-gradient(circle, rgba(255, 149, 0, 0.08) 0%, transparent 70%)', borderRadius: '50%', zIndex: 0 }} />
-      <div style={{ position: 'fixed', bottom: '-15%', left: '-5%', width: 500, height: 500, background: 'radial-gradient(circle, rgba(0, 122, 255, 0.06) 0%, transparent 70%)', borderRadius: '50%', zIndex: 0 }} />
+      <div style={{ position: 'fixed', top: '-20%', right: '-10%', width: 600, height: 600, background: 'radial-gradient(circle, rgba(16, 163, 127, 0.06) 0%, transparent 70%)', borderRadius: '50%', zIndex: 0, pointerEvents: 'none' }} />
+      <div style={{ position: 'fixed', bottom: '-15%', left: '-5%', width: 500, height: 500, background: 'radial-gradient(circle, rgba(16, 163, 127, 0.04) 0%, transparent 70%)', borderRadius: '50%', zIndex: 0, pointerEvents: 'none' }} />
 
-      <div style={{ maxWidth: 900, margin: '0 auto', padding: '40px 20px', position: 'relative', zIndex: 1 }}>
+      <div style={{ maxWidth: 1100, margin: '0 auto', padding: '40px 20px', position: 'relative', zIndex: 1 }}>
         {/* 顶部栏 */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 32 }}>
-          <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/')} style={{ color: '#86868b' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 48 }}>
+          <Button type="text" icon={<ArrowLeftOutlined />} onClick={() => navigate('/')} style={{ color: '#6b7280', fontWeight: 500 }}>
             返回首页
           </Button>
-          <Button icon={<SearchOutlined />} onClick={() => setQueryModalVisible(true)}>
+          <Button icon={<SearchOutlined />} onClick={() => setQueryModalVisible(true)} style={{ borderRadius: 10 }}>
             查询订单
           </Button>
         </div>
 
         {/* 标题 */}
-        <div style={{ textAlign: 'center', marginBottom: 40 }}>
-          <Title level={2} style={{ color: '#1d1d1f', fontWeight: 700, marginBottom: 8 }}>
-            选择套餐
+        <div style={{ textAlign: 'center', marginBottom: 56 }}>
+          <Title style={{ fontSize: 42, fontWeight: 800, color: '#1f2937', marginBottom: 16, letterSpacing: '-1px' }}>
+            选择最适合你的方案
           </Title>
-          <Paragraph type="secondary" style={{ fontSize: 16 }}>
-            选择适合您的套餐，支付后即可获得兑换码
+          <Paragraph style={{ fontSize: 18, color: '#6b7280', maxWidth: 500, margin: '0 auto' }}>
+            即刻开始您的 ChatGPT Team 之旅，支付后立即获取兑换码
           </Paragraph>
         </div>
 
         {/* 套餐列表 */}
-        <Row gutter={[16, 16]} style={{ marginBottom: 32 }}>
+        <Row gutter={[28, 28]} justify="center" style={{ marginBottom: 48 }}>
           {plans.map(plan => (
-            <Col key={plan.id} xs={12} sm={8} md={6}>
-              <PlanCard
-                plan={plan}
-                selected={selectedPlan?.id === plan.id}
-                onSelect={() => setSelectedPlan(plan)}
-              />
+            <Col key={plan.id} xs={24} sm={12} lg={8}>
+              <PlanCard plan={plan} onBuy={handleBuyClick} />
             </Col>
           ))}
         </Row>
 
-        {/* 选中套餐详情 */}
-        {selectedPlan && (
-          <Card style={{ borderRadius: 16, marginBottom: 32 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 16 }}>
-              <div>
-                <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 8 }}>
-                  <Title level={4} style={{ margin: 0 }}>{selectedPlan.name}</Title>
-                  {selectedPlan.is_recommended && <Tag color="orange">推荐</Tag>}
-                </div>
-                <Space split={<Divider type="vertical" />}>
-                  <Text type="secondary"><ClockCircleOutlined /> 有效期 {selectedPlan.validity_days} 天</Text>
-                  {selectedPlan.description && <Text type="secondary">{selectedPlan.description}</Text>}
-                </Space>
-              </div>
-              <div style={{ textAlign: 'right' }}>
-                {selectedPlan.original_price && (
-                  <Text delete type="secondary" style={{ marginRight: 8 }}>
-                    ¥{(selectedPlan.original_price / 100).toFixed(2)}
-                  </Text>
-                )}
-                <Text style={{ fontSize: 28, fontWeight: 700, color: '#ff9500' }}>
-                  ¥{(selectedPlan.price / 100).toFixed(2)}
-                </Text>
-              </div>
-            </div>
-
-            <Divider />
-
-            <div style={{ textAlign: 'center' }}>
-              <Button
-                type="primary"
-                size="large"
-                icon={<ShoppingCartOutlined />}
-                onClick={handleBuyClick}
-                style={{
-                  height: 50,
-                  padding: '0 48px',
-                  fontSize: 16,
-                  fontWeight: 600,
-                  borderRadius: 25,
-                  background: 'linear-gradient(135deg, #ff9500 0%, #ff5e3a 100%)',
-                  border: 'none',
-                }}
-              >
-                立即购买
-              </Button>
-            </div>
-          </Card>
-        )}
-
-        {/* 未选择套餐提示 */}
-        {!selectedPlan && (
-          <div style={{ textAlign: 'center', padding: '40px 0', color: '#86868b' }}>
-            <GiftOutlined style={{ fontSize: 48, marginBottom: 16, opacity: 0.5 }} />
-            <Paragraph type="secondary">请点击上方套餐卡片进行选择</Paragraph>
-          </div>
-        )}
+        {/* 底部说明 */}
+        <div style={{ textAlign: 'center', padding: '32px 0' }}>
+          <Space split={<span style={{ color: '#e5e7eb' }}>•</span>} size={24}>
+            <Text type="secondary" style={{ fontSize: 14 }}>
+              <CheckCircleOutlined style={{ color: '#10a37f', marginRight: 6 }} />
+              安全支付
+            </Text>
+            <Text type="secondary" style={{ fontSize: 14 }}>
+              <CheckCircleOutlined style={{ color: '#10a37f', marginRight: 6 }} />
+              即时发码
+            </Text>
+            <Text type="secondary" style={{ fontSize: 14 }}>
+              <CheckCircleOutlined style={{ color: '#10a37f', marginRight: 6 }} />
+              售后保障
+            </Text>
+          </Space>
+        </div>
       </div>
 
       {/* 支付弹窗 */}
@@ -541,11 +585,11 @@ export default function Purchase() {
         onCancel={() => setPayModalVisible(false)}
         footer={null}
         centered
-        width={420}
+        width={440}
       >
         <div style={{ padding: '16px 0' }}>
           {/* 订单信息 */}
-          <div style={{ background: '#f5f5f7', borderRadius: 12, padding: 16, marginBottom: 24 }}>
+          <div style={{ background: '#f8fafc', borderRadius: 12, padding: 16, marginBottom: 24 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
               <Text type="secondary">套餐</Text>
               <Text strong>{selectedPlan?.name}</Text>
@@ -555,9 +599,9 @@ export default function Purchase() {
               <Text>{selectedPlan?.validity_days} 天</Text>
             </div>
             <Divider style={{ margin: '12px 0' }} />
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: appliedCoupon ? 8 : 0 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: appliedCoupon ? 8 : 0 }}>
               <Text type="secondary">套餐价格</Text>
-              <Text style={{ fontSize: appliedCoupon ? 14 : 20, fontWeight: appliedCoupon ? 400 : 700, color: appliedCoupon ? '#86868b' : '#ff9500', textDecoration: appliedCoupon ? 'line-through' : 'none' }}>
+              <Text style={{ fontSize: appliedCoupon ? 14 : 22, fontWeight: appliedCoupon ? 400 : 700, color: appliedCoupon ? '#9ca3af' : '#10a37f', textDecoration: appliedCoupon ? 'line-through' : 'none' }}>
                 ¥{selectedPlan ? (selectedPlan.price / 100).toFixed(2) : '0.00'}
               </Text>
             </div>
@@ -565,13 +609,13 @@ export default function Purchase() {
               <>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
                   <Text type="secondary">优惠</Text>
-                  <Text style={{ color: '#34c759', fontWeight: 500 }}>
+                  <Text style={{ color: '#10a37f', fontWeight: 500 }}>
                     -¥{(appliedCoupon.discountAmount / 100).toFixed(2)}
                   </Text>
                 </div>
-                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
                   <Text type="secondary">应付金额</Text>
-                  <Text style={{ fontSize: 20, fontWeight: 700, color: '#ff9500' }}>
+                  <Text style={{ fontSize: 22, fontWeight: 700, color: '#10a37f' }}>
                     ¥{(finalAmount / 100).toFixed(2)}
                   </Text>
                 </div>
@@ -588,13 +632,13 @@ export default function Purchase() {
                 alignItems: 'center',
                 justifyContent: 'space-between',
                 padding: '12px 16px',
-                background: 'rgba(52, 199, 89, 0.1)',
-                borderRadius: 8,
-                border: '1px solid #34c759',
+                background: 'rgba(16, 163, 127, 0.08)',
+                borderRadius: 10,
+                border: '1px solid #10a37f',
               }}>
                 <Space>
-                  <GiftOutlined style={{ color: '#34c759' }} />
-                  <Text style={{ color: '#34c759', fontWeight: 500 }}>{appliedCoupon.code}</Text>
+                  <GiftOutlined style={{ color: '#10a37f' }} />
+                  <Text style={{ color: '#10a37f', fontWeight: 500 }}>{appliedCoupon.code}</Text>
                   <Text type="secondary">已优惠 ¥{(appliedCoupon.discountAmount / 100).toFixed(2)}</Text>
                 </Space>
                 <Button type="link" size="small" danger onClick={handleRemoveCoupon}>移除</Button>
@@ -607,7 +651,7 @@ export default function Purchase() {
                   onChange={e => { setCouponCode(e.target.value.toUpperCase()); setCouponError(null) }}
                   onPressEnter={handleCheckCoupon}
                   size="large"
-                  style={{ flex: 1, borderRadius: 8 }}
+                  style={{ flex: 1, borderRadius: 10 }}
                   status={couponError ? 'error' : undefined}
                 />
                 <Button
@@ -615,7 +659,7 @@ export default function Purchase() {
                   loading={couponLoading}
                   onClick={handleCheckCoupon}
                   disabled={!couponCode.trim()}
-                  style={{ borderRadius: 8 }}
+                  style={{ borderRadius: 10 }}
                 >
                   使用
                 </Button>
@@ -636,7 +680,7 @@ export default function Purchase() {
               value={email}
               onChange={e => setEmail(e.target.value)}
               size="large"
-              style={{ borderRadius: 8 }}
+              style={{ borderRadius: 10 }}
               status={!email.trim() ? 'warning' : undefined}
             />
             <Text type="secondary" style={{ fontSize: 12, marginTop: 4, display: 'block' }}>
