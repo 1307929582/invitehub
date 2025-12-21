@@ -11,7 +11,7 @@ import {
   ArrowRightOutlined,
 } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
-import { distributorApi } from '../../api'
+import { distributorApi, configApi } from '../../api'
 import { useStore } from '../../store'
 import dayjs from 'dayjs'
 
@@ -29,6 +29,16 @@ const isValidPrefix = (prefix: string): boolean => {
   const prefixRegex = /^[a-z0-9]([a-z0-9-]{0,18}[a-z0-9])?$/
   const reserved = ['www', 'api', 'admin', 'mail', 'smtp', 'ftp', 'mmw-team', 'backend', 'console']
   return prefixRegex.test(prefix) && !reserved.includes(prefix)
+}
+
+// 从 URL 提取域名
+const extractDomain = (url: string): string => {
+  try {
+    const urlObj = new URL(url)
+    return urlObj.hostname
+  } catch {
+    return 'zenscaleai.com'
+  }
 }
 
 interface Summary {
@@ -54,6 +64,7 @@ export default function DistributorDashboard() {
   const [summary, setSummary] = useState<Summary | null>(null)
   const [recentSales, setRecentSales] = useState<SaleRecord[]>([])
   const [loading, setLoading] = useState(true)
+  const [siteUrl, setSiteUrl] = useState<string>('')
   const { user } = useStore()
   const screens = useBreakpoint()
   const navigate = useNavigate()
@@ -67,8 +78,9 @@ export default function DistributorDashboard() {
 
   const customPrefix = getValidPrefix()
 
-  // 生成分销商白标链接
-  const whiteLabelUrl = `https://${customPrefix}.zenscaleai.com/invite`
+  // 生成分销商白标链接（使用系统配置的域名）
+  const baseDomain = siteUrl ? extractDomain(siteUrl) : 'zenscaleai.com'
+  const whiteLabelUrl = `https://${customPrefix}.${baseDomain}/invite`
 
   // 复制链接（带错误处理）
   const copyWhiteLabelUrl = async () => {
@@ -86,14 +98,21 @@ export default function DistributorDashboard() {
     const fetchData = async () => {
       setLoading(true)
       try {
-        const [summaryRes, salesRes] = await Promise.all([
+        const [summaryRes, salesRes, configRes] = await Promise.all([
           distributorApi.getMySummary(),
           distributorApi.getMySales(5),
+          configApi.list(),
         ])
         // 检查是否已取消
         if (abortController.signal.aborted) return
         setSummary(summaryRes as unknown as Summary)
         setRecentSales((salesRes as unknown as SaleRecord[]) || [])
+        // 提取 site_url
+        const configs = (configRes as any)?.configs || []
+        const siteUrlConfig = configs.find((c: any) => c.key === 'site_url')
+        if (siteUrlConfig?.value) {
+          setSiteUrl(siteUrlConfig.value)
+        }
       } catch (error) {
         if (abortController.signal.aborted) return
         console.error('加载数据失败:', error)
@@ -116,28 +135,28 @@ export default function DistributorDashboard() {
       title: '总兑换码数',
       value: summary?.total_codes_created || 0,
       icon: <GiftOutlined />,
-      gradient: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      gradient: 'linear-gradient(135deg, #10a37f 0%, #0d8a6a 100%)',
       iconBg: 'rgba(255,255,255,0.2)',
     },
     {
       title: '活跃码数',
       value: summary?.active_codes || 0,
       icon: <CheckCircleOutlined />,
-      gradient: 'linear-gradient(135deg, #11998e 0%, #38ef7d 100%)',
+      gradient: 'linear-gradient(135deg, #059669 0%, #34d399 100%)',
       iconBg: 'rgba(255,255,255,0.2)',
     },
     {
       title: '总销售次数',
       value: summary?.total_sales || 0,
       icon: <ShoppingCartOutlined />,
-      gradient: 'linear-gradient(135deg, #007aff 0%, #5ac8fa 100%)',
+      gradient: 'linear-gradient(135deg, #0891b2 0%, #22d3ee 100%)',
       iconBg: 'rgba(255,255,255,0.2)',
     },
     {
       title: '预估收益',
       value: summary?.total_revenue_estimate || 0,
       icon: <DollarOutlined />,
-      gradient: 'linear-gradient(135deg, #f093fb 0%, #f5576c 100%)',
+      gradient: 'linear-gradient(135deg, #7c3aed 0%, #a78bfa 100%)',
       iconBg: 'rgba(255,255,255,0.2)',
       suffix: '元',
       precision: 2,
@@ -160,13 +179,13 @@ export default function DistributorDashboard() {
       key: 'code',
       render: (text: string) => (
         <code style={{
-          background: 'linear-gradient(135deg, #667eea15 0%, #764ba215 100%)',
+          background: 'linear-gradient(135deg, #10a37f15 0%, #0d8a6a15 100%)',
           padding: '4px 10px',
           borderRadius: 6,
           fontFamily: 'Monaco, monospace',
           fontSize: 13,
-          color: '#667eea',
-          border: '1px solid #667eea20',
+          color: '#10a37f',
+          border: '1px solid #10a37f20',
         }}>
           {text}
         </code>
@@ -283,7 +302,7 @@ export default function DistributorDashboard() {
           borderRadius: 16,
           border: 'none',
           boxShadow: '0 2px 12px rgba(0,0,0,0.04)',
-          background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)',
+          background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
         }}
         bodyStyle={{ padding: screens.md ? 28 : 20 }}
       >
@@ -292,12 +311,12 @@ export default function DistributorDashboard() {
             width: 40,
             height: 40,
             borderRadius: 10,
-            background: 'rgba(0, 122, 255, 0.2)',
+            background: 'rgba(16, 163, 127, 0.2)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
           }}>
-            <LinkOutlined style={{ color: '#007aff', fontSize: 18 }} />
+            <LinkOutlined style={{ color: '#10a37f', fontSize: 18 }} />
           </div>
           <div>
             <div style={{ color: '#fff', fontSize: 16, fontWeight: 600 }}>您的客户专属链接</div>
@@ -318,7 +337,7 @@ export default function DistributorDashboard() {
           <code style={{
             flex: 1,
             fontSize: screens.md ? 15 : 13,
-            color: '#5ac8fa',
+            color: '#34d399',
             wordBreak: 'break-all',
             fontFamily: 'Monaco, monospace',
             minWidth: 200,
@@ -333,7 +352,7 @@ export default function DistributorDashboard() {
               height: 40,
               borderRadius: 10,
               fontWeight: 500,
-              background: '#007aff',
+              background: '#10a37f',
               border: 'none',
             }}
           >
@@ -365,7 +384,7 @@ export default function DistributorDashboard() {
           <Title level={5} style={{ margin: 0, fontWeight: 600 }}>最近销售记录</Title>
           <Button
             type="link"
-            style={{ padding: 0, height: 'auto', color: '#007aff' }}
+            style={{ padding: 0, height: 'auto', color: '#10a37f' }}
             onClick={() => navigate('/distributor/sales')}
           >
             查看全部 <ArrowRightOutlined />

@@ -235,7 +235,7 @@ export default function DistributorLayout() {
             }}>
               <Avatar
                 size={32}
-                style={{ backgroundColor: '#722ed1' }}
+                style={{ backgroundColor: '#10a37f' }}
                 icon={<UserOutlined />}
               />
               {!isMobile && (

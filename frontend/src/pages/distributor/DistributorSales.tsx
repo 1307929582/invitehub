@@ -58,13 +58,13 @@ export default function DistributorSales() {
       key: 'code',
       render: (text: string) => (
         <code style={{
-          background: 'linear-gradient(135deg, #667eea15 0%, #764ba215 100%)',
+          background: 'linear-gradient(135deg, #10a37f15 0%, #0d8a6a15 100%)',
           padding: '4px 10px',
           borderRadius: 6,
           fontFamily: 'Monaco, monospace',
           fontSize: 13,
-          color: '#667eea',
-          border: '1px solid #667eea20',
+          color: '#10a37f',
+          border: '1px solid #10a37f20',
         }}>
           {text}
         </code>

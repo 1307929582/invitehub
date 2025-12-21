@@ -6,7 +6,7 @@ import {
 } from 'antd'
 import { DeleteOutlined, CopyOutlined, LinkOutlined, ShoppingCartOutlined, SettingOutlined } from '@ant-design/icons'
 import type { TableRowSelection } from 'antd/es/table/interface'
-import { redeemApi, distributorApi } from '../../api'
+import { redeemApi, distributorApi, configApi } from '../../api'
 import { useStore } from '../../store'
 import dayjs from 'dayjs'
 
@@ -24,6 +24,16 @@ const isValidPrefix = (prefix: string): boolean => {
   const prefixRegex = /^[a-z0-9]([a-z0-9-]{0,18}[a-z0-9])?$/
   const reserved = ['www', 'api', 'admin', 'mail', 'smtp', 'ftp', 'mmw-team', 'backend', 'console']
   return prefixRegex.test(prefix) && !reserved.includes(prefix)
+}
+
+// 从 URL 提取域名
+const extractDomain = (url: string): string => {
+  try {
+    const urlObj = new URL(url)
+    return urlObj.hostname
+  } catch {
+    return 'zenscaleai.com'
+  }
 }
 
 interface RedeemCode {
@@ -55,6 +65,7 @@ export default function DistributorRedeemCodes() {
   const [codes, setCodes] = useState<RedeemCode[]>([])
   const [loading, setLoading] = useState(true)
   const [batchDeleteLoading, setBatchDeleteLoading] = useState(false)
+  const [siteUrl, setSiteUrl] = useState<string>('')
   const { user } = useStore()
 
   // 自定义域名前缀（从 localStorage 读取，带安全清理）
@@ -65,6 +76,9 @@ export default function DistributorRedeemCodes() {
   }, [user?.id])
 
   const [customPrefix, setCustomPrefix] = useState<string>(getDefaultPrefix)
+
+  // 计算基础域名
+  const baseDomain = siteUrl ? extractDomain(siteUrl) : 'zenscaleai.com'
 
   // 当 user 变化时更新前缀
   useEffect(() => {
@@ -88,8 +102,17 @@ export default function DistributorRedeemCodes() {
   const fetchCodes = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await redeemApi.list() as any
+      const [res, configRes] = await Promise.all([
+        redeemApi.list() as any,
+        configApi.list(),
+      ])
       setCodes(res.codes || [])
+      // 提取 site_url
+      const configs = (configRes as any)?.configs || []
+      const siteUrlConfig = configs.find((c: any) => c.key === 'site_url')
+      if (siteUrlConfig?.value) {
+        setSiteUrl(siteUrlConfig.value)
+      }
     } catch (error) {
       message.error('加载兑换码失败')
     } finally {
@@ -121,14 +144,14 @@ export default function DistributorRedeemCodes() {
     }
   }
 
-  // 获取邀请链接（使用分销商白标域名）
+  // 获取邀请链接（使用系统配置的域名）
   const getInviteUrl = (code: string, useWhiteLabel: boolean = true) => {
     if (useWhiteLabel) {
       // 白标链接（使用自定义前缀）
-      return `https://${customPrefix}.zenscaleai.com/invite/${code}`
+      return `https://${customPrefix}.${baseDomain}/invite/${code}`
     } else {
-      // 官方链接（显示价格）
-      return `https://mmw-team.zenscaleai.com/invite/${code}`
+      // 官方链接（使用系统配置的 site_url）
+      return siteUrl ? `${siteUrl.replace(/\/$/, '')}/invite/${code}` : `https://mmw-team.zenscaleai.com/invite/${code}`
     }
   }
 
@@ -327,7 +350,7 @@ export default function DistributorRedeemCodes() {
                 icon={<CopyOutlined />}
                 onClick={() => copyCode(text)}
                 aria-label="复制兑换码"
-                style={{ color: '#1890ff', padding: 0, height: 'auto' }}
+                style={{ color: '#10a37f', padding: 0, height: 'auto' }}
               />
             </Tooltip>
           </Space>
@@ -464,7 +487,7 @@ export default function DistributorRedeemCodes() {
               type="primary"
               icon={<ShoppingCartOutlined />}
               onClick={showPurchaseModal}
-              style={{ borderRadius: 8, background: '#007aff', border: 'none' }}
+              style={{ borderRadius: 8, background: '#10a37f', border: 'none' }}
             >
               购买兑换码
             </Button>
@@ -479,7 +502,7 @@ export default function DistributorRedeemCodes() {
           borderRadius: 16,
           border: 'none',
           boxShadow: '0 2px 12px rgba(0,0,0,0.04)',
-          background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)',
+          background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
         }}
         bodyStyle={{ padding: 20 }}
       >
@@ -489,17 +512,17 @@ export default function DistributorRedeemCodes() {
               width: 40,
               height: 40,
               borderRadius: 10,
-              background: 'rgba(0, 122, 255, 0.2)',
+              background: 'rgba(16, 163, 127, 0.2)',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
             }}>
-              <LinkOutlined style={{ color: '#007aff', fontSize: 18 }} />
+              <LinkOutlined style={{ color: '#10a37f', fontSize: 18 }} />
             </div>
             <div>
               <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, marginBottom: 2 }}>当前白标域名</div>
-              <code style={{ color: '#5ac8fa', fontSize: 14, fontFamily: 'Monaco, monospace' }}>
-                https://{customPrefix}.zenscaleai.com
+              <code style={{ color: '#34d399', fontSize: 14, fontFamily: 'Monaco, monospace' }}>
+                https://{customPrefix}.{baseDomain}
               </code>
             </div>
           </div>
@@ -509,7 +532,7 @@ export default function DistributorRedeemCodes() {
             size="small"
             onClick={async () => {
               try {
-                await navigator.clipboard.writeText(`https://${customPrefix}.zenscaleai.com`)
+                await navigator.clipboard.writeText(`https://${customPrefix}.${baseDomain}`)
                 message.success('已复制域名')
               } catch {
                 message.error('复制失败，请手动复制')
@@ -535,7 +558,7 @@ export default function DistributorRedeemCodes() {
           <div style={{
             margin: 20,
             padding: '14px 20px',
-            background: 'linear-gradient(135deg, #007aff10 0%, #5ac8fa10 100%)',
+            background: 'linear-gradient(135deg, #10a37f10 0%, #34d39910 100%)',
             borderRadius: 12,
             display: 'flex',
             alignItems: 'center',
@@ -544,7 +567,7 @@ export default function DistributorRedeemCodes() {
             gap: 12,
           }}>
             <Text>
-              已选择 <Text strong style={{ color: '#007aff' }}>{selectedRowKeys.length}</Text> 项
+              已选择 <Text strong style={{ color: '#10a37f' }}>{selectedRowKeys.length}</Text> 项
             </Text>
             <Space wrap>
               <Button
@@ -736,7 +759,7 @@ export default function DistributorRedeemCodes() {
           >
             <Input
               placeholder="例如：vip, abc, dealer"
-              addonAfter=".zenscaleai.com"
+              addonAfter={`.${baseDomain}`}
             />
           </Form.Item>
 
@@ -746,7 +769,7 @@ export default function DistributorRedeemCodes() {
             </Text>
             <div style={{ marginTop: 8 }}>
               <Text code>
-                https://{prefixForm.getFieldValue('prefix') || customPrefix}.zenscaleai.com
+                https://{prefixForm.getFieldValue('prefix') || customPrefix}.{baseDomain}
               </Text>
             </div>
           </div>
