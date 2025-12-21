@@ -142,7 +142,7 @@ class OperationLog(Base):
     action = Column(String(50), nullable=False)
     target = Column(String(255), nullable=True)
     details = Column(Text, nullable=True)
-    ip_address = Column(String(50), nullable=True)
+    ip_address = Column(String(255), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     
     user = relationship("User", back_populates="operation_logs")
