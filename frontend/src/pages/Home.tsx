@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 import { Button, Spin, Card, Row, Col, Grid } from 'antd'
 import {
   RocketOutlined, CheckCircleOutlined, SafetyOutlined, ThunderboltOutlined,
@@ -77,9 +77,9 @@ export default function Home() {
         position: 'relative',
         overflow: 'hidden',
       }}>
-        {/* 装饰圆 */}
-        <div style={{ position: 'absolute', top: '-20%', right: '-10%', width: 600, height: 600, background: 'radial-gradient(circle, rgba(0, 122, 255, 0.15) 0%, transparent 70%)', borderRadius: '50%' }} />
-        <div style={{ position: 'absolute', bottom: '-30%', left: '-10%', width: 500, height: 500, background: 'radial-gradient(circle, rgba(88, 86, 214, 0.1) 0%, transparent 70%)', borderRadius: '50%' }} />
+        {/* 装饰圆 - 对辅助技术隐藏 */}
+        <div aria-hidden="true" style={{ position: 'absolute', top: '-20%', right: '-10%', width: 600, height: 600, background: 'radial-gradient(circle, rgba(0, 122, 255, 0.15) 0%, transparent 70%)', borderRadius: '50%' }} />
+        <div aria-hidden="true" style={{ position: 'absolute', bottom: '-30%', left: '-10%', width: 500, height: 500, background: 'radial-gradient(circle, rgba(88, 86, 214, 0.1) 0%, transparent 70%)', borderRadius: '50%' }} />
 
         <div style={{ maxWidth: 1000, margin: '0 auto', textAlign: 'center', position: 'relative', zIndex: 1 }}>
           <img
@@ -345,10 +345,10 @@ export default function Home() {
       <div style={{ padding: '40px 20px', background: '#1d1d1f', textAlign: 'center' }}>
         <div style={{ maxWidth: 600, margin: '0 auto' }}>
           <div style={{ marginBottom: 20 }}>
-            <a href="/faq" style={{ color: 'rgba(255,255,255,0.6)', margin: '0 16px', fontSize: 14 }}>
+            <Link to="/faq" style={{ color: 'rgba(255,255,255,0.6)', margin: '0 16px', fontSize: 14 }}>
               <QuestionCircleOutlined style={{ marginRight: 6 }} />常见问题
-            </a>
-            <a href="/legal" style={{ color: 'rgba(255,255,255,0.6)', margin: '0 16px', fontSize: 14 }}>服务条款</a>
+            </Link>
+            <Link to="/legal" style={{ color: 'rgba(255,255,255,0.6)', margin: '0 16px', fontSize: 14 }}>服务条款</Link>
             <a href="mailto:contact@zenscaleai.com" style={{ color: 'rgba(255,255,255,0.6)', margin: '0 16px', fontSize: 14 }}>联系我们</a>
           </div>
           <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 13, margin: 0 }}>

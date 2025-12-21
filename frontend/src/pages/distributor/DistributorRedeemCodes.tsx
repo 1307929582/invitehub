@@ -321,34 +321,39 @@ export default function DistributorRedeemCodes() {
               {text}
             </code>
             <Tooltip title="复制兑换码">
-              <CopyOutlined style={{ cursor: 'pointer', color: '#1890ff' }} onClick={() => copyCode(text)} />
+              <Button
+                type="text"
+                size="small"
+                icon={<CopyOutlined />}
+                onClick={() => copyCode(text)}
+                aria-label="复制兑换码"
+                style={{ color: '#1890ff', padding: 0, height: 'auto' }}
+              />
             </Tooltip>
           </Space>
           <Space size={4}>
             <Tooltip title="复制白标链接（隐藏价格）">
-              <LinkOutlined
-                style={{ cursor: 'pointer', color: '#52c41a', fontSize: 12 }}
+              <Button
+                type="text"
+                size="small"
                 onClick={() => copyLink(text, true)}
-              />
-              <span
-                style={{ cursor: 'pointer', color: '#52c41a', fontSize: 12 }}
-                onClick={() => copyLink(text, true)}
+                aria-label="复制白标链接"
+                style={{ color: '#52c41a', fontSize: 12, padding: 0, height: 'auto' }}
               >
-                白标链接
-              </span>
+                <LinkOutlined /> 白标链接
+              </Button>
             </Tooltip>
-            <span style={{ color: '#d9d9d9' }}>|</span>
+            <span style={{ color: '#d9d9d9' }} aria-hidden="true">|</span>
             <Tooltip title="复制官方链接（显示价格）">
-              <LinkOutlined
-                style={{ cursor: 'pointer', color: '#999', fontSize: 12 }}
+              <Button
+                type="text"
+                size="small"
                 onClick={() => copyLink(text, false)}
-              />
-              <span
-                style={{ cursor: 'pointer', color: '#999', fontSize: 12 }}
-                onClick={() => copyLink(text, false)}
+                aria-label="复制官方链接"
+                style={{ color: '#999', fontSize: 12, padding: 0, height: 'auto' }}
               >
-                官方链接
-              </span>
+                <LinkOutlined /> 官方链接
+              </Button>
             </Tooltip>
           </Space>
         </Space>

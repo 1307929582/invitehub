@@ -1,5 +1,5 @@
 // 分销商布局组件
-import { Layout, Menu, Avatar, Dropdown, message, Grid, Drawer } from 'antd'
+import { Layout, Menu, Avatar, Dropdown, message, Grid, Drawer, Button } from 'antd'
 import {
   DashboardOutlined,
   GiftOutlined,
@@ -184,20 +184,20 @@ export default function DistributorLayout() {
           position: 'relative',
         }}>
           {/* 关闭按钮 */}
-          <div
+          <Button
+            type="text"
             onClick={() => setMobileMenuOpen(false)}
+            aria-label="关闭菜单"
             style={{
               position: 'absolute',
-              top: 20,
-              right: 16,
-              cursor: 'pointer',
+              top: 16,
+              right: 12,
               color: 'rgba(255,255,255,0.6)',
               fontSize: 18,
               zIndex: 10,
             }}
-          >
-            <CloseOutlined />
-          </div>
+            icon={<CloseOutlined />}
+          />
           {menuContent}
         </div>
       </Drawer>
@@ -214,12 +214,13 @@ export default function DistributorLayout() {
           top: 0,
           zIndex: 10,
         }}>
-          <div
-            onClick={() => isMobile ? setMobileMenuOpen(true) : setCollapsed(!collapsed)}
-            style={{ cursor: 'pointer', fontSize: 18, color: '#666', padding: '8px' }}
-          >
-            {isMobile ? <MenuUnfoldOutlined /> : (collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />)}
-          </div>
+          <Button
+            type="text"
+            onClick={() => isMobile ? setMobileMenuOpen(true) : setCollapsed(v => !v)}
+            aria-label={isMobile ? '打开菜单' : (collapsed ? '展开侧边栏' : '收起侧边栏')}
+            style={{ fontSize: 18, color: '#666', padding: '8px' }}
+            icon={isMobile ? <MenuUnfoldOutlined /> : (collapsed ? <MenuUnfoldOutlined /> : <MenuFoldOutlined />)}
+          />
 
           <Dropdown menu={{ items: dropdownItems }} placement="bottomRight">
             <div style={{

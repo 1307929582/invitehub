@@ -1,5 +1,5 @@
 // 分销商 Dashboard
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { Row, Col, Card, Table, Typography, Spin, Empty, Button, message, Grid } from 'antd'
 import {
   GiftOutlined,
@@ -10,11 +10,26 @@ import {
   CopyOutlined,
   ArrowRightOutlined,
 } from '@ant-design/icons'
+import { useNavigate } from 'react-router-dom'
 import { distributorApi } from '../../api'
 import { useStore } from '../../store'
+import dayjs from 'dayjs'
 
 const { Title, Paragraph, Text } = Typography
 const { useBreakpoint } = Grid
+
+// 安全清理域名前缀（防止 XSS 和无效字符）
+const sanitizePrefix = (prefix: string): string => {
+  if (!prefix || typeof prefix !== 'string') return ''
+  return prefix.toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20)
+}
+
+// 验证前缀是否有效
+const isValidPrefix = (prefix: string): boolean => {
+  const prefixRegex = /^[a-z0-9]([a-z0-9-]{0,18}[a-z0-9])?$/
+  const reserved = ['www', 'api', 'admin', 'mail', 'smtp', 'ftp', 'mmw-team', 'backend', 'console']
+  return prefixRegex.test(prefix) && !reserved.includes(prefix)
+}
 
 interface Summary {
   total_codes_created: number
@@ -41,21 +56,33 @@ export default function DistributorDashboard() {
   const [loading, setLoading] = useState(true)
   const { user } = useStore()
   const screens = useBreakpoint()
+  const navigate = useNavigate()
 
-  // 从 localStorage 读取自定义前缀
-  const customPrefix = localStorage.getItem(`distributor_prefix_${user?.id}`) || `distributor-${user?.id || ''}`
+  // 从 localStorage 读取自定义前缀（带安全清理）
+  const getValidPrefix = useCallback(() => {
+    const stored = localStorage.getItem(`distributor_prefix_${user?.id}`)
+    const sanitized = sanitizePrefix(stored || '')
+    return sanitized && isValidPrefix(sanitized) ? sanitized : `distributor-${user?.id || ''}`
+  }, [user?.id])
+
+  const customPrefix = getValidPrefix()
 
   // 生成分销商白标链接
   const whiteLabelUrl = `https://${customPrefix}.zenscaleai.com/invite`
 
-  const copyWhiteLabelUrl = () => {
-    if (whiteLabelUrl) {
-      navigator.clipboard.writeText(whiteLabelUrl)
+  // 复制链接（带错误处理）
+  const copyWhiteLabelUrl = async () => {
+    try {
+      await navigator.clipboard.writeText(whiteLabelUrl)
       message.success('链接已复制到剪贴板')
+    } catch {
+      message.error('复制失败，请手动复制')
     }
   }
 
   useEffect(() => {
+    const abortController = new AbortController()
+
     const fetchData = async () => {
       setLoading(true)
       try {
@@ -63,15 +90,24 @@ export default function DistributorDashboard() {
           distributorApi.getMySummary(),
           distributorApi.getMySales(5),
         ])
-        setSummary(summaryRes as any)
-        setRecentSales((salesRes as any) || [])
+        // 检查是否已取消
+        if (abortController.signal.aborted) return
+        setSummary(summaryRes as unknown as Summary)
+        setRecentSales((salesRes as unknown as SaleRecord[]) || [])
       } catch (error) {
+        if (abortController.signal.aborted) return
         console.error('加载数据失败:', error)
       } finally {
-        setLoading(false)
+        if (!abortController.signal.aborted) {
+          setLoading(false)
+        }
       }
     }
     fetchData()
+
+    return () => {
+      abortController.abort()
+    }
   }, [])
 
   // 统计卡片配置
@@ -108,12 +144,13 @@ export default function DistributorDashboard() {
     },
   ]
 
-  const columns = [
+  // 表格列配置（useMemo 优化）
+  const columns = useMemo(() => [
     {
       title: '序号',
       key: 'index',
       width: 60,
-      render: (_: any, __: any, index: number) => (
+      render: (_: unknown, __: unknown, index: number) => (
         <span style={{ color: '#86868b' }}>{index + 1}</span>
       ),
     },
@@ -163,11 +200,11 @@ export default function DistributorDashboard() {
       key: 'created_at',
       render: (text: string) => (
         <span style={{ color: '#86868b', fontSize: 13 }}>
-          {new Date(text).toLocaleString('zh-CN')}
+          {dayjs(text).format('YYYY-MM-DD HH:mm:ss')}
         </span>
       ),
     },
-  ]
+  ], [])
 
   if (loading) {
     return (
@@ -329,7 +366,7 @@ export default function DistributorDashboard() {
           <Button
             type="link"
             style={{ padding: 0, height: 'auto', color: '#007aff' }}
-            onClick={() => window.location.href = '/distributor/sales'}
+            onClick={() => navigate('/distributor/sales')}
           >
             查看全部 <ArrowRightOutlined />
           </Button>
@@ -338,7 +375,7 @@ export default function DistributorDashboard() {
         <div style={{ padding: screens.md ? '0 24px 24px' : '0 16px 16px' }}>
           {recentSales.length > 0 ? (
             <Table
-              rowKey={(r, i) => `${r.code}-${i}`}
+              rowKey={(r) => `${r.code}-${r.email}-${r.created_at}`}
               dataSource={recentSales}
               columns={columns}
               pagination={false}
