@@ -1,15 +1,23 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { Card, Input, Button, message, Spin, Result, Tag, Tabs, Grid, Space, Typography } from 'antd'
+import { Card, Row, Col, Input, Button, message, Spin, Result, Tag, Tabs, Grid, Space, Typography } from 'antd'
 import {
   MailOutlined, KeyOutlined, CheckCircleOutlined, ClockCircleOutlined,
-  RocketOutlined, SwapOutlined, TeamOutlined, HourglassOutlined, QuestionCircleOutlined
+  RocketOutlined, SwapOutlined, TeamOutlined, HourglassOutlined, QuestionCircleOutlined,
+  SafetyOutlined, ThunderboltOutlined
 } from '@ant-design/icons'
 import axios from 'axios'
 import { publicApi } from '../api'
 
 const { useBreakpoint } = Grid
 const { Title, Text } = Typography
+
+// 特性列表
+const features = [
+  { icon: <SafetyOutlined style={{ color: '#10a37f', fontSize: 20 }} />, title: '安全稳定', desc: '官方 Team 账号，数据隔离' },
+  { icon: <ThunderboltOutlined style={{ color: '#10a37f', fontSize: 20 }} />, title: 'GPT-5 系列', desc: '无消息限制，畅享最新模型' },
+  { icon: <SwapOutlined style={{ color: '#10a37f', fontSize: 20 }} />, title: '自助换车', desc: 'Team 失效时可自助转移' },
+]
 
 interface Feature {
   icon: string
@@ -375,57 +383,46 @@ export default function DirectInvite() {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
-        background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)',
+        background: 'linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)',
       }}>
         <Spin size="large" />
       </div>
     )
   }
 
-  // 居中卡片式设计
+  const isMobile = !screens.md
+
+  // 居中卡片 + 左右分栏设计
   return (
     <div style={{
       minHeight: '100vh',
-      background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f172a 100%)',
+      background: 'linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)',
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      padding: screens.md ? 40 : 20,
+      padding: isMobile ? 16 : 40,
       position: 'relative',
       overflow: 'hidden',
     }}>
       {/* 背景装饰 */}
       <div style={{
         position: 'absolute',
-        top: '-20%',
-        left: '-10%',
-        width: screens.md ? 600 : 400,
-        height: screens.md ? 600 : 400,
-        background: 'radial-gradient(circle, rgba(16, 163, 127, 0.15) 0%, transparent 70%)',
+        top: '-15%',
+        right: '-10%',
+        width: 500,
+        height: 500,
+        background: 'radial-gradient(circle, rgba(16, 163, 127, 0.06) 0%, transparent 70%)',
         borderRadius: '50%',
-        filter: 'blur(60px)',
         pointerEvents: 'none',
       }} />
       <div style={{
         position: 'absolute',
-        bottom: '-15%',
-        right: '-5%',
-        width: screens.md ? 500 : 350,
-        height: screens.md ? 500 : 350,
-        background: 'radial-gradient(circle, rgba(16, 163, 127, 0.1) 0%, transparent 70%)',
+        bottom: '-10%',
+        left: '-5%',
+        width: 400,
+        height: 400,
+        background: 'radial-gradient(circle, rgba(16, 163, 127, 0.04) 0%, transparent 70%)',
         borderRadius: '50%',
-        filter: 'blur(80px)',
-        pointerEvents: 'none',
-      }} />
-      <div style={{
-        position: 'absolute',
-        top: '30%',
-        right: '20%',
-        width: 200,
-        height: 200,
-        background: 'radial-gradient(circle, rgba(52, 199, 89, 0.08) 0%, transparent 70%)',
-        borderRadius: '50%',
-        filter: 'blur(40px)',
         pointerEvents: 'none',
       }} />
 
@@ -433,110 +430,189 @@ export default function DirectInvite() {
       <Card
         style={{
           width: '100%',
-          maxWidth: 480,
-          background: 'rgba(255, 255, 255, 0.95)',
-          backdropFilter: 'blur(20px)',
-          WebkitBackdropFilter: 'blur(20px)',
-          borderRadius: 24,
-          border: '1px solid rgba(255, 255, 255, 0.1)',
-          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.4)',
+          maxWidth: isMobile ? 480 : 960,
+          background: '#fff',
+          borderRadius: 20,
+          border: 'none',
+          boxShadow: '0 20px 60px rgba(0, 0, 0, 0.08)',
           position: 'relative',
           zIndex: 1,
+          overflow: 'hidden',
         }}
-        bodyStyle={{ padding: screens.md ? 40 : 28 }}
+        bodyStyle={{ padding: 0 }}
       >
-        {/* Logo 和标题 */}
-        <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <img
-            src="/logo.png"
-            alt="Logo"
-            style={{
-              width: 64,
-              height: 64,
-              borderRadius: 16,
-              objectFit: 'cover',
-              boxShadow: '0 8px 24px rgba(16, 163, 127, 0.2)',
-              marginBottom: 16,
-            }}
-          />
-          <Title level={3} style={{ margin: '0 0 8px', color: '#1f2937', fontWeight: 700 }}>
-            {siteConfig?.site_title || 'ChatGPT Team'}
-          </Title>
-          <Text style={{ color: '#6b7280', fontSize: 14 }}>
-            {siteConfig?.hero_subtitle || '自助兑换服务，稳定可靠'}
-          </Text>
-        </div>
+        <Row>
+          {/* 左侧介绍区域 */}
+          {!isMobile && (
+            <Col span={10}>
+              <div style={{
+                padding: '48px 40px',
+                background: 'linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%)',
+                height: '100%',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                borderRight: '1px solid #e5e7eb',
+              }}>
+                {/* Logo */}
+                <img
+                  src="/logo.png"
+                  alt="Logo"
+                  style={{
+                    width: 72,
+                    height: 72,
+                    borderRadius: 16,
+                    objectFit: 'cover',
+                    boxShadow: '0 8px 24px rgba(16, 163, 127, 0.15)',
+                    marginBottom: 24,
+                  }}
+                />
 
-        {/* Tab 切换 */}
-        <Tabs
-          activeKey={activeTab}
-          onChange={setActiveTab}
-          centered
-          items={[
-            {
-              key: 'redeem',
-              label: (
-                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <RocketOutlined />
-                  兑换上车
-                </span>
-              ),
-              children: redeemSuccess && redeemResult ? renderRedeemSuccess() : renderRedeemForm()
-            },
-            {
-              key: 'rebind',
-              label: (
-                <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                  <SwapOutlined />
-                  自助换车
-                </span>
-              ),
-              children: rebindSuccess && rebindResult ? renderRebindSuccess() : renderRebindForm()
-            }
-          ]}
-        />
+                {/* 标题 */}
+                <Title level={2} style={{ margin: '0 0 12px', color: '#1f2937', fontWeight: 700, letterSpacing: '-0.5px' }}>
+                  {siteConfig?.site_title || 'ChatGPT Team'}
+                </Title>
+                <Text style={{ color: '#6b7280', fontSize: 15, lineHeight: 1.6, display: 'block', marginBottom: 32 }}>
+                  {siteConfig?.hero_subtitle || '专业的自助兑换服务，稳定可靠，即时开通'}
+                </Text>
 
-        {/* 使用说明 */}
-        <div style={{
-          marginTop: 24,
-          padding: '16px 18px',
-          background: 'linear-gradient(135deg, rgba(16, 163, 127, 0.06) 0%, rgba(16, 163, 127, 0.02) 100%)',
-          borderRadius: 14,
-          fontSize: 13,
-          color: '#6b7280',
-          lineHeight: 1.8,
-          border: '1px solid rgba(16, 163, 127, 0.1)',
-        }}>
-          <div style={{ fontWeight: 600, color: '#1f2937', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <QuestionCircleOutlined style={{ color: '#10a37f' }} />
-            使用说明
-          </div>
-          {activeTab === 'redeem' ? (
-            <ul style={{ paddingLeft: 18, margin: 0 }}>
-              <li>首次使用兑换码将自动绑定邮箱</li>
-              <li>绑定后只能使用该邮箱兑换</li>
-              <li>有效期从首次使用开始计算</li>
-            </ul>
-          ) : (
-            <ul style={{ paddingLeft: 18, margin: 0 }}>
-              <li>输入兑换码查询绑定状态</li>
-              <li>仅当 Team 被封时可以换车</li>
-              <li>换车后原 Team 邀请失效</li>
-            </ul>
+                {/* 特性列表 */}
+                <Space direction="vertical" size={16}>
+                  {features.map((feature, index) => (
+                    <div key={index} style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+                      <div style={{
+                        width: 44,
+                        height: 44,
+                        borderRadius: 12,
+                        background: 'rgba(16, 163, 127, 0.1)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                      }}>
+                        {feature.icon}
+                      </div>
+                      <div>
+                        <div style={{ fontWeight: 600, color: '#1f2937', fontSize: 15 }}>{feature.title}</div>
+                        <div style={{ color: '#9ca3af', fontSize: 13 }}>{feature.desc}</div>
+                      </div>
+                    </div>
+                  ))}
+                </Space>
+
+                {/* 底部链接 */}
+                <div style={{ marginTop: 'auto', paddingTop: 32 }}>
+                  <Space split={<span style={{ color: '#e5e7eb' }}>·</span>} size={12}>
+                    <Link to="/faq" style={{ color: '#9ca3af', fontSize: 12 }}>常见问题</Link>
+                    <Link to="/legal#terms" style={{ color: '#9ca3af', fontSize: 12 }}>服务条款</Link>
+                  </Space>
+                </div>
+              </div>
+            </Col>
           )}
-        </div>
 
-        {/* 底部链接 */}
-        <div style={{ marginTop: 24, textAlign: 'center' }}>
-          <Space split={<span style={{ color: '#e5e7eb' }}>·</span>} size={12}>
-            <Link to="/faq" style={{ color: '#9ca3af', fontSize: 12 }}>常见问题</Link>
-            <Link to="/legal#terms" style={{ color: '#9ca3af', fontSize: 12 }}>服务条款</Link>
-            <Link to="/legal#privacy" style={{ color: '#9ca3af', fontSize: 12 }}>隐私政策</Link>
-          </Space>
-          <div style={{ marginTop: 12, color: '#9ca3af', fontSize: 11 }}>
-            {siteConfig?.footer_text || '© 2025 ZenScale AI. All rights reserved.'}
-          </div>
-        </div>
+          {/* 右侧表单区域 */}
+          <Col span={isMobile ? 24 : 14}>
+            <div style={{ padding: isMobile ? 28 : '48px 44px' }}>
+              {/* 移动端显示 Logo 和标题 */}
+              {isMobile && (
+                <div style={{ textAlign: 'center', marginBottom: 28 }}>
+                  <img
+                    src="/logo.png"
+                    alt="Logo"
+                    style={{
+                      width: 56,
+                      height: 56,
+                      borderRadius: 14,
+                      objectFit: 'cover',
+                      boxShadow: '0 8px 24px rgba(16, 163, 127, 0.15)',
+                      marginBottom: 12,
+                    }}
+                  />
+                  <Title level={4} style={{ margin: '0 0 4px', color: '#1f2937', fontWeight: 700 }}>
+                    {siteConfig?.site_title || 'ChatGPT Team'}
+                  </Title>
+                  <Text style={{ color: '#6b7280', fontSize: 13 }}>
+                    {siteConfig?.hero_subtitle || '自助兑换服务'}
+                  </Text>
+                </div>
+              )}
+
+              {/* Tab 切换 */}
+              <Tabs
+                activeKey={activeTab}
+                onChange={setActiveTab}
+                centered={isMobile}
+                size="large"
+                items={[
+                  {
+                    key: 'redeem',
+                    label: (
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 500 }}>
+                        <RocketOutlined />
+                        兑换上车
+                      </span>
+                    ),
+                    children: redeemSuccess && redeemResult ? renderRedeemSuccess() : renderRedeemForm()
+                  },
+                  {
+                    key: 'rebind',
+                    label: (
+                      <span style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 500 }}>
+                        <SwapOutlined />
+                        自助换车
+                      </span>
+                    ),
+                    children: rebindSuccess && rebindResult ? renderRebindSuccess() : renderRebindForm()
+                  }
+                ]}
+              />
+
+              {/* 使用说明 */}
+              <div style={{
+                marginTop: 24,
+                padding: '16px 18px',
+                background: 'linear-gradient(135deg, rgba(16, 163, 127, 0.06) 0%, rgba(16, 163, 127, 0.02) 100%)',
+                borderRadius: 14,
+                fontSize: 13,
+                color: '#6b7280',
+                lineHeight: 1.8,
+                border: '1px solid rgba(16, 163, 127, 0.1)',
+              }}>
+                <div style={{ fontWeight: 600, color: '#1f2937', marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+                  <QuestionCircleOutlined style={{ color: '#10a37f' }} />
+                  使用说明
+                </div>
+                {activeTab === 'redeem' ? (
+                  <ul style={{ paddingLeft: 18, margin: 0 }}>
+                    <li>首次使用兑换码将自动绑定邮箱</li>
+                    <li>绑定后只能使用该邮箱兑换</li>
+                    <li>有效期从首次使用开始计算</li>
+                  </ul>
+                ) : (
+                  <ul style={{ paddingLeft: 18, margin: 0 }}>
+                    <li>输入兑换码查询绑定状态</li>
+                    <li>仅当 Team 被封时可以换车</li>
+                    <li>换车后原 Team 邀请失效</li>
+                  </ul>
+                )}
+              </div>
+
+              {/* 移动端显示底部链接 */}
+              {isMobile && (
+                <div style={{ marginTop: 24, textAlign: 'center' }}>
+                  <Space split={<span style={{ color: '#e5e7eb' }}>·</span>} size={12}>
+                    <Link to="/faq" style={{ color: '#9ca3af', fontSize: 12 }}>常见问题</Link>
+                    <Link to="/legal#terms" style={{ color: '#9ca3af', fontSize: 12 }}>服务条款</Link>
+                    <Link to="/legal#privacy" style={{ color: '#9ca3af', fontSize: 12 }}>隐私政策</Link>
+                  </Space>
+                  <div style={{ marginTop: 12, color: '#9ca3af', fontSize: 11 }}>
+                    {siteConfig?.footer_text || '© 2025 ZenScale AI. All rights reserved.'}
+                  </div>
+                </div>
+              )}
+            </div>
+          </Col>
+        </Row>
       </Card>
     </div>
   )
