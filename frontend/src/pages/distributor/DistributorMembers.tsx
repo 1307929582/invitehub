@@ -10,9 +10,10 @@ import {
   Modal,
   Input,
   Space,
-  Tag,
   Tooltip,
   Empty,
+  Row,
+  Col,
 } from 'antd'
 import {
   UserDeleteOutlined,
@@ -20,6 +21,8 @@ import {
   SearchOutlined,
   ReloadOutlined,
   TeamOutlined,
+  CheckCircleOutlined,
+  MinusCircleOutlined,
 } from '@ant-design/icons'
 import { distributorApi } from '../../api'
 
@@ -136,7 +139,7 @@ export default function DistributorMembers() {
       dataIndex: 'email',
       key: 'email',
       ellipsis: true,
-      render: (text: string) => <Text copyable>{text}</Text>,
+      render: (text: string) => <Text copyable style={{ color: '#1d1d1f' }}>{text}</Text>,
     },
     {
       title: 'Team',
@@ -144,8 +147,15 @@ export default function DistributorMembers() {
       key: 'team_name',
       render: (text: string) => (
         <Space>
-          <TeamOutlined style={{ color: '#1890ff' }} />
-          {text}
+          <TeamOutlined style={{ color: '#007aff' }} />
+          <span style={{
+            padding: '2px 8px',
+            background: '#f0f0f5',
+            borderRadius: 4,
+            fontSize: 13,
+          }}>
+            {text}
+          </span>
         </Space>
       ),
     },
@@ -154,7 +164,17 @@ export default function DistributorMembers() {
       dataIndex: 'redeem_code',
       key: 'redeem_code',
       render: (text: string) => (
-        <code style={{ background: '#f5f5f5', padding: '2px 6px', borderRadius: 4 }}>{text}</code>
+        <code style={{
+          background: 'linear-gradient(135deg, #667eea15 0%, #764ba215 100%)',
+          padding: '4px 10px',
+          borderRadius: 6,
+          fontFamily: 'Monaco, monospace',
+          fontSize: 13,
+          color: '#667eea',
+          border: '1px solid #667eea20',
+        }}>
+          {text}
+        </code>
       ),
     },
     {
@@ -162,7 +182,11 @@ export default function DistributorMembers() {
       dataIndex: 'joined_at',
       key: 'joined_at',
       width: 170,
-      render: (text?: string) => (text ? new Date(text).toLocaleString('zh-CN') : '-'),
+      render: (text?: string) => (
+        <span style={{ color: '#86868b', fontSize: 13 }}>
+          {text ? new Date(text).toLocaleString('zh-CN') : '-'}
+        </span>
+      ),
     },
     {
       title: '状态',
@@ -201,6 +225,7 @@ export default function DistributorMembers() {
                 size="small"
                 icon={<UserAddOutlined />}
                 onClick={() => openAddModal(record)}
+                style={{ color: '#34c759' }}
               >
                 重新邀请
               </Button>
@@ -213,59 +238,113 @@ export default function DistributorMembers() {
 
   return (
     <div>
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          marginBottom: 24,
-        }}
-      >
-        <Title level={4} style={{ margin: 0 }}>
-          成员管理
-        </Title>
-        <Space>
-          <Tag color="green">在组: {activeCount}</Tag>
-          <Tag>已移除: {removedCount}</Tag>
-          <Button icon={<ReloadOutlined />} onClick={fetchMembers} loading={loading}>
+      {/* 页面标题 */}
+      <div style={{ marginBottom: 28 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
+          <div>
+            <Title level={4} style={{ margin: 0, fontWeight: 700, color: '#1d1d1f' }}>
+              成员管理
+            </Title>
+            <Text style={{ color: '#86868b', fontSize: 14 }}>
+              管理通过您的兑换码加入 Team 的用户
+            </Text>
+          </div>
+          <Button
+            icon={<ReloadOutlined />}
+            onClick={fetchMembers}
+            loading={loading}
+            style={{ borderRadius: 8 }}
+          >
             刷新
           </Button>
-        </Space>
+        </div>
       </div>
 
-      <Card>
-        <div style={{ marginBottom: 16 }}>
+      {/* 统计卡片 */}
+      <Row gutter={[16, 16]} style={{ marginBottom: 20 }}>
+        <Col xs={12} sm={8} md={6}>
+          <Card
+            style={{
+              borderRadius: 12,
+              border: 'none',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+              background: 'linear-gradient(135deg, #34c75920 0%, #38ef7d20 100%)',
+            }}
+            bodyStyle={{ padding: 16 }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <CheckCircleOutlined style={{ fontSize: 24, color: '#34c759' }} />
+              <div>
+                <div style={{ fontSize: 24, fontWeight: 700, color: '#1d1d1f' }}>{activeCount}</div>
+                <div style={{ fontSize: 13, color: '#86868b' }}>在组成员</div>
+              </div>
+            </div>
+          </Card>
+        </Col>
+        <Col xs={12} sm={8} md={6}>
+          <Card
+            style={{
+              borderRadius: 12,
+              border: 'none',
+              boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+              background: 'linear-gradient(135deg, #86868b20 0%, #a0a0a520 100%)',
+            }}
+            bodyStyle={{ padding: 16 }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <MinusCircleOutlined style={{ fontSize: 24, color: '#86868b' }} />
+              <div>
+                <div style={{ fontSize: 24, fontWeight: 700, color: '#1d1d1f' }}>{removedCount}</div>
+                <div style={{ fontSize: 13, color: '#86868b' }}>已移除</div>
+              </div>
+            </div>
+          </Card>
+        </Col>
+      </Row>
+
+      <Card
+        style={{
+          borderRadius: 16,
+          border: 'none',
+          boxShadow: '0 2px 12px rgba(0,0,0,0.04)',
+        }}
+        bodyStyle={{ padding: 0 }}
+      >
+        <div style={{ padding: 20, borderBottom: '1px solid #f0f0f5' }}>
           <Input
             placeholder="搜索邮箱、Team 或兑换码..."
-            prefix={<SearchOutlined />}
+            prefix={<SearchOutlined style={{ color: '#86868b' }} />}
             value={searchText}
             onChange={(e) => setSearchText(e.target.value)}
-            style={{ width: 300 }}
+            style={{ width: 300, borderRadius: 10 }}
             allowClear
           />
         </div>
 
-        {filteredMembers.length > 0 ? (
-          <Table
-            rowKey={(r) => `${r.email}-${r.team_id}`}
-            columns={columns}
-            dataSource={filteredMembers}
-            loading={loading}
-            pagination={{
-              pageSize: 20,
-              showSizeChanger: true,
-              showTotal: (total) => `共 ${total} 条记录`,
-            }}
-          />
-        ) : (
-          <Empty
-            description={
-              searchText
-                ? '没有匹配的搜索结果'
-                : '暂无成员记录，当用户通过您的兑换码成功加入 Team 后，将会在这里显示'
-            }
-          />
-        )}
+        <div style={{ padding: 20 }}>
+          {filteredMembers.length > 0 ? (
+            <Table
+              rowKey={(r) => `${r.email}-${r.team_id}`}
+              columns={columns}
+              dataSource={filteredMembers}
+              loading={loading}
+              pagination={{
+                pageSize: 20,
+                showSizeChanger: true,
+                showTotal: (total) => `共 ${total} 条记录`,
+              }}
+            />
+          ) : (
+            <Empty
+              description={
+                searchText
+                  ? '没有匹配的搜索结果'
+                  : '暂无成员记录，当用户通过您的兑换码成功加入 Team 后，将会在这里显示'
+              }
+              style={{ padding: '60px 0' }}
+            />
+          )}
+        </div>
       </Card>
 
       {/* 移除成员弹窗 */}

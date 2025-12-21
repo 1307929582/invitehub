@@ -8,8 +8,23 @@ import { DeleteOutlined, CopyOutlined, LinkOutlined, ShoppingCartOutlined, Setti
 import type { TableRowSelection } from 'antd/es/table/interface'
 import { redeemApi, distributorApi } from '../../api'
 import { useStore } from '../../store'
+import dayjs from 'dayjs'
 
 const { Title, Text } = Typography
+
+// 安全清理域名前缀（防止 XSS 和无效字符）
+const sanitizePrefix = (prefix: string): string => {
+  if (!prefix || typeof prefix !== 'string') return ''
+  // 只保留小写字母、数字和连字符，限制长度
+  return prefix.toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20)
+}
+
+// 验证前缀是否有效
+const isValidPrefix = (prefix: string): boolean => {
+  const prefixRegex = /^[a-z0-9]([a-z0-9-]{0,18}[a-z0-9])?$/
+  const reserved = ['www', 'api', 'admin', 'mail', 'smtp', 'ftp', 'mmw-team', 'backend', 'console']
+  return prefixRegex.test(prefix) && !reserved.includes(prefix)
+}
 
 interface RedeemCode {
   id: number
@@ -42,10 +57,19 @@ export default function DistributorRedeemCodes() {
   const [batchDeleteLoading, setBatchDeleteLoading] = useState(false)
   const { user } = useStore()
 
-  // 自定义域名前缀（从 localStorage 读取）
-  const [customPrefix, setCustomPrefix] = useState<string>(() => {
-    return localStorage.getItem(`distributor_prefix_${user?.id}`) || `distributor-${user?.id || ''}`
-  })
+  // 自定义域名前缀（从 localStorage 读取，带安全清理）
+  const getDefaultPrefix = useCallback(() => {
+    const stored = localStorage.getItem(`distributor_prefix_${user?.id}`)
+    const sanitized = sanitizePrefix(stored || '')
+    return sanitized && isValidPrefix(sanitized) ? sanitized : `distributor-${user?.id || ''}`
+  }, [user?.id])
+
+  const [customPrefix, setCustomPrefix] = useState<string>(getDefaultPrefix)
+
+  // 当 user 变化时更新前缀
+  useEffect(() => {
+    setCustomPrefix(getDefaultPrefix())
+  }, [getDefaultPrefix])
   const [prefixModalVisible, setPrefixModalVisible] = useState(false)
   const [prefixForm] = Form.useForm()
 
@@ -136,45 +160,59 @@ export default function DistributorRedeemCodes() {
     }
   }
 
-  // 复制单个兑换码
-  const copyCode = (code: string) => {
-    navigator.clipboard.writeText(code)
-    message.success('已复制兑换码')
+  // 复制单个兑换码（带错误处理）
+  const copyCode = async (code: string) => {
+    try {
+      await navigator.clipboard.writeText(code)
+      message.success('已复制兑换码')
+    } catch {
+      message.error('复制失败，请手动复制')
+    }
   }
 
-  // 复制链接（带选择）
-  const copyLink = (code: string, useWhiteLabel: boolean = true) => {
-    const url = getInviteUrl(code, useWhiteLabel)
-    navigator.clipboard.writeText(url)
-    message.success(`已复制${useWhiteLabel ? '白标' : '官方'}链接`)
+  // 复制链接（带选择和错误处理）
+  const copyLink = async (code: string, useWhiteLabel: boolean = true) => {
+    try {
+      const url = getInviteUrl(code, useWhiteLabel)
+      await navigator.clipboard.writeText(url)
+      message.success(`已复制${useWhiteLabel ? '白标' : '官方'}链接`)
+    } catch {
+      message.error('复制失败，请手动复制')
+    }
   }
 
-  // 批量复制链接（带选择）
-  const handleBatchCopyLinks = (useWhiteLabel: boolean = true) => {
+  // 批量复制链接（带选择和错误处理）
+  const handleBatchCopyLinks = async (useWhiteLabel: boolean = true) => {
     if (selectedRowKeys.length === 0) {
       message.warning('请先选择要复制的兑换码')
       return
     }
 
-    const selectedCodes = codes.filter(c => selectedRowKeys.includes(c.id))
-    const links = selectedCodes.map(c => getInviteUrl(c.code, useWhiteLabel)).join('\n')
-
-    navigator.clipboard.writeText(links)
-    message.success(`已复制 ${selectedCodes.length} 个${useWhiteLabel ? '白标' : '官方'}链接`)
+    try {
+      const selectedCodes = codes.filter(c => selectedRowKeys.includes(c.id))
+      const links = selectedCodes.map(c => getInviteUrl(c.code, useWhiteLabel)).join('\n')
+      await navigator.clipboard.writeText(links)
+      message.success(`已复制 ${selectedCodes.length} 个${useWhiteLabel ? '白标' : '官方'}链接`)
+    } catch {
+      message.error('复制失败，请手动复制')
+    }
   }
 
-  // 批量复制兑换码
-  const handleBatchCopyCodes = () => {
+  // 批量复制兑换码（带错误处理）
+  const handleBatchCopyCodes = async () => {
     if (selectedRowKeys.length === 0) {
       message.warning('请先选择要复制的兑换码')
       return
     }
 
-    const selectedCodes = codes.filter(c => selectedRowKeys.includes(c.id))
-    const codeTexts = selectedCodes.map(c => c.code).join('\n')
-
-    navigator.clipboard.writeText(codeTexts)
-    message.success(`已复制 ${selectedCodes.length} 个兑换码`)
+    try {
+      const selectedCodes = codes.filter(c => selectedRowKeys.includes(c.id))
+      const codeTexts = selectedCodes.map(c => c.code).join('\n')
+      await navigator.clipboard.writeText(codeTexts)
+      message.success(`已复制 ${selectedCodes.length} 个兑换码`)
+    } catch {
+      message.error('复制失败，请手动复制')
+    }
   }
 
   // 批量删除
@@ -239,8 +277,8 @@ export default function DistributorRedeemCodes() {
         pay_type: payType,
       }) as any
 
-      // 打开支付窗口
-      window.open(res.pay_url, '_blank')
+      // 安全打开支付窗口
+      window.open(res.pay_url, '_blank', 'noopener,noreferrer')
       message.success('订单已创建，请在新窗口中完成支付')
       setPurchaseModalVisible(false)
       purchaseForm.resetFields()
@@ -351,7 +389,7 @@ export default function DistributorRedeemCodes() {
       dataIndex: 'created_at',
       key: 'created_at',
       width: 180,
-      render: (text: string) => new Date(text).toLocaleString('zh-CN'),
+      render: (text: string) => dayjs(text).format('YYYY-MM-DD HH:mm:ss'),
     },
     {
       title: '操作',
@@ -395,71 +433,119 @@ export default function DistributorRedeemCodes() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
-        <Title level={4} style={{ margin: 0 }}>兑换码管理</Title>
-        <Space>
-          <Button
-            icon={<SettingOutlined />}
-            onClick={() => {
-              prefixForm.setFieldsValue({ prefix: customPrefix })
-              setPrefixModalVisible(true)
-            }}
-          >
-            设置域名前缀
-          </Button>
-          <Button
-            type="primary"
-            icon={<ShoppingCartOutlined />}
-            onClick={showPurchaseModal}
-          >
-            购买兑换码
-          </Button>
-        </Space>
+      {/* 页面标题 */}
+      <div style={{ marginBottom: 28 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 16 }}>
+          <div>
+            <Title level={4} style={{ margin: 0, fontWeight: 700, color: '#1d1d1f' }}>
+              兑换码管理
+            </Title>
+            <Text style={{ color: '#86868b', fontSize: 14 }}>
+              管理您的兑换码，复制链接分享给客户
+            </Text>
+          </div>
+          <Space>
+            <Button
+              icon={<SettingOutlined />}
+              onClick={() => {
+                prefixForm.setFieldsValue({ prefix: customPrefix })
+                setPrefixModalVisible(true)
+              }}
+              style={{ borderRadius: 8 }}
+            >
+              设置域名前缀
+            </Button>
+            <Button
+              type="primary"
+              icon={<ShoppingCartOutlined />}
+              onClick={showPurchaseModal}
+              style={{ borderRadius: 8, background: '#007aff', border: 'none' }}
+            >
+              购买兑换码
+            </Button>
+          </Space>
+        </div>
       </div>
 
       {/* 当前使用的域名前缀提示 */}
-      <Alert
-        message="当前白标域名"
-        description={
-          <div>
-            <Text>客户专属链接：</Text>
-            <Text code style={{ marginLeft: 8 }}>https://{customPrefix}.zenscaleai.com</Text>
-            <Button
-              type="link"
-              size="small"
-              onClick={() => {
-                navigator.clipboard.writeText(`https://${customPrefix}.zenscaleai.com`)
-                message.success('已复制域名')
-              }}
-            >
-              复制域名
-            </Button>
+      <Card
+        style={{
+          marginBottom: 20,
+          borderRadius: 16,
+          border: 'none',
+          boxShadow: '0 2px 12px rgba(0,0,0,0.04)',
+          background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)',
+        }}
+        bodyStyle={{ padding: 20 }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+            <div style={{
+              width: 40,
+              height: 40,
+              borderRadius: 10,
+              background: 'rgba(0, 122, 255, 0.2)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}>
+              <LinkOutlined style={{ color: '#007aff', fontSize: 18 }} />
+            </div>
+            <div>
+              <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, marginBottom: 2 }}>当前白标域名</div>
+              <code style={{ color: '#5ac8fa', fontSize: 14, fontFamily: 'Monaco, monospace' }}>
+                https://{customPrefix}.zenscaleai.com
+              </code>
+            </div>
           </div>
-        }
-        type="info"
-        showIcon
-        style={{ marginBottom: 16 }}
-      />
+          <Button
+            type="primary"
+            ghost
+            size="small"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(`https://${customPrefix}.zenscaleai.com`)
+                message.success('已复制域名')
+              } catch {
+                message.error('复制失败，请手动复制')
+              }
+            }}
+            style={{ borderRadius: 6 }}
+          >
+            复制域名
+          </Button>
+        </div>
+      </Card>
 
-      <Card>
+      <Card
+        style={{
+          borderRadius: 16,
+          border: 'none',
+          boxShadow: '0 2px 12px rgba(0,0,0,0.04)',
+        }}
+        bodyStyle={{ padding: 0 }}
+      >
         {/* 批量操作栏 */}
         {selectedRowKeys.length > 0 && (
           <div style={{
-            marginBottom: 16,
-            padding: '12px 16px',
-            background: '#f0f5ff',
-            borderRadius: 8,
+            margin: 20,
+            padding: '14px 20px',
+            background: 'linear-gradient(135deg, #007aff10 0%, #5ac8fa10 100%)',
+            borderRadius: 12,
             display: 'flex',
             alignItems: 'center',
-            justifyContent: 'space-between'
+            justifyContent: 'space-between',
+            flexWrap: 'wrap',
+            gap: 12,
           }}>
             <Text>
-              已选择 <Text strong style={{ color: '#1890ff' }}>{selectedRowKeys.length}</Text> 项
+              已选择 <Text strong style={{ color: '#007aff' }}>{selectedRowKeys.length}</Text> 项
             </Text>
-            <Space>
+            <Space wrap>
               <Button
                 icon={<CopyOutlined />}
                 onClick={handleBatchCopyCodes}
+                style={{ borderRadius: 8 }}
               >
                 批量复制兑换码
               </Button>
@@ -467,12 +553,14 @@ export default function DistributorRedeemCodes() {
                 type="primary"
                 icon={<LinkOutlined />}
                 onClick={() => handleBatchCopyLinks(true)}
+                style={{ borderRadius: 8, background: '#34c759', border: 'none' }}
               >
                 批量复制白标链接
               </Button>
               <Button
                 icon={<LinkOutlined />}
                 onClick={() => handleBatchCopyLinks(false)}
+                style={{ borderRadius: 8 }}
               >
                 批量复制官方链接
               </Button>
@@ -488,6 +576,7 @@ export default function DistributorRedeemCodes() {
                   danger
                   icon={<DeleteOutlined />}
                   loading={batchDeleteLoading}
+                  style={{ borderRadius: 8 }}
                 >
                   批量删除
                 </Button>
@@ -502,14 +591,16 @@ export default function DistributorRedeemCodes() {
           </div>
         )}
 
-        <Table
-          rowKey="id"
-          rowSelection={rowSelection}
-          columns={columns}
-          dataSource={codes}
-          loading={loading}
-          pagination={{ pageSize: 10, showTotal: (total) => `共 ${total} 条` }}
-        />
+        <div style={{ padding: 20 }}>
+          <Table
+            rowKey="id"
+            rowSelection={rowSelection}
+            columns={columns}
+            dataSource={codes}
+            loading={loading}
+            pagination={{ pageSize: 10, showTotal: (total) => `共 ${total} 条` }}
+          />
+        </div>
       </Card>
 
       {/* 购买兑换码 Modal */}

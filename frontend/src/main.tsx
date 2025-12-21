@@ -1,6 +1,6 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
-import { ConfigProvider } from 'antd'
+import { ConfigProvider, App as AntApp } from 'antd'
 import zhCN from 'antd/locale/zh_CN'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
@@ -19,12 +19,44 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
       locale={zhCN}
       theme={{
         token: {
-          colorPrimary: '#10a37f',
-          borderRadius: 8,
+          colorPrimary: '#007aff',
+          colorSuccess: '#34c759',
+          colorWarning: '#ff9500',
+          colorError: '#ff3b30',
+          colorInfo: '#5ac8fa',
+          borderRadius: 10,
+          fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+        },
+        components: {
+          Button: {
+            borderRadius: 8,
+            controlHeight: 40,
+          },
+          Card: {
+            borderRadius: 16,
+          },
+          Input: {
+            borderRadius: 10,
+          },
+          Select: {
+            borderRadius: 10,
+          },
+          Modal: {
+            borderRadius: 16,
+          },
+          Message: {
+            contentBg: '#fff',
+            contentPadding: '12px 16px',
+          },
+          Notification: {
+            borderRadius: 12,
+          },
         },
       }}
     >
-      <App />
+      <AntApp>
+        <App />
+      </AntApp>
     </ConfigProvider>
   </React.StrictMode>,
 )
