@@ -59,38 +59,38 @@ export default function DistributorLogin() {
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      background: 'linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)',
       position: 'relative',
       overflow: 'hidden',
     }}>
       {/* 装饰光晕 */}
       <div style={{
         position: 'absolute',
-        top: '5%',
-        right: '15%',
+        top: '-15%',
+        right: '-10%',
         width: 400,
         height: 400,
-        background: 'radial-gradient(circle, rgba(255, 255, 255, 0.15) 0%, transparent 70%)',
+        background: 'radial-gradient(circle, rgba(16, 163, 127, 0.06) 0%, transparent 70%)',
         borderRadius: '50%',
+        pointerEvents: 'none',
       }} />
       <div style={{
         position: 'absolute',
-        bottom: '10%',
-        left: '10%',
+        bottom: '-10%',
+        left: '-8%',
         width: 300,
         height: 300,
-        background: 'radial-gradient(circle, rgba(255, 255, 255, 0.1) 0%, transparent 70%)',
+        background: 'radial-gradient(circle, rgba(16, 163, 127, 0.04) 0%, transparent 70%)',
         borderRadius: '50%',
+        pointerEvents: 'none',
       }} />
 
       <div style={{
         width: 420,
         padding: 48,
-        background: 'rgba(255, 255, 255, 0.95)',
-        backdropFilter: 'blur(20px)',
-        WebkitBackdropFilter: 'blur(20px)',
-        borderRadius: 24,
-        boxShadow: '0 24px 80px rgba(0, 0, 0, 0.2)',
+        background: '#fff',
+        borderRadius: 20,
+        boxShadow: '0 20px 60px rgba(0, 0, 0, 0.08)',
         position: 'relative',
         zIndex: 1,
       }}>
@@ -98,20 +98,20 @@ export default function DistributorLogin() {
           <div style={{
             width: 72,
             height: 72,
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            background: '#10a37f',
             borderRadius: 20,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             margin: '0 auto 20px',
-            boxShadow: '0 8px 24px rgba(102, 126, 234, 0.4)',
+            boxShadow: '0 8px 24px rgba(16, 163, 127, 0.25)',
           }}>
             <ShopOutlined style={{ fontSize: 36, color: '#fff' }} />
           </div>
-          <h1 style={{ fontSize: 24, fontWeight: 700, margin: '0 0 8px', color: '#1a1a2e' }}>
+          <h1 style={{ fontSize: 24, fontWeight: 700, margin: '0 0 8px', color: '#1f2937' }}>
             分销商登录
           </h1>
-          <p style={{ color: '#64748b', fontSize: 14, margin: 0 }}>
+          <p style={{ color: '#6b7280', fontSize: 14, margin: 0 }}>
             登录您的分销商账号
           </p>
         </div>
@@ -133,7 +133,7 @@ export default function DistributorLogin() {
               prefix={<UserOutlined style={{ color: '#94a3b8' }} />}
               placeholder="用户名"
               size="large"
-              style={{ height: 52, borderRadius: 12 }}
+              style={{ height: 48, borderRadius: 12 }}
             />
           </Form.Item>
           <Form.Item name="password" rules={[{ required: true, message: '请输入密码' }]}>
@@ -141,7 +141,7 @@ export default function DistributorLogin() {
               prefix={<LockOutlined style={{ color: '#94a3b8' }} />}
               placeholder="密码"
               size="large"
-              style={{ height: 52, borderRadius: 12 }}
+              style={{ height: 48, borderRadius: 12 }}
             />
           </Form.Item>
           <Form.Item style={{ marginBottom: 0, marginTop: 32 }}>
@@ -152,11 +152,11 @@ export default function DistributorLogin() {
               block
               size="large"
               style={{
-                height: 52,
+                height: 48,
                 borderRadius: 12,
                 fontSize: 15,
                 fontWeight: 600,
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                background: '#10a37f',
                 border: 'none',
               }}
             >
@@ -166,16 +166,16 @@ export default function DistributorLogin() {
         </Form>
 
         <div style={{ textAlign: 'center', marginTop: 24 }}>
-          <span style={{ color: '#64748b', fontSize: 14 }}>
+          <span style={{ color: '#6b7280', fontSize: 14 }}>
             还没有账号？
-            <Link to="/distributor/register" style={{ marginLeft: 8, fontWeight: 500, color: '#667eea' }}>
+            <Link to="/distributor/register" style={{ marginLeft: 8, fontWeight: 600, color: '#10a37f' }}>
               立即注册
             </Link>
           </span>
         </div>
 
         <div style={{ textAlign: 'center', marginTop: 16 }}>
-          <Link to="/admin/login" style={{ color: '#94a3b8', fontSize: 13 }}>
+          <Link to="/admin/login" style={{ color: '#9ca3af', fontSize: 13 }}>
             管理员登录入口
           </Link>
         </div>

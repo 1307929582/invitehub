@@ -56,60 +56,60 @@ export default function Login() {
       display: 'flex',
       alignItems: 'center',
       justifyContent: 'center',
-      background: 'linear-gradient(135deg, #f0f4f8 0%, #e8eef5 50%, #f5f7fa 100%)',
+      background: 'linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)',
       position: 'relative',
       overflow: 'hidden',
     }}>
       {/* 装饰光晕 */}
       <div style={{
         position: 'absolute',
-        top: '10%',
-        right: '20%',
+        top: '-12%',
+        right: '-10%',
         width: 500,
         height: 500,
-        background: 'radial-gradient(circle, rgba(147, 197, 253, 0.35) 0%, transparent 70%)',
+        background: 'radial-gradient(circle, rgba(16, 163, 127, 0.06) 0%, transparent 70%)',
         borderRadius: '50%',
+        pointerEvents: 'none',
       }} />
       <div style={{
         position: 'absolute',
-        bottom: '20%',
-        left: '15%',
+        bottom: '-10%',
+        left: '-8%',
         width: 400,
         height: 400,
-        background: 'radial-gradient(circle, rgba(196, 181, 253, 0.3) 0%, transparent 70%)',
+        background: 'radial-gradient(circle, rgba(16, 163, 127, 0.04) 0%, transparent 70%)',
         borderRadius: '50%',
+        pointerEvents: 'none',
       }} />
 
       <div style={{
         width: 420,
         padding: 48,
-        background: 'rgba(255, 255, 255, 0.75)',
-        backdropFilter: 'blur(40px) saturate(180%)',
-        WebkitBackdropFilter: 'blur(40px) saturate(180%)',
-        borderRadius: 28,
-        border: '1px solid rgba(255, 255, 255, 0.9)',
-        boxShadow: '0 24px 80px rgba(0, 0, 0, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.9)',
+        background: '#fff',
+        borderRadius: 20,
+        border: 'none',
+        boxShadow: '0 20px 60px rgba(0, 0, 0, 0.08)',
         position: 'relative',
         zIndex: 1,
       }}>
         <div style={{ textAlign: 'center', marginBottom: 44 }}>
-          <img 
-            src="/logo.png" 
-            alt="Logo" 
-            style={{ 
-              width: 64, 
-              height: 64, 
+          <img
+            src="/logo.png"
+            alt="Logo"
+            style={{
+              width: 64,
+              height: 64,
               borderRadius: 18,
               objectFit: 'cover',
               margin: '0 auto 24px',
-              boxShadow: '0 8px 24px rgba(0, 0, 0, 0.15)',
+              boxShadow: '0 8px 24px rgba(16, 163, 127, 0.15)',
               display: 'block',
-            }} 
+            }}
           />
-          <h1 style={{ fontSize: 24, fontWeight: 700, margin: '0 0 10px 0', color: '#1a1a2e', letterSpacing: '-0.5px' }}>
+          <h1 style={{ fontSize: 24, fontWeight: 700, margin: '0 0 10px 0', color: '#1f2937', letterSpacing: '-0.5px' }}>
             管理后台
           </h1>
-          <p style={{ color: '#64748b', fontSize: 14, margin: 0 }}>
+          <p style={{ color: '#6b7280', fontSize: 14, margin: 0 }}>
             请输入管理员账号登录
           </p>
         </div>
@@ -131,7 +131,7 @@ export default function Login() {
               prefix={<UserOutlined style={{ color: '#94a3b8' }} />}
               placeholder="用户名"
               size="large"
-              style={{ height: 52, borderRadius: 14 }}
+              style={{ height: 48, borderRadius: 12 }}
             />
           </Form.Item>
           <Form.Item name="password" rules={[{ required: true, message: '请输入密码' }]}>
@@ -139,7 +139,7 @@ export default function Login() {
               prefix={<LockOutlined style={{ color: '#94a3b8' }} />}
               placeholder="密码"
               size="large"
-              style={{ height: 52, borderRadius: 14 }}
+              style={{ height: 48, borderRadius: 12 }}
             />
           </Form.Item>
           <Form.Item style={{ marginBottom: 0, marginTop: 36 }}>
@@ -150,10 +150,12 @@ export default function Login() {
               block
               size="large"
               style={{
-                height: 52,
-                borderRadius: 14,
+                height: 48,
+                borderRadius: 12,
                 fontSize: 15,
                 fontWeight: 600,
+                background: '#10a37f',
+                border: 'none',
               }}
             >
               登录
@@ -162,9 +164,9 @@ export default function Login() {
         </Form>
 
         <div style={{ textAlign: 'center', marginTop: 24 }}>
-          <span style={{ color: '#64748b', fontSize: 14 }}>
+          <span style={{ color: '#6b7280', fontSize: 14 }}>
             想成为分销商？
-            <Link to="/distributor/register" style={{ marginLeft: 8, fontWeight: 500 }}>
+            <Link to="/distributor/register" style={{ marginLeft: 8, fontWeight: 600, color: '#10a37f' }}>
               申请注册
             </Link>
           </span>

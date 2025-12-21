@@ -14,7 +14,7 @@ export default function DistributorRegister() {
   const navigate = useNavigate()
 
   useEffect(() => {
-    let timer: NodeJS.Timeout
+    let timer: ReturnType<typeof setTimeout>
     if (countdown > 0) {
       timer = setTimeout(() => setCountdown(countdown - 1), 1000)
     }
@@ -60,14 +60,40 @@ export default function DistributorRegister() {
         justifyContent: 'center',
         alignItems: 'center',
         minHeight: '100vh',
-        background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)'
+        background: 'linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)',
+        position: 'relative',
+        overflow: 'hidden',
       }}>
+        {/* 装饰光晕 */}
+        <div style={{
+          position: 'absolute',
+          top: '-15%',
+          right: '-10%',
+          width: 400,
+          height: 400,
+          background: 'radial-gradient(circle, rgba(16, 163, 127, 0.06) 0%, transparent 70%)',
+          borderRadius: '50%',
+          pointerEvents: 'none',
+        }} />
+        <div style={{
+          position: 'absolute',
+          bottom: '-10%',
+          left: '-8%',
+          width: 300,
+          height: 300,
+          background: 'radial-gradient(circle, rgba(16, 163, 127, 0.04) 0%, transparent 70%)',
+          borderRadius: '50%',
+          pointerEvents: 'none',
+        }} />
+
         <div style={{
           width: 450,
           padding: 48,
-          background: 'rgba(255, 255, 255, 0.95)',
-          borderRadius: 24,
-          boxShadow: '0 24px 80px rgba(0, 0, 0, 0.2)'
+          background: '#fff',
+          borderRadius: 20,
+          boxShadow: '0 20px 60px rgba(0, 0, 0, 0.08)',
+          position: 'relative',
+          zIndex: 1,
         }}>
           <Result
             status="success"
@@ -79,9 +105,10 @@ export default function DistributorRegister() {
                 key="login"
                 onClick={() => navigate('/distributor/login')}
                 style={{
-                  background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                  background: '#10a37f',
                   border: 'none',
-                  borderRadius: 8,
+                  borderRadius: 12,
+                  fontWeight: 600,
                 }}
               >
                 返回登录
@@ -99,38 +126,38 @@ export default function DistributorRegister() {
       justifyContent: 'center',
       alignItems: 'center',
       minHeight: '100vh',
-      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+      background: 'linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)',
       position: 'relative',
       overflow: 'hidden',
     }}>
       {/* 装饰光晕 */}
       <div style={{
         position: 'absolute',
-        top: '5%',
-        left: '10%',
+        top: '-15%',
+        right: '-10%',
         width: 400,
         height: 400,
-        background: 'radial-gradient(circle, rgba(255, 255, 255, 0.15) 0%, transparent 70%)',
+        background: 'radial-gradient(circle, rgba(16, 163, 127, 0.06) 0%, transparent 70%)',
         borderRadius: '50%',
+        pointerEvents: 'none',
       }} />
       <div style={{
         position: 'absolute',
-        bottom: '15%',
-        right: '15%',
+        bottom: '-10%',
+        left: '-8%',
         width: 300,
         height: 300,
-        background: 'radial-gradient(circle, rgba(255, 255, 255, 0.1) 0%, transparent 70%)',
+        background: 'radial-gradient(circle, rgba(16, 163, 127, 0.04) 0%, transparent 70%)',
         borderRadius: '50%',
+        pointerEvents: 'none',
       }} />
 
       <div style={{
         width: 420,
         padding: 48,
-        background: 'rgba(255, 255, 255, 0.95)',
-        backdropFilter: 'blur(20px)',
-        WebkitBackdropFilter: 'blur(20px)',
-        borderRadius: 24,
-        boxShadow: '0 24px 80px rgba(0, 0, 0, 0.2)',
+        background: '#fff',
+        borderRadius: 20,
+        boxShadow: '0 20px 60px rgba(0, 0, 0, 0.08)',
         position: 'relative',
         zIndex: 1,
       }}>
@@ -138,20 +165,20 @@ export default function DistributorRegister() {
           <div style={{
             width: 72,
             height: 72,
-            background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+            background: '#10a37f',
             borderRadius: 20,
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             margin: '0 auto 20px',
-            boxShadow: '0 8px 24px rgba(102, 126, 234, 0.4)',
+            boxShadow: '0 8px 24px rgba(16, 163, 127, 0.25)',
           }}>
             <ShopOutlined style={{ fontSize: 36, color: '#fff' }} />
           </div>
-          <h1 style={{ fontSize: 24, fontWeight: 700, margin: '0 0 8px', color: '#1a1a2e' }}>
+          <h1 style={{ fontSize: 24, fontWeight: 700, margin: '0 0 8px', color: '#1f2937' }}>
             分销商注册
           </h1>
-          <p style={{ color: '#64748b', fontSize: 14, margin: 0 }}>
+          <p style={{ color: '#6b7280', fontSize: 14, margin: 0 }}>
             注册成为分销商，获取专属兑换码
           </p>
         </div>
@@ -167,7 +194,7 @@ export default function DistributorRegister() {
             <Input
               prefix={<MailOutlined style={{ color: '#94a3b8' }} />}
               placeholder="邮箱地址"
-              style={{ height: 48, borderRadius: 10 }}
+              style={{ height: 48, borderRadius: 12 }}
             />
           </Form.Item>
 
@@ -177,7 +204,7 @@ export default function DistributorRegister() {
                 <Input
                   prefix={<SafetyCertificateOutlined style={{ color: '#94a3b8' }} />}
                   placeholder="6位验证码"
-                  style={{ flex: 1, height: 48, borderRadius: 10 }}
+                  style={{ flex: 1, height: 48, borderRadius: 12 }}
                   maxLength={6}
                 />
               </Form.Item>
@@ -185,7 +212,7 @@ export default function DistributorRegister() {
                 onClick={handleSendCode}
                 loading={codeLoading}
                 disabled={countdown > 0}
-                style={{ height: 48, width: 120, borderRadius: 10 }}
+                style={{ height: 48, width: 120, borderRadius: 12 }}
               >
                 {countdown > 0 ? `${countdown}s` : '发送验证码'}
               </Button>
@@ -203,7 +230,7 @@ export default function DistributorRegister() {
             <Input
               prefix={<UserOutlined style={{ color: '#94a3b8' }} />}
               placeholder="用户名"
-              style={{ height: 48, borderRadius: 10 }}
+              style={{ height: 48, borderRadius: 12 }}
             />
           </Form.Item>
 
@@ -217,7 +244,7 @@ export default function DistributorRegister() {
             <Input.Password
               prefix={<LockOutlined style={{ color: '#94a3b8' }} />}
               placeholder="密码"
-              style={{ height: 48, borderRadius: 10 }}
+              style={{ height: 48, borderRadius: 12 }}
             />
           </Form.Item>
 
@@ -228,11 +255,11 @@ export default function DistributorRegister() {
               loading={loading}
               block
               style={{
-                height: 52,
+                height: 48,
                 borderRadius: 12,
                 fontSize: 15,
                 fontWeight: 600,
-                background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                background: '#10a37f',
                 border: 'none',
               }}
             >
@@ -241,9 +268,9 @@ export default function DistributorRegister() {
           </Form.Item>
 
           <div style={{ textAlign: 'center' }}>
-            <span style={{ color: '#64748b', fontSize: 14 }}>
+            <span style={{ color: '#6b7280', fontSize: 14 }}>
               已有账号？
-              <Link to="/distributor/login" style={{ marginLeft: 8, fontWeight: 500, color: '#667eea' }}>
+              <Link to="/distributor/login" style={{ marginLeft: 8, fontWeight: 600, color: '#10a37f' }}>
                 立即登录
               </Link>
             </span>

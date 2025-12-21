@@ -1,12 +1,14 @@
-import { Typography, Card, Button, Collapse } from 'antd'
+import type { ReactNode } from 'react'
+import { Typography, Card, Button, Collapse, Grid } from 'antd'
 import { ArrowLeftOutlined, QuestionCircleOutlined, MailOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 
 const { Title, Paragraph, Text } = Typography
+const { useBreakpoint } = Grid
 
 interface FAQItem {
   question: string
-  answer: string | React.ReactNode
+  answer: string | ReactNode
 }
 
 const faqData: { category: string; items: FAQItem[] }[] = [
@@ -108,7 +110,7 @@ const faqData: { category: string; items: FAQItem[] }[] = [
         question: '遇到问题如何联系客服？',
         answer: (
           <span>
-            请发送邮件至 <a href="mailto:contact@zenscaleai.com" style={{ color: '#007aff' }}>contact@zenscaleai.com</a>，我们会在 24 小时内回复。
+            请发送邮件至 <a href="mailto:contact@zenscaleai.com" style={{ color: '#10a37f' }}>contact@zenscaleai.com</a>，我们会在 24 小时内回复。
           </span>
         )
       },
@@ -116,7 +118,7 @@ const faqData: { category: string; items: FAQItem[] }[] = [
         question: '可以退款吗？',
         answer: (
           <span>
-            未激活的兑换码在购买后 7 天内可申请全额退款。已激活的兑换码不支持退款。详情请查看 <a href="/legal#refund" style={{ color: '#007aff' }}>退款政策</a>。
+            未激活的兑换码在购买后 7 天内可申请全额退款。已激活的兑换码不支持退款。详情请查看 <a href="/legal#refund" style={{ color: '#10a37f' }}>退款政策</a>。
           </span>
         )
       },
@@ -126,15 +128,41 @@ const faqData: { category: string; items: FAQItem[] }[] = [
 
 export default function FAQ() {
   const navigate = useNavigate()
+  const screens = useBreakpoint()
   const contactEmail = 'contact@zenscaleai.com'
+  const isMobile = !screens.md
 
   return (
     <div style={{
       minHeight: '100vh',
-      background: 'linear-gradient(180deg, #fafafa 0%, #f5f5f7 100%)',
-      padding: '40px 20px',
+      background: 'linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)',
+      padding: isMobile ? '24px 16px' : '40px 20px',
+      position: 'relative',
+      overflow: 'hidden',
     }}>
-      <div style={{ maxWidth: 900, margin: '0 auto' }}>
+      {/* 背景装饰 */}
+      <div style={{
+        position: 'absolute',
+        top: '-15%',
+        right: '-10%',
+        width: 520,
+        height: 520,
+        background: 'radial-gradient(circle, rgba(16, 163, 127, 0.06) 0%, transparent 70%)',
+        borderRadius: '50%',
+        pointerEvents: 'none',
+      }} />
+      <div style={{
+        position: 'absolute',
+        bottom: '-12%',
+        left: '-8%',
+        width: 420,
+        height: 420,
+        background: 'radial-gradient(circle, rgba(16, 163, 127, 0.04) 0%, transparent 70%)',
+        borderRadius: '50%',
+        pointerEvents: 'none',
+      }} />
+
+      <div style={{ maxWidth: 900, margin: '0 auto', position: 'relative', zIndex: 1 }}>
         {/* 返回按钮 */}
         <Button
           type="text"
@@ -147,18 +175,34 @@ export default function FAQ() {
 
         {/* 标题 */}
         <div style={{ textAlign: 'center', marginBottom: 40 }}>
-          <QuestionCircleOutlined style={{ fontSize: 48, color: '#007aff', marginBottom: 16 }} />
-          <Title level={2} style={{ margin: '0 0 8px', color: '#1d1d1f' }}>常见问题</Title>
-          <Paragraph type="secondary">找不到答案？联系我们获取帮助</Paragraph>
+          <div style={{
+            width: 72,
+            height: 72,
+            borderRadius: 18,
+            background: 'rgba(16, 163, 127, 0.1)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            margin: '0 auto 20px',
+          }}>
+            <QuestionCircleOutlined style={{ fontSize: 36, color: '#10a37f' }} />
+          </div>
+          <Title level={2} style={{ margin: '0 0 8px', color: '#1f2937', fontWeight: 700 }}>常见问题</Title>
+          <Paragraph style={{ color: '#6b7280' }}>找不到答案？联系我们获取帮助</Paragraph>
         </div>
 
         {/* FAQ 列表 */}
         {faqData.map((section, index) => (
           <Card
             key={index}
-            title={<Text strong style={{ fontSize: 16 }}>{section.category}</Text>}
-            style={{ marginBottom: 20, borderRadius: 12 }}
-            headStyle={{ borderBottom: '1px solid #f0f0f0' }}
+            title={<Text strong style={{ fontSize: 16, color: '#1f2937' }}>{section.category}</Text>}
+            style={{
+              marginBottom: 20,
+              borderRadius: 20,
+              border: 'none',
+              boxShadow: '0 20px 60px rgba(0, 0, 0, 0.08)',
+            }}
+            headStyle={{ borderBottom: '1px solid #e5e7eb' }}
           >
             <Collapse
               ghost
@@ -177,13 +221,42 @@ export default function FAQ() {
         ))}
 
         {/* 联系我们 */}
-        <Card style={{ borderRadius: 12, textAlign: 'center', marginTop: 32 }}>
-          <MailOutlined style={{ fontSize: 32, color: '#007aff', marginBottom: 16 }} />
-          <Title level={5} style={{ margin: '0 0 8px' }}>没有找到答案？</Title>
-          <Paragraph style={{ marginBottom: 16 }}>
-            联系我们：<a href={`mailto:${contactEmail}`} style={{ color: '#007aff', fontWeight: 500 }}>{contactEmail}</a>
+        <Card style={{
+          borderRadius: 20,
+          textAlign: 'center',
+          marginTop: 32,
+          border: 'none',
+          boxShadow: '0 4px 24px rgba(0, 0, 0, 0.06)',
+        }}>
+          <div style={{
+            width: 64,
+            height: 64,
+            borderRadius: 16,
+            background: 'rgba(16, 163, 127, 0.1)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            margin: '0 auto 16px',
+          }}>
+            <MailOutlined style={{ fontSize: 28, color: '#10a37f' }} />
+          </div>
+          <Title level={5} style={{ margin: '0 0 8px', color: '#1f2937' }}>没有找到答案？</Title>
+          <Paragraph style={{ marginBottom: 16, color: '#6b7280' }}>
+            联系我们：<a href={`mailto:${contactEmail}`} style={{ color: '#10a37f', fontWeight: 600 }}>{contactEmail}</a>
           </Paragraph>
-          <Button type="primary" href={`mailto:${contactEmail}`} style={{ borderRadius: 8 }}>
+          <Button
+            type="primary"
+            href={`mailto:${contactEmail}`}
+            style={{
+              borderRadius: 12,
+              background: '#10a37f',
+              border: 'none',
+              height: 48,
+              fontWeight: 600,
+              paddingLeft: 24,
+              paddingRight: 24,
+            }}
+          >
             发送邮件
           </Button>
         </Card>
