@@ -2,41 +2,14 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Table, Button, message, Popconfirm, Badge, Space, Tooltip, Typography, Card,
-  Modal, Form, InputNumber, Select, Radio, Input, Alert
+  Modal, Form, InputNumber, Select, Radio
 } from 'antd'
-import { DeleteOutlined, CopyOutlined, LinkOutlined, ShoppingCartOutlined, SettingOutlined } from '@ant-design/icons'
+import { DeleteOutlined, CopyOutlined, LinkOutlined, ShoppingCartOutlined } from '@ant-design/icons'
 import type { TableRowSelection } from 'antd/es/table/interface'
 import { redeemApi, distributorApi, configApi } from '../../api'
-import { useStore } from '../../store'
 import dayjs from 'dayjs'
 
 const { Title, Text } = Typography
-
-// 安全清理域名前缀（防止 XSS 和无效字符）
-const sanitizePrefix = (prefix: string): string => {
-  if (!prefix || typeof prefix !== 'string') return ''
-  // 只保留小写字母、数字和连字符，限制长度
-  return prefix.toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20)
-}
-
-// 验证前缀是否有效
-const isValidPrefix = (prefix: string): boolean => {
-  const prefixRegex = /^[a-z0-9]([a-z0-9-]{0,18}[a-z0-9])?$/
-  const reserved = ['www', 'api', 'admin', 'mail', 'smtp', 'ftp', 'mmw-team', 'backend', 'console']
-  return prefixRegex.test(prefix) && !reserved.includes(prefix)
-}
-
-// 从 URL 提取根域名（用于白标链接）
-const extractRootDomain = (url: string): string => {
-  try {
-    const urlObj = new URL(url)
-    const parts = urlObj.hostname.split('.')
-    // 提取最后两部分作为根域名，如 mmw-team.zenscaleai.com -> zenscaleai.com
-    return parts.length >= 2 ? parts.slice(-2).join('.') : urlObj.hostname
-  } catch {
-    return 'zenscaleai.com'
-  }
-}
 
 interface RedeemCode {
   id: number
@@ -67,27 +40,8 @@ export default function DistributorRedeemCodes() {
   const [codes, setCodes] = useState<RedeemCode[]>([])
   const [loading, setLoading] = useState(true)
   const [batchDeleteLoading, setBatchDeleteLoading] = useState(false)
+  const [simplePageDomain, setSimplePageDomain] = useState<string>('')
   const [siteUrl, setSiteUrl] = useState<string>('')
-  const { user } = useStore()
-
-  // 自定义域名前缀（从 localStorage 读取，带安全清理）
-  const getDefaultPrefix = useCallback(() => {
-    const stored = localStorage.getItem(`distributor_prefix_${user?.id}`)
-    const sanitized = sanitizePrefix(stored || '')
-    return sanitized && isValidPrefix(sanitized) ? sanitized : `distributor-${user?.id || ''}`
-  }, [user?.id])
-
-  const [customPrefix, setCustomPrefix] = useState<string>(getDefaultPrefix)
-
-  // 计算基础域名（根域名，用于白标链接）
-  const baseDomain = siteUrl ? extractRootDomain(siteUrl) : 'zenscaleai.com'
-
-  // 当 user 变化时更新前缀
-  useEffect(() => {
-    setCustomPrefix(getDefaultPrefix())
-  }, [getDefaultPrefix])
-  const [prefixModalVisible, setPrefixModalVisible] = useState(false)
-  const [prefixForm] = Form.useForm()
 
   // 购买兑换码相关状态
   const [purchaseModalVisible, setPurchaseModalVisible] = useState(false)
@@ -109,8 +63,16 @@ export default function DistributorRedeemCodes() {
         configApi.list(),
       ])
       setCodes(res.codes || [])
-      // 提取 site_url
       const configs = (configRes as any)?.configs || []
+      // 纯净页面域名
+      const simpleDomainsConfig = configs.find((c: any) => c.key === 'simple_page_domains')
+      if (simpleDomainsConfig?.value) {
+        const firstDomain = simpleDomainsConfig.value.split(',')[0]?.trim()
+        if (firstDomain) {
+          setSimplePageDomain(firstDomain)
+        }
+      }
+      // site_url（用于官方链接）
       const siteUrlConfig = configs.find((c: any) => c.key === 'site_url')
       if (siteUrlConfig?.value) {
         setSiteUrl(siteUrlConfig.value)
@@ -146,46 +108,16 @@ export default function DistributorRedeemCodes() {
     }
   }
 
-  // 获取邀请链接（使用系统配置的域名）
-  const getInviteUrl = (code: string, useWhiteLabel: boolean = true) => {
-    if (useWhiteLabel) {
-      // 白标链接（使用自定义前缀）
-      return `https://${customPrefix}.${baseDomain}/invite/${code}`
+  // 获取邀请链接
+  const getInviteUrl = (code: string, usePurePage: boolean = true) => {
+    if (usePurePage && simplePageDomain) {
+      return `https://${simplePageDomain}/invite/${code}`
     } else {
-      // 官方链接（使用系统配置的 site_url）
-      return siteUrl ? `${siteUrl.replace(/\/$/, '')}/invite/${code}` : `https://mmw-team.zenscaleai.com/invite/${code}`
+      return siteUrl ? `${siteUrl.replace(/\/$/, '')}/invite/${code}` : ''
     }
   }
 
-  // 保存自定义前缀
-  const handleSavePrefix = async () => {
-    const values = await prefixForm.validateFields()
-    const prefix = values.prefix.trim().toLowerCase()
-
-    // 前端验证
-    const prefixRegex = /^[a-z0-9]([a-z0-9-]{0,18}[a-z0-9])?$/
-    if (!prefixRegex.test(prefix)) {
-      message.error('前缀只能包含小写字母、数字和连字符，3-20个字符')
-      return
-    }
-
-    // 保留词检查
-    const reserved = ['www', 'api', 'admin', 'mail', 'smtp', 'ftp', 'mmw-team', 'backend', 'console']
-    if (reserved.includes(prefix)) {
-      message.error('该前缀为保留词，请使用其他前缀')
-      return
-    }
-
-    // 保存到 localStorage
-    if (user?.id) {
-      localStorage.setItem(`distributor_prefix_${user.id}`, prefix)
-      setCustomPrefix(prefix)
-      message.success('域名前缀已保存')
-      setPrefixModalVisible(false)
-    }
-  }
-
-  // 复制单个兑换码（带错误处理）
+  // 复制兑换码
   const copyCode = async (code: string) => {
     try {
       await navigator.clipboard.writeText(code)
@@ -195,41 +127,47 @@ export default function DistributorRedeemCodes() {
     }
   }
 
-  // 复制链接（带选择和错误处理）
-  const copyLink = async (code: string, useWhiteLabel: boolean = true) => {
+  // 复制链接
+  const copyLink = async (code: string, usePurePage: boolean = true) => {
+    const url = getInviteUrl(code, usePurePage)
+    if (!url) {
+      message.warning(usePurePage ? '请先在系统设置中配置纯净页面域名' : '请先在系统设置中配置站点 URL')
+      return
+    }
     try {
-      const url = getInviteUrl(code, useWhiteLabel)
       await navigator.clipboard.writeText(url)
-      message.success(`已复制${useWhiteLabel ? '白标' : '官方'}链接`)
+      message.success(`已复制${usePurePage ? '纯净页面' : '官方'}链接`)
     } catch {
       message.error('复制失败，请手动复制')
     }
   }
 
-  // 批量复制链接（带选择和错误处理）
-  const handleBatchCopyLinks = async (useWhiteLabel: boolean = true) => {
+  // 批量复制链接
+  const handleBatchCopyLinks = async (usePurePage: boolean = true) => {
     if (selectedRowKeys.length === 0) {
       message.warning('请先选择要复制的兑换码')
       return
     }
-
+    const selectedCodes = codes.filter(c => selectedRowKeys.includes(c.id))
+    const links = selectedCodes.map(c => getInviteUrl(c.code, usePurePage)).filter(Boolean)
+    if (links.length === 0) {
+      message.warning(usePurePage ? '请先在系统设置中配置纯净页面域名' : '请先在系统设置中配置站点 URL')
+      return
+    }
     try {
-      const selectedCodes = codes.filter(c => selectedRowKeys.includes(c.id))
-      const links = selectedCodes.map(c => getInviteUrl(c.code, useWhiteLabel)).join('\n')
-      await navigator.clipboard.writeText(links)
-      message.success(`已复制 ${selectedCodes.length} 个${useWhiteLabel ? '白标' : '官方'}链接`)
+      await navigator.clipboard.writeText(links.join('\n'))
+      message.success(`已复制 ${links.length} 个${usePurePage ? '纯净页面' : '官方'}链接`)
     } catch {
       message.error('复制失败，请手动复制')
     }
   }
 
-  // 批量复制兑换码（带错误处理）
+  // 批量复制兑换码
   const handleBatchCopyCodes = async () => {
     if (selectedRowKeys.length === 0) {
       message.warning('请先选择要复制的兑换码')
       return
     }
-
     try {
       const selectedCodes = codes.filter(c => selectedRowKeys.includes(c.id))
       const codeTexts = selectedCodes.map(c => c.code).join('\n')
@@ -246,16 +184,12 @@ export default function DistributorRedeemCodes() {
       message.warning('请先选择要删除的兑换码')
       return
     }
-
-    // 检查是否有已使用的兑换码
     const selectedCodes = codes.filter(c => selectedRowKeys.includes(c.id))
     const usedCodes = selectedCodes.filter(c => c.used_count > 0)
-
     if (usedCodes.length === selectedCodes.length) {
       message.error('所选兑换码都已使用，无法删除')
       return
     }
-
     setBatchDeleteLoading(true)
     try {
       const res = await redeemApi.batchDelete(selectedRowKeys as number[]) as any
@@ -293,7 +227,6 @@ export default function DistributorRedeemCodes() {
       message.error('请选择码包套餐')
       return
     }
-
     setPurchaseLoading(true)
     try {
       const res = await distributorApi.createCodeOrder({
@@ -301,14 +234,10 @@ export default function DistributorRedeemCodes() {
         quantity: purchaseQuantity,
         pay_type: payType,
       }) as any
-
-      // 安全打开支付窗口
       window.open(res.pay_url, '_blank', 'noopener,noreferrer')
       message.success('订单已创建，请在新窗口中完成支付')
       setPurchaseModalVisible(false)
       purchaseForm.resetFields()
-
-      // 5秒后刷新列表
       setTimeout(() => {
         fetchCodes()
       }, 5000)
@@ -319,11 +248,9 @@ export default function DistributorRedeemCodes() {
     }
   }
 
-  // 计算总价
   const selectedPlan = codePlans.find(p => p.id === selectedPlanId)
   const totalPrice = selectedPlan ? (selectedPlan.price * purchaseQuantity / 100).toFixed(2) : '0.00'
 
-  // 表格多选配置
   const rowSelection: TableRowSelection<RedeemCode> = {
     selectedRowKeys,
     onChange: (keys) => setSelectedRowKeys(keys),
@@ -357,15 +284,15 @@ export default function DistributorRedeemCodes() {
             </Tooltip>
           </Space>
           <Space size={4}>
-            <Tooltip title="复制白标链接（隐藏价格）">
+            <Tooltip title="复制纯净页面链接（隐藏价格）">
               <Button
                 type="text"
                 size="small"
                 onClick={() => copyLink(text, true)}
-                aria-label="复制白标链接"
+                aria-label="复制纯净页面链接"
                 style={{ color: '#52c41a', fontSize: 12, padding: 0, height: 'auto' }}
               >
-                <LinkOutlined /> 白标链接
+                <LinkOutlined /> 纯净链接
               </Button>
             </Tooltip>
             <span style={{ color: '#d9d9d9' }} aria-hidden="true">|</span>
@@ -474,82 +401,72 @@ export default function DistributorRedeemCodes() {
               管理您的兑换码，复制链接分享给客户
             </Text>
           </div>
-          <Space>
-            <Button
-              icon={<SettingOutlined />}
-              onClick={() => {
-                prefixForm.setFieldsValue({ prefix: customPrefix })
-                setPrefixModalVisible(true)
-              }}
-              style={{ borderRadius: 8 }}
-            >
-              设置域名前缀
-            </Button>
-            <Button
-              type="primary"
-              icon={<ShoppingCartOutlined />}
-              onClick={showPurchaseModal}
-              style={{ borderRadius: 8, background: '#10a37f', border: 'none' }}
-            >
-              购买兑换码
-            </Button>
-          </Space>
+          <Button
+            type="primary"
+            icon={<ShoppingCartOutlined />}
+            onClick={showPurchaseModal}
+            style={{ borderRadius: 8, background: '#10a37f', border: 'none' }}
+          >
+            购买兑换码
+          </Button>
         </div>
       </div>
 
-      {/* 当前使用的域名前缀提示 */}
-      <Card
-        style={{
-          marginBottom: 20,
-          borderRadius: 16,
-          border: 'none',
-          boxShadow: '0 2px 12px rgba(0,0,0,0.04)',
-        }}
-        styles={{
-          body: {
-            padding: 20,
-            background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
-          },
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-            <div style={{
-              width: 40,
-              height: 40,
-              borderRadius: 10,
-              background: 'rgba(16, 163, 127, 0.2)',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}>
-              <LinkOutlined style={{ color: '#10a37f', fontSize: 18 }} />
+      {/* 纯净页面域名提示 */}
+      {simplePageDomain && (
+        <Card
+          style={{
+            marginBottom: 20,
+            borderRadius: 16,
+            border: 'none',
+            boxShadow: '0 2px 12px rgba(0,0,0,0.04)',
+          }}
+          styles={{
+            body: {
+              padding: 20,
+              background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
+            },
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{
+                width: 40,
+                height: 40,
+                borderRadius: 10,
+                background: 'rgba(16, 163, 127, 0.2)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}>
+                <LinkOutlined style={{ color: '#10a37f', fontSize: 18 }} />
+              </div>
+              <div>
+                <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, marginBottom: 2 }}>纯净页面域名</div>
+                <code style={{ color: '#34d399', fontSize: 14, fontFamily: 'Monaco, monospace' }}>
+                  https://{simplePageDomain}
+                </code>
+              </div>
             </div>
-            <div>
-              <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: 12, marginBottom: 2 }}>当前白标域名</div>
-              <code style={{ color: '#34d399', fontSize: 14, fontFamily: 'Monaco, monospace' }}>
-                https://{customPrefix}.{baseDomain}
-              </code>
-            </div>
+            <Button
+              type="primary"
+              ghost
+              size="small"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(`https://${simplePageDomain}`)
+                  message.success('已复制域名')
+                } catch {
+                  message.error('复制失败，请手动复制')
+                }
+              }}
+              style={{ borderRadius: 6 }}
+            >
+              复制域名
+            </Button>
           </div>
-          <Button
-            type="primary"
-            ghost
-            size="small"
-            onClick={async () => {
-              try {
-                await navigator.clipboard.writeText(`https://${customPrefix}.${baseDomain}`)
-                message.success('已复制域名')
-              } catch {
-                message.error('复制失败，请手动复制')
-              }
-            }}
-            style={{ borderRadius: 6 }}
-          >
-            复制域名
-          </Button>
-        </div>
-      </Card>
+        </Card>
+      )}
 
       <Card
         style={{
@@ -557,7 +474,7 @@ export default function DistributorRedeemCodes() {
           border: 'none',
           boxShadow: '0 2px 12px rgba(0,0,0,0.04)',
         }}
-        bodyStyle={{ padding: 0 }}
+        styles={{ body: { padding: 0 } }}
       >
         {/* 批量操作栏 */}
         {selectedRowKeys.length > 0 && (
@@ -589,7 +506,7 @@ export default function DistributorRedeemCodes() {
                 onClick={() => handleBatchCopyLinks(true)}
                 style={{ borderRadius: 8, background: '#34c759', border: 'none' }}
               >
-                批量复制白标链接
+                批量复制纯净链接
               </Button>
               <Button
                 icon={<LinkOutlined />}
@@ -725,59 +642,6 @@ export default function DistributorRedeemCodes() {
                 ({selectedPlan.code_count * purchaseQuantity} 个兑换码)
               </span>
             )}
-          </div>
-        </Form>
-      </Modal>
-
-      {/* 设置域名前缀 Modal */}
-      <Modal
-        title="设置域名前缀"
-        open={prefixModalVisible}
-        onOk={handleSavePrefix}
-        onCancel={() => {
-          setPrefixModalVisible(false)
-          prefixForm.resetFields()
-        }}
-        okText="保存"
-        cancelText="取消"
-      >
-        <Alert
-          message="设置说明"
-          description="设置您的专属域名前缀，客户访问此域名时将看不到平台的购买功能和价格。"
-          type="info"
-          showIcon
-          style={{ marginBottom: 16 }}
-        />
-        <Form
-          form={prefixForm}
-          layout="vertical"
-        >
-          <Form.Item
-            name="prefix"
-            label="域名前缀"
-            rules={[
-              { required: true, message: '请输入域名前缀' },
-              { min: 3, message: '前缀至少3个字符' },
-              { max: 20, message: '前缀最多20个字符' },
-              { pattern: /^[a-z0-9-]+$/, message: '只能包含小写字母、数字和连字符' }
-            ]}
-            extra="只能包含小写字母、数字和连字符，3-20个字符"
-          >
-            <Input
-              placeholder="例如：vip, abc, dealer"
-              addonAfter={`.${baseDomain}`}
-            />
-          </Form.Item>
-
-          <div style={{ background: '#f5f5f5', padding: 12, borderRadius: 8 }}>
-            <Text type="secondary" style={{ fontSize: 12 }}>
-              实时预览：
-            </Text>
-            <div style={{ marginTop: 8 }}>
-              <Text code>
-                https://{prefixForm.getFieldValue('prefix') || customPrefix}.{baseDomain}
-              </Text>
-            </div>
           </div>
         </Form>
       </Modal>

@@ -270,7 +270,7 @@ export default function DistributorMembers() {
               boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
               background: 'linear-gradient(135deg, #34c75920 0%, #38ef7d20 100%)',
             }}
-            bodyStyle={{ padding: 16 }}
+            styles={{ body: { padding: 16 } }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <CheckCircleOutlined style={{ fontSize: 24, color: '#34c759' }} />
@@ -289,7 +289,7 @@ export default function DistributorMembers() {
               boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
               background: 'linear-gradient(135deg, #86868b20 0%, #a0a0a520 100%)',
             }}
-            bodyStyle={{ padding: 16 }}
+            styles={{ body: { padding: 16 } }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
               <MinusCircleOutlined style={{ fontSize: 24, color: '#86868b' }} />
@@ -308,7 +308,7 @@ export default function DistributorMembers() {
           border: 'none',
           boxShadow: '0 2px 12px rgba(0,0,0,0.04)',
         }}
-        bodyStyle={{ padding: 0 }}
+        styles={{ body: { padding: 0 } }}
       >
         <div style={{ padding: 20, borderBottom: '1px solid #f0f0f5' }}>
           <Input

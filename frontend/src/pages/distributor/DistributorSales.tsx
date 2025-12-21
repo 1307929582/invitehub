@@ -153,7 +153,7 @@ export default function DistributorSales() {
           border: 'none',
           boxShadow: '0 2px 12px rgba(0,0,0,0.04)',
         }}
-        bodyStyle={{ padding: 0 }}
+        styles={{ body: { padding: 0 } }}
       >
         <div style={{ padding: 20, borderBottom: '1px solid #f0f0f5' }}>
           <Input

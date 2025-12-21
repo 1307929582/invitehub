@@ -1,5 +1,5 @@
 // 分销商 Dashboard
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Row, Col, Card, Table, Typography, Spin, Empty, Button, message, Grid } from 'antd'
 import {
   GiftOutlined,
@@ -17,31 +17,6 @@ import dayjs from 'dayjs'
 
 const { Title, Paragraph, Text } = Typography
 const { useBreakpoint } = Grid
-
-// 安全清理域名前缀（防止 XSS 和无效字符）
-const sanitizePrefix = (prefix: string): string => {
-  if (!prefix || typeof prefix !== 'string') return ''
-  return prefix.toLowerCase().replace(/[^a-z0-9-]/g, '').slice(0, 20)
-}
-
-// 验证前缀是否有效
-const isValidPrefix = (prefix: string): boolean => {
-  const prefixRegex = /^[a-z0-9]([a-z0-9-]{0,18}[a-z0-9])?$/
-  const reserved = ['www', 'api', 'admin', 'mail', 'smtp', 'ftp', 'mmw-team', 'backend', 'console']
-  return prefixRegex.test(prefix) && !reserved.includes(prefix)
-}
-
-// 从 URL 提取根域名（用于白标链接）
-const extractRootDomain = (url: string): string => {
-  try {
-    const urlObj = new URL(url)
-    const parts = urlObj.hostname.split('.')
-    // 提取最后两部分作为根域名，如 mmw-team.zenscaleai.com -> zenscaleai.com
-    return parts.length >= 2 ? parts.slice(-2).join('.') : urlObj.hostname
-  } catch {
-    return 'zenscaleai.com'
-  }
-}
 
 interface Summary {
   total_codes_created: number
@@ -66,28 +41,22 @@ export default function DistributorDashboard() {
   const [summary, setSummary] = useState<Summary | null>(null)
   const [recentSales, setRecentSales] = useState<SaleRecord[]>([])
   const [loading, setLoading] = useState(true)
-  const [siteUrl, setSiteUrl] = useState<string>('')
+  const [simplePageDomain, setSimplePageDomain] = useState<string>('')
   const { user } = useStore()
   const screens = useBreakpoint()
   const navigate = useNavigate()
 
-  // 从 localStorage 读取自定义前缀（带安全清理）
-  const getValidPrefix = useCallback(() => {
-    const stored = localStorage.getItem(`distributor_prefix_${user?.id}`)
-    const sanitized = sanitizePrefix(stored || '')
-    return sanitized && isValidPrefix(sanitized) ? sanitized : `distributor-${user?.id || ''}`
-  }, [user?.id])
-
-  const customPrefix = getValidPrefix()
-
-  // 生成分销商白标链接（使用系统配置的根域名）
-  const baseDomain = siteUrl ? extractRootDomain(siteUrl) : 'zenscaleai.com'
-  const whiteLabelUrl = `https://${customPrefix}.${baseDomain}/invite`
+  // 纯净页面链接（使用系统设置的纯净页面域名）
+  const purePageUrl = simplePageDomain ? `https://${simplePageDomain}/invite` : ''
 
   // 复制链接（带错误处理）
-  const copyWhiteLabelUrl = async () => {
+  const copyPurePageUrl = async () => {
+    if (!purePageUrl) {
+      message.warning('请先在系统设置中配置纯净页面域名')
+      return
+    }
     try {
-      await navigator.clipboard.writeText(whiteLabelUrl)
+      await navigator.clipboard.writeText(purePageUrl)
       message.success('链接已复制到剪贴板')
     } catch {
       message.error('复制失败，请手动复制')
@@ -109,11 +78,14 @@ export default function DistributorDashboard() {
         if (abortController.signal.aborted) return
         setSummary(summaryRes as unknown as Summary)
         setRecentSales((salesRes as unknown as SaleRecord[]) || [])
-        // 提取 site_url
+        // 提取纯净页面域名（取第一个）
         const configs = (configRes as any)?.configs || []
-        const siteUrlConfig = configs.find((c: any) => c.key === 'site_url')
-        if (siteUrlConfig?.value) {
-          setSiteUrl(siteUrlConfig.value)
+        const simpleDomainsConfig = configs.find((c: any) => c.key === 'simple_page_domains')
+        if (simpleDomainsConfig?.value) {
+          const firstDomain = simpleDomainsConfig.value.split(',')[0]?.trim()
+          if (firstDomain) {
+            setSimplePageDomain(firstDomain)
+          }
         }
       } catch (error) {
         if (abortController.signal.aborted) return
@@ -301,7 +273,7 @@ export default function DistributorDashboard() {
         ))}
       </Row>
 
-      {/* 白标链接展示 */}
+      {/* 纯净页面链接展示 */}
       <Card
         style={{
           marginBottom: 28,
@@ -330,7 +302,7 @@ export default function DistributorDashboard() {
           </div>
           <div>
             <div style={{ color: '#fff', fontSize: 16, fontWeight: 600 }}>您的客户专属链接</div>
-            <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13 }}>白标入口，隐藏价格信息</div>
+            <div style={{ color: 'rgba(255,255,255,0.6)', fontSize: 13 }}>纯净页面入口，隐藏购买功能和价格</div>
           </div>
         </div>
 
@@ -352,12 +324,12 @@ export default function DistributorDashboard() {
             fontFamily: 'Monaco, monospace',
             minWidth: 200,
           }}>
-            {whiteLabelUrl}
+            {purePageUrl || '请在系统设置中配置纯净页面域名'}
           </code>
           <Button
             type="primary"
             icon={<CopyOutlined />}
-            onClick={copyWhiteLabelUrl}
+            onClick={copyPurePageUrl}
             style={{
               height: 40,
               borderRadius: 10,
@@ -382,7 +354,7 @@ export default function DistributorDashboard() {
           border: 'none',
           boxShadow: '0 2px 12px rgba(0,0,0,0.04)',
         }}
-        bodyStyle={{ padding: 0 }}
+        styles={{ body: { padding: 0 } }}
       >
         <div style={{
           padding: screens.md ? '20px 24px' : '16px 20px',
