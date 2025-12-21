@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
-import { Button, Spin, Card, Row, Col, Grid } from 'antd'
+import { Button, Spin, Card, Row, Col, Grid, Input } from 'antd'
 import {
   RocketOutlined, CheckCircleOutlined, SafetyOutlined, ThunderboltOutlined,
   ShoppingCartOutlined, CustomerServiceOutlined, SwapOutlined,
-  ArrowDownOutlined, QuestionCircleOutlined
+  ArrowDownOutlined, QuestionCircleOutlined,
+  TeamOutlined, ApiOutlined, CodeOutlined, MessageOutlined, SendOutlined
 } from '@ant-design/icons'
 import { publicApi } from '../api'
 
@@ -20,14 +21,14 @@ interface SiteConfig {
 
 // 功能亮点
 const highlights = [
-  { text: 'GPT-4o 无限制', icon: <CheckCircleOutlined style={{ color: '#22c55e' }} /> },
+  { text: 'GPT-5 系列', icon: <CheckCircleOutlined style={{ color: '#22c55e' }} /> },
   { text: '即时开通', icon: <CheckCircleOutlined style={{ color: '#22c55e' }} /> },
   { text: '专属客服', icon: <CheckCircleOutlined style={{ color: '#22c55e' }} /> },
 ]
 
 // 特性卡片
 const features = [
-  { icon: <ThunderboltOutlined />, title: 'GPT-4o 无限制', desc: 'Team 版本无消息限制，畅享最新模型能力', color: '#f59e0b' },
+  { icon: <ThunderboltOutlined />, title: 'GPT-5 系列', desc: 'Team 版本无消息限制，畅享最新模型能力', color: '#f59e0b' },
   { icon: <SafetyOutlined />, title: '官方正规渠道', desc: '正规 OpenAI Team 账号，数据安全有保障', color: '#3b82f6' },
   { icon: <SwapOutlined />, title: '自助换车服务', desc: 'Team 异常时可自助转移，无需等待客服', color: '#10b981' },
   { icon: <CustomerServiceOutlined />, title: '优质售后支持', desc: '专业团队响应，问题快速解决', color: '#8b5cf6' },
@@ -163,9 +164,9 @@ export default function Home() {
                     letterSpacing: '-1.5px',
                     lineHeight: 1.15,
                   }}>
-                    畅享 GPT-4o
+                    畅享 GPT-5
                     <br />
-                    <span style={{ color: '#3b82f6' }}>无限可能</span>
+                    <span style={{ color: '#10a37f' }}>无限可能</span>
                   </h1>
 
                   {/* 副标题 */}
@@ -264,66 +265,133 @@ export default function Home() {
                 </div>
               </Col>
 
-              {/* 右侧视觉 */}
+              {/* 右侧视觉 - ChatGPT 对话界面 */}
               <Col xs={24} lg={12}>
                 <div className="animate-fadeInUp-delay" style={{
                   position: 'relative',
-                  height: isMobile ? 320 : 480,
+                  height: isMobile ? 360 : 480,
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
                 }}>
-                  {/* 主卡片 */}
+                  {/* ChatGPT 对话卡片 */}
                   <div style={{
-                    width: isMobile ? 220 : 300,
-                    height: isMobile ? 140 : 190,
-                    background: 'linear-gradient(135deg, #1e293b 0%, #0f172a 100%)',
+                    width: isMobile ? 280 : 380,
+                    background: '#fff',
                     borderRadius: 20,
-                    boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25)',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    justifyContent: 'space-between',
-                    padding: isMobile ? 20 : 28,
+                    boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.15)',
+                    overflow: 'hidden',
                     animation: 'float 6s ease-in-out infinite',
                     position: 'relative',
                     zIndex: 2,
+                    border: '1px solid rgba(0,0,0,0.06)',
                   }}>
-                    {/* 卡片芯片 */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    {/* 顶部栏 */}
+                    <div style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '12px 16px',
+                      background: '#f9fafb',
+                      borderBottom: '1px solid #f0f0f0',
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <div style={{
+                          width: 24,
+                          height: 24,
+                          borderRadius: 6,
+                          background: '#10a37f',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                        }}>
+                          <span style={{ color: '#fff', fontSize: 12, fontWeight: 700 }}>G</span>
+                        </div>
+                        <span style={{ fontWeight: 600, color: '#333', fontSize: 14 }}>ChatGPT Team</span>
+                      </div>
+                      <div style={{ display: 'flex', gap: 6 }}>
+                        <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#ff5f56' }} />
+                        <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#ffbd2e' }} />
+                        <span style={{ width: 10, height: 10, borderRadius: '50%', background: '#27c93f' }} />
+                      </div>
+                    </div>
+
+                    {/* 对话内容 */}
+                    <div style={{ padding: isMobile ? 16 : 20 }}>
+                      {/* 用户消息 */}
                       <div style={{
-                        width: isMobile ? 36 : 48,
-                        height: isMobile ? 28 : 36,
-                        background: 'linear-gradient(135deg, #fbbf24 0%, #f59e0b 100%)',
-                        borderRadius: 6,
-                      }} />
-                      <span style={{ color: '#fff', fontWeight: 700, fontSize: isMobile ? 14 : 18 }}>TEAM</span>
-                    </div>
-                    {/* 卡号 */}
-                    <div style={{ color: '#94a3b8', fontSize: isMobile ? 14 : 18, fontFamily: 'monospace', letterSpacing: 2 }}>
-                      •••• •••• •••• 4088
-                    </div>
-                    {/* 底部信息 */}
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end' }}>
-                      <div>
-                        <div style={{ color: '#64748b', fontSize: 10, marginBottom: 2 }}>MEMBER</div>
-                        <div style={{ color: '#fff', fontSize: isMobile ? 12 : 14, fontWeight: 500 }}>ZENSCALE AI</div>
+                        background: '#10a37f',
+                        color: '#fff',
+                        padding: '10px 14px',
+                        borderRadius: '12px 12px 4px 12px',
+                        marginLeft: 'auto',
+                        maxWidth: '85%',
+                        marginBottom: 12,
+                        fontSize: isMobile ? 13 : 14,
+                        lineHeight: 1.5,
+                        textAlign: 'right',
+                      }}>
+                        如何邀请团队成员加入 ChatGPT？
                       </div>
-                      <div style={{ textAlign: 'right' }}>
-                        <div style={{ color: '#64748b', fontSize: 10, marginBottom: 2 }}>VALID</div>
-                        <div style={{ color: '#fff', fontSize: isMobile ? 12 : 14 }}>12/26</div>
+
+                      {/* AI 回复 */}
+                      <div style={{
+                        display: 'flex',
+                        alignItems: 'flex-start',
+                        gap: 10,
+                      }}>
+                        <div style={{
+                          width: 28,
+                          height: 28,
+                          borderRadius: 8,
+                          background: 'linear-gradient(135deg, #10a37f 0%, #0d8a6a 100%)',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          flexShrink: 0,
+                        }}>
+                          <span style={{ color: '#fff', fontSize: 12, fontWeight: 700 }}>AI</span>
+                        </div>
+                        <div style={{
+                          background: '#f0f2f5',
+                          padding: '10px 14px',
+                          borderRadius: '12px 12px 12px 4px',
+                          maxWidth: '85%',
+                          fontSize: isMobile ? 13 : 14,
+                          lineHeight: 1.6,
+                          color: '#333',
+                        }}>
+                          只需发送邀请链接即可！让我们一起提升团队生产力 🚀
+                        </div>
                       </div>
+                    </div>
+
+                    {/* 输入框 */}
+                    <div style={{
+                      padding: '12px 16px',
+                      borderTop: '1px solid #f0f0f0',
+                    }}>
+                      <Input
+                        placeholder="发送消息..."
+                        disabled
+                        suffix={<SendOutlined style={{ color: '#10a37f' }} />}
+                        style={{
+                          borderRadius: 10,
+                          background: '#f9fafb',
+                        }}
+                      />
                     </div>
                   </div>
 
-                  {/* 浮动图标 */}
+                  {/* 浮动图标 - OpenAI 相关 */}
                   <div style={{
                     position: 'absolute',
-                    top: isMobile ? '5%' : '10%',
-                    left: isMobile ? '5%' : '10%',
-                    width: isMobile ? 50 : 64,
-                    height: isMobile ? 50 : 64,
+                    top: isMobile ? '5%' : '8%',
+                    left: isMobile ? '0%' : '5%',
+                    width: isMobile ? 48 : 60,
+                    height: isMobile ? 48 : 60,
                     background: '#fff',
-                    borderRadius: 16,
+                    borderRadius: 14,
                     boxShadow: '0 8px 24px rgba(0,0,0,0.08)',
                     display: 'flex',
                     alignItems: 'center',
@@ -331,35 +399,35 @@ export default function Home() {
                     animation: 'float 5s ease-in-out infinite',
                     animationDelay: '0.5s',
                   }}>
-                    <span style={{ fontSize: isMobile ? 24 : 32 }}>🤖</span>
+                    <TeamOutlined style={{ fontSize: isMobile ? 22 : 28, color: '#10a37f' }} />
                   </div>
 
                   <div style={{
                     position: 'absolute',
                     top: isMobile ? '0%' : '5%',
-                    right: isMobile ? '10%' : '15%',
-                    width: isMobile ? 50 : 64,
-                    height: isMobile ? 50 : 64,
-                    background: '#10b981',
-                    borderRadius: 16,
-                    boxShadow: '0 8px 24px rgba(16, 185, 129, 0.3)',
+                    right: isMobile ? '5%' : '10%',
+                    width: isMobile ? 48 : 60,
+                    height: isMobile ? 48 : 60,
+                    background: 'linear-gradient(135deg, #10a37f 0%, #0d8a6a 100%)',
+                    borderRadius: 14,
+                    boxShadow: '0 8px 24px rgba(16, 163, 127, 0.3)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     animation: 'float 6s ease-in-out infinite',
                     animationDelay: '1s',
                   }}>
-                    <span style={{ fontSize: isMobile ? 24 : 32 }}>✨</span>
+                    <ApiOutlined style={{ fontSize: isMobile ? 22 : 28, color: '#fff' }} />
                   </div>
 
                   <div style={{
                     position: 'absolute',
-                    bottom: isMobile ? '10%' : '15%',
-                    left: isMobile ? '0%' : '5%',
-                    width: isMobile ? 50 : 64,
-                    height: isMobile ? 50 : 64,
-                    background: '#3b82f6',
-                    borderRadius: 16,
+                    bottom: isMobile ? '12%' : '18%',
+                    left: isMobile ? '-2%' : '0%',
+                    width: isMobile ? 48 : 60,
+                    height: isMobile ? 48 : 60,
+                    background: 'linear-gradient(135deg, #3b82f6 0%, #2563eb 100%)',
+                    borderRadius: 14,
                     boxShadow: '0 8px 24px rgba(59, 130, 246, 0.3)',
                     display: 'flex',
                     alignItems: 'center',
@@ -367,17 +435,17 @@ export default function Home() {
                     animation: 'float 7s ease-in-out infinite',
                     animationDelay: '1.5s',
                   }}>
-                    <span style={{ fontSize: isMobile ? 24 : 32 }}>🧠</span>
+                    <CodeOutlined style={{ fontSize: isMobile ? 22 : 28, color: '#fff' }} />
                   </div>
 
                   <div style={{
                     position: 'absolute',
-                    bottom: isMobile ? '5%' : '10%',
-                    right: isMobile ? '5%' : '10%',
-                    width: isMobile ? 50 : 64,
-                    height: isMobile ? 50 : 64,
+                    bottom: isMobile ? '5%' : '8%',
+                    right: isMobile ? '0%' : '5%',
+                    width: isMobile ? 48 : 60,
+                    height: isMobile ? 48 : 60,
                     background: '#fff',
-                    borderRadius: 16,
+                    borderRadius: 14,
                     boxShadow: '0 8px 24px rgba(0,0,0,0.08)',
                     display: 'flex',
                     alignItems: 'center',
@@ -385,25 +453,25 @@ export default function Home() {
                     animation: 'float 5.5s ease-in-out infinite',
                     animationDelay: '2s',
                   }}>
-                    <span style={{ fontSize: isMobile ? 24 : 32 }}>🚀</span>
+                    <ThunderboltOutlined style={{ fontSize: isMobile ? 22 : 28, color: '#f59e0b' }} />
                   </div>
 
                   <div style={{
                     position: 'absolute',
-                    top: '45%',
-                    right: isMobile ? '0%' : '0%',
-                    width: isMobile ? 45 : 56,
-                    height: isMobile ? 45 : 56,
-                    background: '#f43f5e',
-                    borderRadius: 14,
-                    boxShadow: '0 8px 24px rgba(244, 63, 94, 0.3)',
+                    top: '50%',
+                    right: isMobile ? '-3%' : '-2%',
+                    width: isMobile ? 44 : 54,
+                    height: isMobile ? 44 : 54,
+                    background: 'linear-gradient(135deg, #8b5cf6 0%, #7c3aed 100%)',
+                    borderRadius: 12,
+                    boxShadow: '0 8px 24px rgba(139, 92, 246, 0.3)',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     animation: 'float 6.5s ease-in-out infinite',
                     animationDelay: '0.8s',
                   }}>
-                    <span style={{ fontSize: isMobile ? 20 : 26 }}>💬</span>
+                    <MessageOutlined style={{ fontSize: isMobile ? 20 : 24, color: '#fff' }} />
                   </div>
                 </div>
               </Col>
@@ -479,7 +547,7 @@ export default function Home() {
             准备好开启 AI 之旅了吗？
           </h2>
           <p style={{ color: 'rgba(255,255,255,0.7)', margin: '0 0 36px', fontSize: 16 }}>
-            立即加入，畅享 GPT-4o 无限可能
+            立即加入，畅享 GPT-5 无限可能
           </p>
           <div style={{ display: 'flex', gap: 16, justifyContent: 'center', flexWrap: 'wrap' }}>
             <Button
