@@ -504,9 +504,13 @@ export default function DistributorRedeemCodes() {
           borderRadius: 16,
           border: 'none',
           boxShadow: '0 2px 12px rgba(0,0,0,0.04)',
-          background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
         }}
-        bodyStyle={{ padding: 20 }}
+        styles={{
+          body: {
+            padding: 20,
+            background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
+          },
+        }}
       >
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>

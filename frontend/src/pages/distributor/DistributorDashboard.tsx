@@ -258,13 +258,17 @@ export default function DistributorDashboard() {
           <Col xs={24} sm={12} lg={6} key={index}>
             <Card
               style={{
-                background: card.gradient,
                 borderRadius: 16,
                 border: 'none',
                 boxShadow: '0 4px 20px rgba(0,0,0,0.08)',
                 overflow: 'hidden',
               }}
-              bodyStyle={{ padding: screens.md ? 24 : 20 }}
+              styles={{
+                body: {
+                  padding: screens.md ? 24 : 20,
+                  background: card.gradient,
+                },
+              }}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                 <div>
@@ -304,9 +308,13 @@ export default function DistributorDashboard() {
           borderRadius: 16,
           border: 'none',
           boxShadow: '0 2px 12px rgba(0,0,0,0.04)',
-          background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
         }}
-        bodyStyle={{ padding: screens.md ? 28 : 20 }}
+        styles={{
+          body: {
+            padding: screens.md ? 28 : 20,
+            background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
+          },
+        }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 16 }}>
           <div style={{
