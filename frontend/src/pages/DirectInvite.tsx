@@ -210,7 +210,7 @@ export default function DirectInvite() {
             )}
             {/* 有效期显示 */}
             {redeemResult?.remaining_days !== null && redeemResult?.remaining_days !== undefined && (
-              <div style={{ background: 'rgba(0, 122, 255, 0.08)', padding: '12px 16px', borderRadius: 12, marginBottom: 12 }}>
+              <div style={{ background: 'rgba(16, 163, 127, 0.08)', padding: '12px 16px', borderRadius: 12, marginBottom: 12 }}>
                 <ClockCircleOutlined style={{ marginRight: 8, color: getDaysColor(redeemResult.remaining_days) }} />
                 <span style={{ color: getDaysColor(redeemResult.remaining_days), fontWeight: 600 }}>
                   有效期剩余 {redeemResult.remaining_days} 天
@@ -288,7 +288,7 @@ export default function DirectInvite() {
         onClick={handleRedeem}
         disabled={!email || !code}
         icon={<RocketOutlined />}
-        style={{ height: 48, borderRadius: 12, fontWeight: 600, background: '#007aff', border: 'none' }}
+        style={{ height: 48, borderRadius: 12, fontWeight: 600, background: '#10a37f', border: 'none' }}
       >
         立即上车
       </Button>
@@ -332,14 +332,14 @@ export default function DirectInvite() {
       {statusResult && (
         <div style={{ marginBottom: 20 }}>
           {statusResult.found ? (
-            <div style={{ padding: 16, background: 'rgba(0, 122, 255, 0.04)', borderRadius: 12, fontSize: 13 }}>
+            <div style={{ padding: 16, background: 'rgba(16, 163, 127, 0.04)', borderRadius: 12, fontSize: 13 }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                <MailOutlined style={{ color: '#007aff' }} />
+                <MailOutlined style={{ color: '#10a37f' }} />
                 <span>绑定邮箱：</span>
                 <span style={{ fontWeight: 600 }}>{statusResult.email || '未绑定'}</span>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
-                <TeamOutlined style={{ color: '#007aff' }} />
+                <TeamOutlined style={{ color: '#10a37f' }} />
                 <span>当前 Team：</span>
                 <span style={{ fontWeight: 500 }}>{statusResult.team_name || '未知'}</span>
                 {statusResult.team_active !== undefined && (
@@ -380,7 +380,7 @@ export default function DirectInvite() {
         onClick={handleRebind}
         disabled={!rebindCode || (statusResult !== null && !statusResult.can_rebind)}
         icon={<SwapOutlined />}
-        style={{ height: 48, borderRadius: 12, fontWeight: 600, background: '#007aff', border: 'none' }}
+        style={{ height: 48, borderRadius: 12, fontWeight: 600, background: '#10a37f', border: 'none' }}
       >
         立即换车
       </Button>
@@ -462,14 +462,14 @@ export default function DirectInvite() {
         </div>
         <div style={{ marginBottom: 20, padding: '16px 20px', background: 'rgba(255, 255, 255, 0.08)', borderRadius: 12 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-            <TeamOutlined style={{ color: '#007aff', fontSize: 18 }} />
+            <TeamOutlined style={{ color: '#10a37f', fontSize: 18 }} />
             <Text style={{ color: 'white', fontWeight: 600, fontSize: 14 }}>商务合作 / 成为分销商</Text>
           </div>
           <Text style={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: 13, display: 'block', marginBottom: 6 }}>
-            TG：<a href="https://t.me/sqbbzsy" target="_blank" rel="noopener noreferrer" style={{ color: '#007aff', fontWeight: 500 }}>@sqbbzsy</a>
+            TG：<a href="https://t.me/sqbbzsy" target="_blank" rel="noopener noreferrer" style={{ color: '#10a37f', fontWeight: 500 }}>@sqbbzsy</a>
           </Text>
           <Text style={{ color: 'rgba(255, 255, 255, 0.8)', fontSize: 13 }}>
-            邮箱：<a href="mailto:contact@zenscaleai.com" style={{ color: '#007aff', fontWeight: 500 }}>contact@zenscaleai.com</a>
+            邮箱：<a href="mailto:contact@zenscaleai.com" style={{ color: '#10a37f', fontWeight: 500 }}>contact@zenscaleai.com</a>
           </Text>
         </div>
         {/* 版权信息 */}
@@ -500,8 +500,8 @@ export default function DirectInvite() {
       {/* 装饰光晕 */}
       {screens.md && (
         <>
-          <div style={{ position: 'absolute', top: '-10%', right: '-20%', width: 500, height: 500, background: 'radial-gradient(circle, rgba(0, 122, 255, 0.08) 0%, transparent 70%)', borderRadius: '50%', zIndex: 0 }} />
-          <div style={{ position: 'absolute', bottom: '-10%', left: '-10%', width: 400, height: 400, background: 'radial-gradient(circle, rgba(88, 86, 214, 0.06) 0%, transparent 70%)', borderRadius: '50%', zIndex: 0 }} />
+          <div style={{ position: 'absolute', top: '-10%', right: '-20%', width: 500, height: 500, background: 'radial-gradient(circle, rgba(16, 163, 127, 0.08) 0%, transparent 70%)', borderRadius: '50%', zIndex: 0 }} />
+          <div style={{ position: 'absolute', bottom: '-10%', left: '-10%', width: 400, height: 400, background: 'radial-gradient(circle, rgba(16, 163, 127, 0.06) 0%, transparent 70%)', borderRadius: '50%', zIndex: 0 }} />
         </>
       )}
 
@@ -544,7 +544,7 @@ export default function DirectInvite() {
           ]}
         />
 
-        <div style={{ marginTop: 16, padding: 14, background: 'rgba(0, 122, 255, 0.04)', borderRadius: 12, fontSize: 12, color: '#86868b', lineHeight: 1.8 }}>
+        <div style={{ marginTop: 16, padding: 14, background: 'rgba(16, 163, 127, 0.04)', borderRadius: 12, fontSize: 12, color: '#86868b', lineHeight: 1.8 }}>
           <div style={{ fontWeight: 600, color: '#1d1d1f', marginBottom: 6 }}>使用说明</div>
           {activeTab === 'redeem' ? (
             <ol style={{ paddingLeft: 18, margin: 0 }}>
