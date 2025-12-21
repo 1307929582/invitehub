@@ -26,11 +26,13 @@ const isValidPrefix = (prefix: string): boolean => {
   return prefixRegex.test(prefix) && !reserved.includes(prefix)
 }
 
-// 从 URL 提取域名
-const extractDomain = (url: string): string => {
+// 从 URL 提取根域名（用于白标链接）
+const extractRootDomain = (url: string): string => {
   try {
     const urlObj = new URL(url)
-    return urlObj.hostname
+    const parts = urlObj.hostname.split('.')
+    // 提取最后两部分作为根域名，如 mmw-team.zenscaleai.com -> zenscaleai.com
+    return parts.length >= 2 ? parts.slice(-2).join('.') : urlObj.hostname
   } catch {
     return 'zenscaleai.com'
   }
@@ -77,8 +79,8 @@ export default function DistributorRedeemCodes() {
 
   const [customPrefix, setCustomPrefix] = useState<string>(getDefaultPrefix)
 
-  // 计算基础域名
-  const baseDomain = siteUrl ? extractDomain(siteUrl) : 'zenscaleai.com'
+  // 计算基础域名（根域名，用于白标链接）
+  const baseDomain = siteUrl ? extractRootDomain(siteUrl) : 'zenscaleai.com'
 
   // 当 user 变化时更新前缀
   useEffect(() => {
