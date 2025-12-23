@@ -1018,16 +1018,9 @@ export default function LinuxDoRedeem() {
           />
         </Card>
 
-        {/* 底部链接 */}
-        <div style={{ textAlign: 'center', marginTop: 32 }}>
-          <Space split={<span style={{ color: '#e5e7eb' }}>·</span>} size={12}>
-            <Link to="/faq" style={{ color: '#9ca3af', fontSize: 13 }}>常见问题</Link>
-            <Link to="/legal#terms" style={{ color: '#9ca3af', fontSize: 13 }}>服务条款</Link>
-            <Link to="/legal#privacy" style={{ color: '#9ca3af', fontSize: 13 }}>隐私政策</Link>
-          </Space>
-          <div style={{ marginTop: 12, color: '#9ca3af', fontSize: 12 }}>
-            Powered by Linux.do
-          </div>
+        {/* 底部 */}
+        <div style={{ textAlign: 'center', marginTop: 32, color: '#9ca3af', fontSize: 12 }}>
+          Powered by Linux.do
         </div>
       </div>
     </div>
