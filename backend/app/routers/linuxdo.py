@@ -104,7 +104,7 @@ def _generate_redeem_code(db: Session, validity_days: int, order_no: str) -> str
 
         redeem_code = RedeemCode(
             code=code,
-            code_type=RedeemCodeType.SINGLE,
+            code_type=RedeemCodeType.DIRECT,
             max_uses=1,
             used_count=0,
             validity_days=validity_days,
