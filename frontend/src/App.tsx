@@ -114,7 +114,18 @@ function App() {
   useEffect(() => {
     const hostname = window.location.hostname.toLowerCase()
     const isMainSite = hostname === 'mmw-team.zenscaleai.com' || hostname === 'localhost'
+    const isLinuxDoSite = hostname === 'linuxdoteam.zenscaleai.com'
     const currentPath = window.location.pathname
+
+    // LinuxDo 专属域名：只允许访问 /linuxdo/*
+    if (isLinuxDoSite) {
+      const linuxdoAllowed = ['/linuxdo', '/legal', '/faq']
+      const isAllowed = linuxdoAllowed.some(p => currentPath.startsWith(p))
+      if (!isAllowed) {
+        window.location.replace('/linuxdo/redeem')
+      }
+      return
+    }
 
     // 如果不是主站，且不在允许的公开路径，则跳转
     const allowedPaths = ['/invite', '/legal', '/faq']
