@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { Outlet, useNavigate, useLocation } from 'react-router-dom'
 import { Layout as AntLayout, Menu, Avatar, Dropdown, Badge, Popover, List, Button, Empty, Tag } from 'antd'
 import VersionChecker from './VersionChecker'
@@ -41,26 +41,59 @@ interface Warning {
 const { Header, Sider, Content } = AntLayout
 
 const menuItems = [
-  { key: '/admin/dashboard', icon: <DashboardOutlined />, label: '工作台' },
-  { key: '/admin/groups', icon: <AppstoreOutlined />, label: 'Team 分组' },
-  { key: '/admin/teams', icon: <TeamOutlined />, label: 'Team 座位管理' },
-  { key: '/admin/invite', icon: <MailOutlined />, label: '批量邀请' },
-  { key: '/admin/pending-invites', icon: <MailOutlined />, label: '待处理邀请' },
-  { key: '/admin/redeem-codes', icon: <GiftOutlined />, label: '兑换码管理' },
-  { key: '/admin/invite-records', icon: <UnorderedListOutlined />, label: '邀请记录' },
-  { key: '/admin/unauthorized', icon: <WarningOutlined />, label: '未授权成员' },
-  { type: 'divider' as const },
-  { key: '/admin/plans', icon: <ShoppingOutlined />, label: '套餐管理' },
-  { key: '/admin/orders', icon: <DollarOutlined />, label: '订单管理' },
-  { key: '/admin/coupons', icon: <GiftOutlined />, label: '优惠码' },
-  { type: 'divider' as const },
-  { key: '/admin/pending-distributors', icon: <AuditOutlined />, label: '待审核分销商' },
-  { key: '/admin/distributors', icon: <ShopOutlined />, label: '分销商管理' },
-  { key: '/admin/distributor-analytics', icon: <BarChartOutlined />, label: '分销商分析' },
-  { type: 'divider' as const },
-  { key: '/admin/logs', icon: <FileTextOutlined />, label: '操作日志' },
-  { key: '/admin/admins', icon: <UserOutlined />, label: '管理员管理' },
-  { key: '/admin/settings', icon: <SettingOutlined />, label: '系统设置' },
+  { key: '/admin/dashboard', icon: <DashboardOutlined />, label: '仪表盘' },
+  {
+    key: 'team-management',
+    icon: <TeamOutlined />,
+    label: 'Team 管理',
+    children: [
+      { key: '/admin/groups', icon: <AppstoreOutlined />, label: 'Team 分组' },
+      { key: '/admin/teams', icon: <TeamOutlined />, label: 'Team 座位管理' },
+      { key: '/admin/unauthorized', icon: <WarningOutlined />, label: '未授权成员' },
+    ],
+  },
+  {
+    key: 'invite-management',
+    icon: <MailOutlined />,
+    label: '邀请管理',
+    children: [
+      { key: '/admin/invite', icon: <MailOutlined />, label: '批量邀请' },
+      { key: '/admin/pending-invites', icon: <MailOutlined />, label: '待处理邀请' },
+      { key: '/admin/redeem-codes', icon: <GiftOutlined />, label: '兑换码管理' },
+      { key: '/admin/invite-records', icon: <UnorderedListOutlined />, label: '邀请记录' },
+    ],
+  },
+  {
+    key: 'shop-management',
+    icon: <ShoppingOutlined />,
+    label: '商城管理',
+    children: [
+      { key: '/admin/plans', icon: <ShoppingOutlined />, label: '套餐管理' },
+      { key: '/admin/orders', icon: <DollarOutlined />, label: '订单管理' },
+      { key: '/admin/coupons', icon: <GiftOutlined />, label: '优惠码' },
+    ],
+  },
+  {
+    key: 'distributor-management',
+    icon: <ShopOutlined />,
+    label: '分销商',
+    children: [
+      { key: '/admin/pending-distributors', icon: <AuditOutlined />, label: '待审核分销商' },
+      { key: '/admin/distributors', icon: <ShopOutlined />, label: '分销商管理' },
+      { key: '/admin/distributor-analytics', icon: <BarChartOutlined />, label: '分销商分析' },
+    ],
+  },
+  {
+    key: 'system-settings',
+    icon: <SettingOutlined />,
+    label: '系统设置',
+    children: [
+      { key: '/admin/logs', icon: <FileTextOutlined />, label: '操作日志' },
+      { key: '/admin/admins', icon: <UserOutlined />, label: '管理员管理' },
+      { key: '/admin/settings', icon: <SettingOutlined />, label: '系统设置' },
+      { key: '/admin/settings/linuxdo', icon: <AppstoreOutlined />, label: 'LinuxDo 配置' },
+    ],
+  },
 ]
 
 export default function Layout() {
@@ -73,6 +106,21 @@ export default function Layout() {
   const navigate = useNavigate()
   const location = useLocation()
   const { user, logout, teams, setTeams } = useStore()
+
+  // 根据当前路由计算应该展开的菜单组
+  const openKeys = useMemo(() => {
+    const path = location.pathname
+    for (const item of menuItems) {
+      if ('children' in item && item.children) {
+        for (const child of item.children) {
+          if (path === child.key || path.startsWith(child.key + '/')) {
+            return [item.key]
+          }
+        }
+      }
+    }
+    return []
+  }, [location.pathname])
 
   // 获取 Teams 并检查预警
   useEffect(() => {
@@ -251,11 +299,12 @@ export default function Layout() {
             </span>
           )}
         </div>
-        <div style={{ padding: '16px 0', overflow: 'hidden' }}>
+        <div style={{ padding: '16px 0', overflow: 'hidden', overflowY: 'auto', height: 'calc(100vh - 64px)' }}>
           <Menu
             mode="inline"
             inlineCollapsed={collapsed}
             selectedKeys={[location.pathname]}
+            defaultOpenKeys={openKeys}
             items={menuItems}
             onClick={({ key }) => navigate(key)}
             style={{ border: 'none', background: 'transparent' }}

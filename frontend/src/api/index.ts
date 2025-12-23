@@ -321,4 +321,23 @@ export const couponApi = {
   getUsage: (id: number) => api.get(`/coupons/${id}/usage`),
 }
 
+// LinuxDo 积分兑换 API (公开)
+const linuxdoApiClient = axios.create({
+  baseURL: '/api/v1/linuxdo',
+  timeout: 30000,
+})
+
+linuxdoApiClient.interceptors.response.use(
+  (response) => response.data,
+  (error) => Promise.reject(error)
+)
+
+export const linuxdoApi = {
+  getConfig: () => linuxdoApiClient.get('/config'),
+  getPlans: () => linuxdoApiClient.get('/plans'),
+  createOrder: (data: { plan_id: number; email: string }) =>
+    linuxdoApiClient.post('/buy', data),
+  getOrderStatus: (orderNo: string) => linuxdoApiClient.get(`/order/${orderNo}`),
+}
+
 export default api

@@ -45,6 +45,9 @@ import DistributorMembers from './pages/distributor/DistributorMembers'
 import AdminPendingDistributors from './pages/admin/AdminPendingDistributors'
 import AdminDistributors from './pages/admin/AdminDistributors'
 import AdminDistributorAnalytics from './pages/admin/AdminDistributorAnalytics'
+// LinuxDo 页面
+import LinuxDoRedeem from './pages/linuxdo/LinuxDoRedeem'
+import LinuxDoSettings from './pages/settings/LinuxDoSettings'
 
 import { useStore } from './store'
 import { authApi, setupApi } from './api'
@@ -173,6 +176,9 @@ function App() {
         <Route path="/legal" element={<Legal />} />
         <Route path="/faq" element={<FAQ />} />
         <Route path="/rebind" element={<Navigate to="/invite" replace />} />
+        {/* LinuxDo 兑换（公开） */}
+        <Route path="/linuxdo/redeem" element={<LinuxDoRedeem />} />
+        <Route path="/linuxdo/result" element={<LinuxDoRedeem />} />
 
         {/* 分销商注册页面（公开）- 旧路径重定向 */}
         <Route path="/register" element={<Navigate to="/distributor/register" replace />} />
@@ -226,6 +232,7 @@ function App() {
           <Route path="settings/price" element={<PriceSettings />} />
           <Route path="settings/whitelist" element={<WhitelistSettings />} />
           <Route path="settings/payment" element={<PaymentSettings />} />
+          <Route path="settings/linuxdo" element={<LinuxDoSettings />} />
           <Route path="plans" element={<Plans />} />
           <Route path="orders" element={<Orders />} />
           <Route path="coupons" element={<Coupons />} />
