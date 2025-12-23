@@ -183,21 +183,26 @@ async def create_order(
     if plan.id not in plan_ids:
         raise HTTPException(status_code=400, detail="该套餐不支持 LinuxDo 积分兑换")
 
-    # 构建回调地址
+    # 构建回调地址（notify_url 用主站域名，return_url 用用户访问的域名）
     site_url_cfg = db.query(SystemConfig).filter(SystemConfig.key == "site_url").first()
     site_url = (site_url_cfg.value or "").strip() if site_url_cfg else ""
+
+    # 回调地址：必须用主站域名（服务器到服务器通信）
     if site_url.startswith(("http://", "https://")):
-        base_url = site_url.rstrip("/")
+        notify_base_url = site_url.rstrip("/")
     else:
-        base_url = str(request.base_url).rstrip("/")
+        notify_base_url = str(request.base_url).rstrip("/")
+
+    # 跳转地址：用用户访问的域名
+    return_base_url = str(request.base_url).rstrip("/")
 
     # 订单过期时间（15分钟）
     expire_at = datetime.utcnow() + timedelta(minutes=15)
-    notify_url = f"{base_url}/api/v1/linuxdo/notify"
+    notify_url = f"{notify_base_url}/api/v1/linuxdo/notify"
 
     for _ in range(5):
         order_no = _generate_order_no()
-        return_url = f"{base_url}/linuxdo/result?order_no={order_no}"
+        return_url = f"{return_base_url}/linuxdo/result?order_no={order_no}"
 
         pay_url = create_payment_url(
             config=config,
