@@ -80,7 +80,7 @@ export default function Coupons() {
   const fetchPlans = async () => {
     try {
       const res: any = await planApi.list()
-      setPlans(res || [])
+      setPlans(res.plans || res || [])
     } catch { /* ignore */ }
   }
 

@@ -34,7 +34,7 @@ export default function Plans() {
     setLoading(true)
     try {
       const res: any = await planApi.list()
-      setPlans(res)
+      setPlans(res.plans || res || [])
     } finally {
       setLoading(false)
     }
