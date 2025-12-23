@@ -43,9 +43,33 @@ const validateGatewayUrl = (url: string): boolean => {
   try {
     const parsedUrl = new URL(url)
     if (parsedUrl.protocol !== 'https:') return false
-    return ALLOWED_GATEWAY_DOMAINS.some(domain => parsedUrl.hostname.endsWith(domain))
+    // 修复：添加点边界防止 evil-linuxdo.org 绕过
+    return ALLOWED_GATEWAY_DOMAINS.some(domain =>
+      parsedUrl.hostname === domain || parsedUrl.hostname.endsWith('.' + domain)
+    )
   } catch {
     return false
+  }
+}
+
+// 错误解析工具函数（处理多种 detail 格式）
+const parseErrorDetail = (error: any): string => {
+  const detail = error.response?.data?.detail
+  if (!detail) return '操作失败'
+
+  // 字符串直接返回
+  if (typeof detail === 'string') return detail
+
+  // { message: string } 格式
+  if (typeof detail === 'object' && detail.message) {
+    return typeof detail.message === 'string' ? detail.message : '操作失败'
+  }
+
+  // 其他对象/数组尝试 JSON 序列化
+  try {
+    return JSON.stringify(detail)
+  } catch {
+    return '操作失败'
   }
 }
 
@@ -57,6 +81,7 @@ export default function LinuxDoRedeem() {
   const [loading, setLoading] = useState(true)
   const [plans, setPlans] = useState<LinuxDoPlan[]>([])
   const [enabled, setEnabled] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   // Tab 状态
   const [activeTab, setActiveTab] = useState('buy')
@@ -69,6 +94,7 @@ export default function LinuxDoRedeem() {
   const [buySuccess, setBuySuccess] = useState<{ redeemCode: string; validityDays: number } | null>(null)
   const [pollingTimeout, setPollingTimeout] = useState(false)
   const pollTimeoutRef = useRef<number | null>(null)
+  const submitTimeoutRef = useRef<number | null>(null)
   const unmountedRef = useRef(false)
   const formRef = useRef<HTMLFormElement | null>(null)
 
@@ -95,16 +121,30 @@ export default function LinuxDoRedeem() {
       if (pollTimeoutRef.current !== null) {
         window.clearTimeout(pollTimeoutRef.current)
       }
+      if (submitTimeoutRef.current !== null) {
+        window.clearTimeout(submitTimeoutRef.current)
+      }
     }
   }, [])
 
   useEffect(() => {
     Promise.all([
-      linuxdoApi.getConfig().catch(() => ({ enabled: false })),
-      linuxdoApi.getPlans().catch(() => []),
+      linuxdoApi.getConfig().catch((error) => {
+        console.error('Failed to load config:', error)
+        throw new Error('config')
+      }),
+      linuxdoApi.getPlans().catch((error) => {
+        console.error('Failed to load plans:', error)
+        throw new Error('plans')
+      }),
     ]).then(([config, plansData]) => {
       setEnabled(config.enabled)
       setPlans(plansData)
+      setLoadError(null)
+    }).catch((error) => {
+      // 区分服务不可用 vs 禁用/无套餐
+      setLoadError('服务暂时不可用，请稍后再试')
+      console.error('Initial load failed:', error)
     }).finally(() => setLoading(false))
   }, [])
 
@@ -116,6 +156,9 @@ export default function LinuxDoRedeem() {
     const checkOrderStatus = async () => {
       try {
         const response = await linuxdoApi.getOrderStatus(orderNo)
+
+        // 修复：检查组件是否已卸载，防止 setState on unmounted component
+        if (unmountedRef.current) return
 
         switch (response.status) {
           case 'paid':
@@ -130,8 +173,8 @@ export default function LinuxDoRedeem() {
           case 'pending':
             setPayingOrder({
               orderNo: orderNo,
-              gatewayUrl: '',
-              payParams: {},
+              gatewayUrl: response.gateway_url || '',
+              payParams: response.pay_params || {},
               credits: response.credits || '0',
             })
             startPolling(orderNo)
@@ -154,6 +197,7 @@ export default function LinuxDoRedeem() {
             console.error('Unknown order status:', response)
         }
       } catch (error) {
+        if (unmountedRef.current) return
         console.error('Failed to check order status:', error)
         message.error('查询订单状态失败')
       }
@@ -197,6 +241,9 @@ export default function LinuxDoRedeem() {
         email: buyEmail.trim().toLowerCase(),
       })
 
+      // 修复：检查组件是否已卸载
+      if (unmountedRef.current) return
+
       // 验证支付网关 URL
       if (!validateGatewayUrl(response.gateway_url)) {
         message.error('支付链接异常，请联系管理员')
@@ -211,16 +258,22 @@ export default function LinuxDoRedeem() {
         credits: response.credits,
       })
 
-      setTimeout(() => {
-        if (formRef.current) formRef.current.submit()
+      // 修复：使用 ref 存储 timeout ID 以便清理
+      submitTimeoutRef.current = window.setTimeout(() => {
+        if (!unmountedRef.current && formRef.current) {
+          formRef.current.submit()
+        }
       }, 100)
 
       startPolling(response.order_no)
     } catch (error: any) {
+      if (unmountedRef.current) return
       console.error('Create order failed:', error)
-      message.error(error.response?.data?.detail || '创建订单失败')
+      message.error(parseErrorDetail(error) || '创建订单失败')
     } finally {
-      setSubmitting(false)
+      if (!unmountedRef.current) {
+        setSubmitting(false)
+      }
     }
   }
 
@@ -232,7 +285,9 @@ export default function LinuxDoRedeem() {
 
     setPollingTimeout(false)
     let attempts = 0
+    let errorCount = 0
     const maxAttempts = 60
+    const maxErrors = 5
 
     const poll = async () => {
       if (unmountedRef.current) return
@@ -247,6 +302,8 @@ export default function LinuxDoRedeem() {
 
       try {
         const response = await linuxdoApi.getOrderStatus(orderNo)
+        errorCount = 0 // 重置错误计数
+
         if (response.status === 'paid' && response.redeem_code) {
           setPayingOrder(null)
           setBuySuccess({
@@ -260,7 +317,14 @@ export default function LinuxDoRedeem() {
           return
         }
       } catch (error) {
-        console.error('Polling error:', error)
+        errorCount++
+        console.error('Polling error:', error, `(${errorCount}/${maxErrors})`)
+
+        // 修复：累积错误后提示用户
+        if (errorCount >= maxErrors) {
+          message.warning('网络连接不稳定，正在继续尝试...')
+          errorCount = 0 // 重置以避免重复提示
+        }
       }
 
       pollTimeoutRef.current = window.setTimeout(poll, 3000)
@@ -290,8 +354,7 @@ export default function LinuxDoRedeem() {
       setRedeemResult(res)
     } catch (e: any) {
       console.error('Redeem failed:', e)
-      const detail = e.response?.data?.detail
-      message.error(typeof detail === 'object' ? detail.message : detail || '兑换失败')
+      message.error(parseErrorDetail(e) || '兑换失败')
     } finally {
       setRedeemSubmitting(false)
     }
@@ -331,8 +394,7 @@ export default function LinuxDoRedeem() {
       setRebindResult(res)
     } catch (e: any) {
       console.error('Rebind failed:', e)
-      const detail = e.response?.data?.detail
-      message.error(typeof detail === 'object' ? detail.message : detail || '换车失败')
+      message.error(parseErrorDetail(e) || '换车失败')
     } finally {
       setRebindSubmitting(false)
     }
@@ -346,10 +408,19 @@ export default function LinuxDoRedeem() {
     )
   }
 
+  // 修复：区分服务不可用 vs 禁用/无套餐
+  if (loadError) {
+    return (
+      <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)' }}>
+        <Result status="error" title="服务暂时不可用" subTitle={loadError} />
+      </div>
+    )
+  }
+
   if (!enabled || plans.length === 0) {
     return (
       <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%)' }}>
-        <Result status="info" title="LinuxDo 兑换暂未开放" subTitle="请稍后再试" />
+        <Result status="info" title="LinuxDo 兑换暂未开放" subTitle={!enabled ? "功能已禁用" : "暂无可用套餐"} />
       </div>
     )
   }

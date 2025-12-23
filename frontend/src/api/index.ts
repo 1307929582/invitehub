@@ -418,6 +418,8 @@ export interface LinuxDoOrderStatusResponse {
   validity_days?: number
   created_at?: string
   paid_at?: string
+  gateway_url?: string
+  pay_params?: Record<string, string>
 }
 
 export const linuxdoApi = {
