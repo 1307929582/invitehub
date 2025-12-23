@@ -94,25 +94,29 @@ def _generate_order_no() -> str:
 
 
 def _generate_redeem_code(db: Session, validity_days: int, order_no: str) -> str:
-    """生成兑换码"""
+    """生成兑换码（带唯一性约束重试，使用 savepoint 保护外层事务）"""
     for _ in range(10):
         code = ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(12))
 
-        existing = db.query(RedeemCode).filter(RedeemCode.code == code).first()
-        if existing:
+        # 使用 savepoint 隔离这次尝试，失败不影响外层事务
+        savepoint = db.begin_nested()
+        try:
+            redeem_code = RedeemCode(
+                code=code,
+                code_type=RedeemCodeType.DIRECT,
+                max_uses=1,
+                used_count=0,
+                validity_days=validity_days,
+                is_active=True,
+                note=f"LinuxDo订单: {order_no}",
+            )
+            db.add(redeem_code)
+            db.flush()
+            savepoint.commit()
+            return code
+        except IntegrityError:
+            savepoint.rollback()
             continue
-
-        redeem_code = RedeemCode(
-            code=code,
-            code_type=RedeemCodeType.DIRECT,
-            max_uses=1,
-            used_count=0,
-            validity_days=validity_days,
-            is_active=True,
-            note=f"LinuxDo订单: {order_no}",
-        )
-        db.add(redeem_code)
-        return code
 
     raise HTTPException(status_code=500, detail="生成兑换码失败")
 
@@ -362,17 +366,11 @@ async def payment_notify(request: Request, db: Session = Depends(get_db)):
         return "success"
 
     # 查询订单（加锁）
-    order_query = db.query(Order).filter(
+    order = db.query(Order).filter(
         Order.order_no == order_no,
         Order.pay_type == "linuxdo"
-    )
+    ).with_for_update().first()
 
-    try:
-        order_query = order_query.with_for_update()
-    except Exception:
-        pass
-
-    order = order_query.first()
     if not order:
         logger.warning(f"LinuxDo notify order not found: {order_no}")
         return "fail"
@@ -402,8 +400,8 @@ async def payment_notify(request: Request, db: Session = Depends(get_db)):
         logger.warning("LinuxDo notify trade_no mismatch: out_trade_no=%s", order_no)
         return "fail"
 
-    # 获取套餐
-    plan = db.query(Plan).filter(Plan.id == order.plan_id).first()
+    # 获取套餐（加锁，防止并发更新 sold_count）
+    plan = db.query(Plan).filter(Plan.id == order.plan_id).with_for_update().first()
     if not plan:
         logger.error(f"Plan not found for LinuxDo order: {order_no}")
         return "fail"
