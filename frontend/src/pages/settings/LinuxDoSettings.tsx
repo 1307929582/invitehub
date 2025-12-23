@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Card, Form, Input, Button, message, Spin, Switch, Descriptions, Alert, Space, Divider, Select, Tag } from 'antd'
+import { Card, Form, Input, Button, message, Spin, Switch, Descriptions, Alert, Space, Divider } from 'antd'
 import { ArrowLeftOutlined, SafetyCertificateOutlined, LinkOutlined, AppstoreOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { configApi, planApi } from '../../api'
@@ -9,7 +9,6 @@ interface LinuxDoConfig {
   gateway_url: string
   pid: string
   key: string
-  plan_ids: number[]
 }
 
 interface Plan {
@@ -18,42 +17,38 @@ interface Plan {
   price: number
   validity_days: number
   is_active: boolean
+  stock?: number | null
+  sold_count: number
+  remaining_stock?: number | null
 }
 
 export default function LinuxDoSettings() {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [plans, setPlans] = useState<Plan[]>([])
+  const [planCount, setPlanCount] = useState(0)
   const [config, setConfig] = useState<LinuxDoConfig>({
     enabled: false,
     gateway_url: 'https://credit.linux.do/epay',
     pid: '',
     key: '',
-    plan_ids: [],
   })
   const navigate = useNavigate()
 
   useEffect(() => {
     Promise.all([
       configApi.list(),
-      planApi.list(),
+      planApi.list({ plan_type: 'linuxdo' }),
     ]).then(([configRes, planRes]: any[]) => {
       const configs = configRes.configs || []
       const getValue = (key: string) => configs.find((c: any) => c.key === key)?.value || ''
-
-      const planIdsStr = getValue('linuxdo_plan_ids')
-      const planIds = planIdsStr
-        ? planIdsStr.split(',').map((s: string) => parseInt(s.trim())).filter((n: number) => !isNaN(n))
-        : []
 
       setConfig({
         enabled: getValue('linuxdo_enabled') === 'true',
         gateway_url: getValue('linuxdo_gateway_url') || 'https://credit.linux.do/epay',
         pid: getValue('linuxdo_pid'),
         key: getValue('linuxdo_key'),
-        plan_ids: planIds,
       })
-      setPlans((planRes.plans || planRes || []).filter((p: Plan) => p.is_active))
+      setPlanCount((planRes.plans || []).filter((p: Plan) => p.is_active).length)
     }).finally(() => setLoading(false))
   }, [])
 
@@ -80,8 +75,8 @@ export default function LinuxDoSettings() {
       }
     }
 
-    if (config.enabled && config.plan_ids.length === 0) {
-      message.error('请至少选择一个可用套餐')
+    if (config.enabled && planCount === 0) {
+      message.error('请先创建 LinuxDo 套餐')
       return
     }
 
@@ -92,7 +87,6 @@ export default function LinuxDoSettings() {
         { key: 'linuxdo_gateway_url', value: gatewayUrl },
         { key: 'linuxdo_pid', value: pid },
         { key: 'linuxdo_key', value: key },
-        { key: 'linuxdo_plan_ids', value: config.plan_ids.join(',') },
       ])
       message.success('LinuxDo 配置已保存')
     } catch {
@@ -184,41 +178,24 @@ export default function LinuxDoSettings() {
             />
           </Form.Item>
 
-          <Divider>可用套餐</Divider>
+          <Divider>套餐管理</Divider>
 
           <Form.Item
-            label={<Space><AppstoreOutlined />允许 L 币兑换的套餐</Space>}
-            extra="选择允许用户使用 L 币兑换的套餐（价格将自动转换为积分）"
-            required={config.enabled}
+            label={<Space><AppstoreOutlined />LinuxDo 专属套餐</Space>}
+            extra="LinuxDo 套餐独立管理，不与公开套餐共用。点击下方按钮管理套餐。"
           >
-            <Select
-              mode="multiple"
-              value={config.plan_ids}
-              onChange={v => setConfig({ ...config, plan_ids: v })}
-              disabled={!config.enabled}
-              placeholder="请选择套餐"
-              style={{ width: '100%' }}
-              options={plans.map(p => ({
-                value: p.id,
-                label: `${p.name} - ${(p.price / 100).toFixed(2)} L 币 (${p.validity_days}天)`,
-              }))}
-            />
+            <Space>
+              <Button
+                type="primary"
+                onClick={() => navigate('/admin/settings/linuxdo/plans')}
+              >
+                管理 LinuxDo 套餐
+              </Button>
+              <span style={{ color: planCount > 0 ? '#52c41a' : '#ff4d4f' }}>
+                当前已有 {planCount} 个上架套餐
+              </span>
+            </Space>
           </Form.Item>
-
-          {config.plan_ids.length > 0 && (
-            <Form.Item label="已选套餐">
-              <Space wrap>
-                {config.plan_ids.map(id => {
-                  const plan = plans.find(p => p.id === id)
-                  return plan ? (
-                    <Tag key={id} color="blue">
-                      {plan.name} - {(plan.price / 100).toFixed(2)} L 币
-                    </Tag>
-                  ) : null
-                })}
-              </Space>
-            </Form.Item>
-          )}
 
           <Form.Item>
             <Button type="primary" loading={saving} onClick={handleSave}>

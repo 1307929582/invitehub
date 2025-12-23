@@ -357,12 +357,14 @@ class PlanType(str, enum.Enum):
     """套餐类型"""
     PUBLIC = "public"                    # 公开套餐（终端用户购买）
     DISTRIBUTOR_CODES = "distributor_codes"  # 分销商码包
+    LINUXDO = "linuxdo"                  # LinuxDo 专属套餐（L币支付）
 
 
 class OrderType(str, enum.Enum):
     """订单类型"""
     PUBLIC_PLAN = "public_plan"          # 公开套餐订单
     DISTRIBUTOR_CODES = "distributor_codes"  # 分销商码包订单
+    LINUXDO = "linuxdo"                  # LinuxDo L币订单
 
 
 class Plan(Base):
@@ -377,6 +379,8 @@ class Plan(Base):
     validity_days = Column(Integer, nullable=False)         # 有效天数
     code_count = Column(Integer, default=1)                 # 码包：包含的兑换码数量
     code_max_uses = Column(Integer, default=1)              # 每个兑换码的可用次数
+    stock = Column(Integer, nullable=True)                  # 库存数量（NULL=无限）
+    sold_count = Column(Integer, default=0)                 # 已售数量
     description = Column(String(255), nullable=True)        # 描述
     features = Column(Text, nullable=True)                  # 特性列表（JSON格式）
     is_active = Column(Boolean, default=True, index=True)   # 是否上架
@@ -386,6 +390,13 @@ class Plan(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     orders = relationship("Order", back_populates="plan")
+
+    @property
+    def remaining_stock(self) -> Optional[int]:
+        """剩余库存"""
+        if self.stock is None:
+            return None
+        return max(0, self.stock - (self.sold_count or 0))
 
 
 class Order(Base):

@@ -48,6 +48,7 @@ import AdminDistributorAnalytics from './pages/admin/AdminDistributorAnalytics'
 // LinuxDo 页面
 import LinuxDoRedeem from './pages/linuxdo/LinuxDoRedeem'
 import LinuxDoSettings from './pages/settings/LinuxDoSettings'
+import LinuxDoPlans from './pages/settings/LinuxDoPlans'
 
 import { useStore } from './store'
 import { authApi, setupApi } from './api'
@@ -244,6 +245,7 @@ function App() {
           <Route path="settings/whitelist" element={<WhitelistSettings />} />
           <Route path="settings/payment" element={<PaymentSettings />} />
           <Route path="settings/linuxdo" element={<LinuxDoSettings />} />
+          <Route path="settings/linuxdo/plans" element={<LinuxDoPlans />} />
           <Route path="plans" element={<Plans />} />
           <Route path="orders" element={<Orders />} />
           <Route path="coupons" element={<Coupons />} />

@@ -21,6 +21,9 @@ interface Plan {
   description?: string
   features?: string
   is_recommended: boolean
+  stock?: number | null  // 库存数量（null=无限）
+  sold_count: number     // 已售数量
+  remaining_stock?: number | null  // 剩余库存
 }
 
 interface RedeemResult {
@@ -66,6 +69,9 @@ const features = [
 const PlanCard: React.FC<{ plan: Plan; onBuy: (plan: Plan) => void }> = ({ plan, onBuy }) => {
   const isRecommended = plan.is_recommended
   const featureList = plan.features ? plan.features.split(',').map(f => f.trim()) : ['全特性可用', '畅享体验']
+  const hasStock = plan.stock !== null && plan.stock !== undefined
+  const remaining = plan.remaining_stock ?? (hasStock ? 0 : null)
+  const isSoldOut = hasStock && (remaining === null || remaining <= 0)
 
   return (
     <div style={{
@@ -81,6 +87,7 @@ const PlanCard: React.FC<{ plan: Plan; onBuy: (plan: Plan) => void }> = ({ plan,
       position: 'relative',
       overflow: 'hidden',
       transition: 'all 0.3s ease',
+      opacity: isSoldOut ? 0.7 : 1,
     }}>
       {isRecommended && (
         <div style={{
@@ -96,6 +103,22 @@ const PlanCard: React.FC<{ plan: Plan; onBuy: (plan: Plan) => void }> = ({ plan,
           boxShadow: `0 2px 8px rgba(0, 102, 255, 0.3)`,
         }}>
           推荐
+        </div>
+      )}
+
+      {isSoldOut && (
+        <div style={{
+          position: 'absolute',
+          top: 16,
+          left: 16,
+          background: '#ff4d4f',
+          color: 'white',
+          padding: '4px 12px',
+          fontSize: 12,
+          fontWeight: 600,
+          borderRadius: 6,
+        }}>
+          已售罄
         </div>
       )}
 
@@ -129,6 +152,17 @@ const PlanCard: React.FC<{ plan: Plan; onBuy: (plan: Plan) => void }> = ({ plan,
           <Text type="secondary" style={{ fontSize: 14 }}>/ {plan.validity_days} 天</Text>
         </div>
 
+        {/* 库存显示 */}
+        {hasStock && (
+          <div style={{ marginBottom: 16, padding: '8px 12px', background: isSoldOut ? '#fff2f0' : '#f0f9ff', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <TeamOutlined style={{ color: isSoldOut ? '#ff4d4f' : LINUXDO_COLOR }} />
+            <Text style={{ color: isSoldOut ? '#ff4d4f' : '#1f2937', fontSize: 13 }}>
+              {isSoldOut ? '已售罄' : `剩余 ${remaining} 份`}
+            </Text>
+            <Text type="secondary" style={{ fontSize: 12 }}>/ 共 {plan.stock} 份</Text>
+          </div>
+        )}
+
         <div style={{ flexGrow: 1, marginBottom: 24 }}>
           <Space direction="vertical" size={12} style={{ width: '100%' }}>
             {featureList.map((feature, index) => (
@@ -146,19 +180,20 @@ const PlanCard: React.FC<{ plan: Plan; onBuy: (plan: Plan) => void }> = ({ plan,
           block
           icon={<ShoppingCartOutlined />}
           onClick={() => onBuy(plan)}
+          disabled={isSoldOut}
           style={{
             height: 48,
             fontSize: 16,
             fontWeight: 600,
             borderRadius: 12,
-            background: isRecommended ? LINUXDO_GRADIENT : '#1f2937',
+            background: isSoldOut ? '#d9d9d9' : (isRecommended ? LINUXDO_GRADIENT : '#1f2937'),
             border: 'none',
-            boxShadow: isRecommended
+            boxShadow: isSoldOut ? 'none' : (isRecommended
               ? `0 4px 14px rgba(0, 102, 255, 0.3)`
-              : '0 4px 14px rgba(0, 0, 0, 0.1)',
+              : '0 4px 14px rgba(0, 0, 0, 0.1)'),
           }}
         >
-          立即购买
+          {isSoldOut ? '已售罄' : '立即购买'}
         </Button>
       </div>
     </div>

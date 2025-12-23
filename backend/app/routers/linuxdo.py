@@ -45,6 +45,9 @@ class LinuxDoPlanResponse(BaseModel):
     description: Optional[str]
     features: Optional[str]
     is_recommended: bool
+    stock: Optional[int] = None  # 库存数量（NULL=无限）
+    sold_count: int = 0  # 已售数量
+    remaining_stock: Optional[int] = None  # 剩余库存
 
 
 class LinuxDoCreateOrderRequest(BaseModel):
@@ -130,17 +133,14 @@ async def get_config(db: Session = Depends(get_db)):
 
 @router.get("/plans", response_model=List[LinuxDoPlanResponse])
 async def get_plans(db: Session = Depends(get_db)):
-    """获取 LinuxDo 可用套餐列表"""
+    """获取 LinuxDo 可用套餐列表（自动查询 plan_type=linuxdo 的套餐）"""
     config = get_linuxdo_config(db)
     if not config.get("enabled"):
         raise HTTPException(status_code=400, detail="LinuxDo 兑换未启用")
 
-    plan_ids = config.get("plan_ids", [])
-    if not plan_ids:
-        return []
-
+    # 查询所有 LinuxDo 类型的套餐
     plans = db.query(Plan).filter(
-        Plan.id.in_(plan_ids),
+        Plan.plan_type == "linuxdo",
         Plan.is_active == True,
     ).order_by(Plan.sort_order.asc(), Plan.id.asc()).all()
 
@@ -153,6 +153,9 @@ async def get_plans(db: Session = Depends(get_db)):
             description=p.description,
             features=p.features,
             is_recommended=p.is_recommended,
+            stock=p.stock,
+            sold_count=p.sold_count or 0,
+            remaining_stock=p.remaining_stock,
         )
         for p in plans
     ]
@@ -170,19 +173,21 @@ async def create_order(
     if not config.get("enabled"):
         raise HTTPException(status_code=400, detail="LinuxDo 兑换未启用")
 
-    plan_ids = config.get("plan_ids", [])
-
-    # 获取套餐
+    # 获取套餐（必须是 LinuxDo 类型）
     plan = db.query(Plan).filter(
         Plan.id == data.plan_id,
+        Plan.plan_type == "linuxdo",
         Plan.is_active == True,
     ).first()
 
     if not plan:
         raise HTTPException(status_code=404, detail="套餐不存在或已下架")
 
-    if plan.id not in plan_ids:
-        raise HTTPException(status_code=400, detail="该套餐不支持 LinuxDo 积分兑换")
+    # 检查库存
+    if plan.stock is not None:
+        remaining = plan.stock - (plan.sold_count or 0)
+        if remaining <= 0:
+            raise HTTPException(status_code=400, detail="该套餐已售罄")
 
     # 构建回调地址（notify_url 用主站域名，return_url 用用户访问的域名）
     site_url_cfg = db.query(SystemConfig).filter(SystemConfig.key == "site_url").first()
@@ -403,6 +408,13 @@ async def payment_notify(request: Request, db: Session = Depends(get_db)):
         logger.error(f"Plan not found for LinuxDo order: {order_no}")
         return "fail"
 
+    # 检查库存（再次校验，防止并发超卖）
+    if plan.stock is not None:
+        remaining = plan.stock - (plan.sold_count or 0)
+        if remaining <= 0:
+            logger.warning(f"LinuxDo order stock exhausted: {order_no}")
+            return "fail"
+
     # 生成兑换码
     try:
         redeem_code = _generate_redeem_code(db, plan.validity_days, order_no)
@@ -417,9 +429,12 @@ async def payment_notify(request: Request, db: Session = Depends(get_db)):
     order.redeem_code = redeem_code
     order.paid_at = datetime.utcnow()
 
+    # 增加已售数量
+    plan.sold_count = (plan.sold_count or 0) + 1
+
     try:
         db.commit()
-        logger.info(f"LinuxDo order paid: {order_no}, redeem_code: {redeem_code}")
+        logger.info(f"LinuxDo order paid: {order_no}, redeem_code: {redeem_code}, plan_sold: {plan.sold_count}")
         return "success"
     except Exception as e:
         logger.error(f"Failed to update LinuxDo order {order_no}: {e}")

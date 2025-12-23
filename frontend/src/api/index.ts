@@ -267,12 +267,34 @@ export const publicApi = {
 
 // 套餐管理 API (管理后台)
 export const planApi = {
-  list: () => api.get('/plans'),
+  list: (params?: { plan_type?: string }) => api.get('/plans', { params }),
   get: (id: number) => api.get(`/plans/${id}`),
-  create: (data: { name: string; price: number; validity_days: number; description?: string; features?: string; is_active?: boolean; is_recommended?: boolean; sort_order?: number; original_price?: number }) =>
-    api.post('/plans', data),
-  update: (id: number, data: Partial<{ name: string; price: number; validity_days: number; description?: string; features?: string; is_active?: boolean; is_recommended?: boolean; sort_order?: number; original_price?: number }>) =>
-    api.put(`/plans/${id}`, data),
+  create: (data: {
+    name: string;
+    plan_type?: string;
+    price: number;
+    validity_days: number;
+    description?: string;
+    features?: string;
+    is_active?: boolean;
+    is_recommended?: boolean;
+    sort_order?: number;
+    original_price?: number;
+    stock?: number | null;
+  }) => api.post('/plans', data),
+  update: (id: number, data: Partial<{
+    name: string;
+    plan_type: string;
+    price: number;
+    validity_days: number;
+    description: string;
+    features: string;
+    is_active: boolean;
+    is_recommended: boolean;
+    sort_order: number;
+    original_price: number;
+    stock: number | null;
+  }>) => api.put(`/plans/${id}`, data),
   delete: (id: number) => api.delete(`/plans/${id}`),
   toggle: (id: number) => api.put(`/plans/${id}/toggle`),
 }
