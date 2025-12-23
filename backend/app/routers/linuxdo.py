@@ -16,7 +16,7 @@ from app.limiter import limiter
 from app.models import Plan, Order, OrderStatus, RedeemCode, RedeemCodeType, SystemConfig
 from app.services.linuxdo import (
     get_linuxdo_config,
-    create_payment_url,
+    create_payment_params,
     verify_sign,
 )
 from app.logger import get_logger
@@ -63,7 +63,8 @@ class LinuxDoCreateOrderRequest(BaseModel):
 class LinuxDoOrderResponse(BaseModel):
     order_no: str
     credits: str  # 积分数量
-    pay_url: str
+    gateway_url: str  # 支付网关地址
+    pay_params: dict  # 支付参数（用于 POST 表单提交）
     expire_at: datetime
 
 
@@ -204,7 +205,7 @@ async def create_order(
         order_no = _generate_order_no()
         return_url = f"{return_base_url}/linuxdo/result?order_no={order_no}"
 
-        pay_url = create_payment_url(
+        payment_data = create_payment_params(
             config=config,
             order_no=order_no,
             amount=plan.price,
@@ -212,8 +213,8 @@ async def create_order(
             notify_url=notify_url,
             return_url=return_url,
         )
-        if not pay_url:
-            raise HTTPException(status_code=500, detail="创建支付链接失败")
+        if not payment_data:
+            raise HTTPException(status_code=500, detail="创建支付参数失败")
 
         order = Order(
             order_no=order_no,
@@ -234,7 +235,8 @@ async def create_order(
             return LinuxDoOrderResponse(
                 order_no=order_no,
                 credits=_amount_to_credits(plan.price),
-                pay_url=pay_url,
+                gateway_url=payment_data["gateway_url"],
+                pay_params=payment_data["params"],
                 expire_at=expire_at,
             )
         except IntegrityError:

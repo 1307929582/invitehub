@@ -179,9 +179,10 @@ export default function LinuxDoRedeem() {
   const [submitting, setSubmitting] = useState(false)
 
   // 支付中状态
-  const [payingOrder, setPayingOrder] = useState<{ orderNo: string; payUrl: string; credits: string } | null>(null)
+  const [payingOrder, setPayingOrder] = useState<{ orderNo: string; gatewayUrl: string; payParams: Record<string, string>; credits: string } | null>(null)
   const pollTimeoutRef = useRef<number | null>(null)
   const unmountedRef = useRef(false)
+  const formRef = useRef<HTMLFormElement | null>(null)
 
   // 购买成功状态
   const [buySuccess, setBuySuccess] = useState<{ redeemCode: string; validityDays: number } | null>(null)
@@ -263,14 +264,17 @@ export default function LinuxDoRedeem() {
 
       setPayingOrder({
         orderNo: response.order_no,
-        payUrl: response.pay_url,
+        gatewayUrl: response.gateway_url,
+        payParams: response.pay_params,
         credits: response.credits,
       })
 
-      const opened = window.open(response.pay_url, '_blank', 'noopener,noreferrer')
-      if (!opened) {
-        message.info('支付页面可能被浏览器拦截，请点击"重新打开支付页面"')
-      }
+      // 使用隐藏表单 POST 提交到支付网关
+      setTimeout(() => {
+        if (formRef.current) {
+          formRef.current.submit()
+        }
+      }, 100)
 
       startPolling(response.order_no)
     } catch (error: any) {
@@ -457,10 +461,30 @@ export default function LinuxDoRedeem() {
     )
   }
 
+  // 重新提交支付表单
+  const handleResubmitPayment = () => {
+    if (formRef.current) {
+      formRef.current.submit()
+    }
+  }
+
   // 支付中页面
   if (payingOrder) {
     return (
       <div style={{ minHeight: '100vh', background: `linear-gradient(180deg, rgba(0, 102, 255, 0.04) 0%, #f8fafc 100%)`, padding: '60px 20px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+        {/* 隐藏表单用于 POST 提交到支付网关 */}
+        <form
+          ref={formRef}
+          method="POST"
+          action={payingOrder.gatewayUrl}
+          target="_blank"
+          style={{ display: 'none' }}
+        >
+          {Object.entries(payingOrder.payParams).map(([key, value]) => (
+            <input key={key} type="hidden" name={key} value={value} />
+          ))}
+        </form>
+
         <div style={{ maxWidth: 500, width: '100%', textAlign: 'center', background: '#fff', padding: '48px 40px', borderRadius: 24, boxShadow: '0 20px 60px rgba(0, 0, 0, 0.08)' }}>
           <Spin indicator={<LoadingOutlined style={{ fontSize: 56, color: LINUXDO_COLOR }} spin />} />
           <Title level={3} style={{ color: '#1f2937', marginTop: 24 }}>等待支付确认</Title>
@@ -481,7 +505,7 @@ export default function LinuxDoRedeem() {
           </div>
 
           <div style={{ marginTop: 24 }}>
-            <Button onClick={() => window.open(payingOrder.payUrl, '_blank')} style={{ borderRadius: 10 }}>
+            <Button onClick={handleResubmitPayment} style={{ borderRadius: 10 }}>
               重新打开支付页面
             </Button>
           </div>

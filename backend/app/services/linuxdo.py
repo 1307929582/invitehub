@@ -77,27 +77,27 @@ def verify_sign(params: dict, key: str) -> bool:
     return hmac.compare_digest(str(sign).lower(), str(expected_sign).lower())
 
 
-def create_payment_url(
+def create_payment_params(
     config: dict,
     order_no: str,
     amount: int,  # 分（积分 * 100）
     name: str,
     notify_url: str,
     return_url: str,
-) -> Optional[str]:
+) -> Optional[dict]:
     """
-    创建 LinuxDo 积分支付链接
+    创建 LinuxDo 积分支付参数（用于 POST 表单提交）
 
     Args:
         config: LinuxDo 配置
         order_no: 订单号
         amount: 金额（分），将转换为积分
         name: 商品名称
-        notify_url: 异步回调地址
-        return_url: 同步跳转地址
+        notify_url: 异步回调地址（仅参与签名）
+        return_url: 同步跳转地址（仅参与签名）
 
     Returns:
-        支付链接 URL，失败返回 None
+        支付参数字典，包含 gateway_url 和 params，失败返回 None
     """
     if not config.get("enabled"):
         return None
@@ -125,7 +125,10 @@ def create_payment_url(
     params["sign"] = generate_sign(params, key)
     params["sign_type"] = "MD5"
 
-    return f"{gateway_url}/pay/submit.php?{urlencode(params)}"
+    return {
+        "gateway_url": f"{gateway_url}/pay/submit.php",
+        "params": params,
+    }
 
 
 async def query_order(config: dict, trade_no: str) -> Optional[dict]:
