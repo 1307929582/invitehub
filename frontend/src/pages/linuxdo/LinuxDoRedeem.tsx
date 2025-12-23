@@ -1,6 +1,6 @@
 // LinuxDo 专属页面（购买 + 兑换 + 换车）
 import { useState, useEffect, useRef } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { Button, Typography, Spin, Result, Input, message, Row, Col, Space, Grid, Card, Tabs, Tag, Tooltip } from 'antd'
 import {
   CheckCircleOutlined, LoadingOutlined, ArrowRightOutlined, CopyOutlined, CheckCircleFilled,
@@ -203,6 +203,7 @@ const PlanCard: React.FC<{ plan: Plan; onBuy: (plan: Plan) => void }> = ({ plan,
 export default function LinuxDoRedeem() {
   const screens = useBreakpoint()
   const isMobile = !screens.md
+  const [searchParams] = useSearchParams()
 
   const [loading, setLoading] = useState(true)
   const [plans, setPlans] = useState<Plan[]>([])
@@ -258,6 +259,39 @@ export default function LinuxDoRedeem() {
       setPlans(plansData as Plan[])
     }).finally(() => setLoading(false))
   }, [])
+
+  // 处理从支付网关跳转回来的情况（URL 中带有 order_no）
+  useEffect(() => {
+    const orderNo = searchParams.get('order_no')
+    if (!orderNo) return
+
+    // 查询订单状态
+    const checkOrderStatus = async () => {
+      try {
+        const response: any = await linuxdoApi.getOrderStatus(orderNo)
+        if (response.status === 'paid' && response.redeem_code) {
+          // 支付成功，显示兑换码
+          setBuySuccess({
+            redeemCode: response.redeem_code,
+            validityDays: response.validity_days || 30,
+          })
+        } else if (response.status === 'pending') {
+          // 还在等待支付确认，开始轮询
+          setPayingOrder({
+            orderNo: orderNo,
+            gatewayUrl: '',  // 跳转回来时不需要再跳转
+            payParams: {},
+            credits: response.credits || '0',
+          })
+          startPolling(orderNo)
+        }
+      } catch {
+        // 订单查询失败，忽略
+      }
+    }
+
+    checkOrderStatus()
+  }, [searchParams])
 
   const getDaysColor = (days: number | null | undefined) => {
     if (days === null || days === undefined) return '#86868b'
