@@ -242,13 +242,42 @@ publicApiClient.interceptors.response.use(
   (error) => Promise.reject(error)
 )
 
+// Public API 类型定义
+export interface PublicStatusResponse {
+  found: boolean
+  email?: string
+  team_name?: string
+  team_active?: boolean
+  code?: string
+  expires_at?: string
+  remaining_days?: number
+  can_rebind?: boolean
+}
+
+export interface PublicRebindResponse {
+  success: boolean
+  message: string
+  new_team_name?: string
+}
+
+export interface PublicRedeemResponse {
+  success: boolean
+  message: string
+  team_name?: string
+  expires_at?: string
+  remaining_days?: number
+  is_first_use?: boolean
+  state?: 'INVITE_QUEUED' | 'WAITING_FOR_SEAT'
+  queue_position?: number
+}
+
 export const publicApi = {
   // 商业版 API
-  redeem: (data: { email: string; code: string }) =>
-    publicApiClient.post('/redeem', data),
-  getStatus: (params: { email?: string; code?: string }) =>
+  redeem: (data: { email: string; code: string }): Promise<PublicRedeemResponse> =>
+    publicApiClient.post('/direct-redeem', data),
+  getStatus: (params: { email?: string; code?: string }): Promise<PublicStatusResponse> =>
     publicApiClient.get('/status', { params }),
-  rebind: (data: { code: string; email?: string }) =>
+  rebind: (data: { code: string; email?: string }): Promise<PublicRebindResponse> =>
     publicApiClient.post('/rebind', data),
   getSeats: () => publicApiClient.get('/seats'),
   getSiteConfig: () => publicApiClient.get('/site-config'),
@@ -354,12 +383,50 @@ linuxdoApiClient.interceptors.response.use(
   (error) => Promise.reject(error)
 )
 
+// LinuxDo API 类型定义
+export interface LinuxDoConfig {
+  enabled: boolean
+}
+
+export interface LinuxDoPlan {
+  id: number
+  name: string
+  credits: string
+  validity_days: number
+  description?: string
+  features?: string
+  is_recommended: boolean
+  stock?: number | null
+  sold_count: number
+  remaining_stock?: number | null
+}
+
+export interface LinuxDoCreateOrderResponse {
+  order_no: string
+  gateway_url: string
+  pay_params: Record<string, string>
+  credits: string
+}
+
+export type LinuxDoOrderStatus = 'pending' | 'paid' | 'failed' | 'canceled' | 'expired'
+
+export interface LinuxDoOrderStatusResponse {
+  order_no: string
+  status: LinuxDoOrderStatus
+  credits: string
+  redeem_code?: string
+  validity_days?: number
+  created_at?: string
+  paid_at?: string
+}
+
 export const linuxdoApi = {
-  getConfig: () => linuxdoApiClient.get('/config'),
-  getPlans: () => linuxdoApiClient.get('/plans'),
-  createOrder: (data: { plan_id: number; email: string }) =>
+  getConfig: (): Promise<LinuxDoConfig> => linuxdoApiClient.get('/config'),
+  getPlans: (): Promise<LinuxDoPlan[]> => linuxdoApiClient.get('/plans'),
+  createOrder: (data: { plan_id: number; email: string }): Promise<LinuxDoCreateOrderResponse> =>
     linuxdoApiClient.post('/buy', data),
-  getOrderStatus: (orderNo: string) => linuxdoApiClient.get(`/order/${orderNo}`),
+  getOrderStatus: (orderNo: string): Promise<LinuxDoOrderStatusResponse> =>
+    linuxdoApiClient.get(`/order/${orderNo}`),
 }
 
 export default api

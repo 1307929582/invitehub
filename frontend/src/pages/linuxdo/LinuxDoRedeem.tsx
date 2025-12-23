@@ -8,8 +8,14 @@ import {
   SafetyOutlined, ThunderboltOutlined, ShoppingCartOutlined, CopyOutlined, CheckCircleFilled,
   LoadingOutlined, CrownOutlined
 } from '@ant-design/icons'
-import axios from 'axios'
-import { publicApi, linuxdoApi } from '../../api'
+import {
+  publicApi,
+  linuxdoApi,
+  type LinuxDoPlan,
+  type PublicRedeemResponse,
+  type PublicRebindResponse,
+  type PublicStatusResponse,
+} from '../../api'
 
 const { useBreakpoint } = Grid
 const { Title, Text, Paragraph } = Typography
@@ -25,45 +31,22 @@ const features = [
   { icon: <SwapOutlined style={{ color: LINUXDO_COLOR, fontSize: 20 }} />, title: '自助换车', desc: 'Team 失效时可自助转移' },
 ]
 
-interface Plan {
-  id: number
-  name: string
-  credits: string
-  validity_days: number
-  description?: string
-  features?: string
-  is_recommended: boolean
-  stock?: number | null
-  sold_count: number
-  remaining_stock?: number | null
+// 邮箱验证工具函数
+const validateEmail = (email: string): boolean => {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+  return emailRegex.test(email.trim())
 }
 
-interface RedeemResult {
-  success: boolean
-  message: string
-  team_name?: string
-  expires_at?: string
-  remaining_days?: number
-  is_first_use?: boolean
-  state?: 'INVITE_QUEUED' | 'WAITING_FOR_SEAT'
-  queue_position?: number
-}
-
-interface RebindResult {
-  success: boolean
-  message: string
-  new_team_name?: string
-}
-
-interface StatusResult {
-  found: boolean
-  email?: string
-  team_name?: string
-  team_active?: boolean
-  code?: string
-  expires_at?: string
-  remaining_days?: number
-  can_rebind?: boolean
+// 域名白名单验证（防止钓鱼跳转）
+const ALLOWED_GATEWAY_DOMAINS = ['easypay.co', 'linuxdo.org']
+const validateGatewayUrl = (url: string): boolean => {
+  try {
+    const parsedUrl = new URL(url)
+    if (parsedUrl.protocol !== 'https:') return false
+    return ALLOWED_GATEWAY_DOMAINS.some(domain => parsedUrl.hostname.endsWith(domain))
+  } catch {
+    return false
+  }
 }
 
 export default function LinuxDoRedeem() {
@@ -72,18 +55,19 @@ export default function LinuxDoRedeem() {
   const [searchParams] = useSearchParams()
 
   const [loading, setLoading] = useState(true)
-  const [plans, setPlans] = useState<Plan[]>([])
+  const [plans, setPlans] = useState<LinuxDoPlan[]>([])
   const [enabled, setEnabled] = useState(false)
 
   // Tab 状态
   const [activeTab, setActiveTab] = useState('buy')
 
   // 购买状态
-  const [selectedPlan, setSelectedPlan] = useState<Plan | null>(null)
+  const [selectedPlan, setSelectedPlan] = useState<LinuxDoPlan | null>(null)
   const [buyEmail, setBuyEmail] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [payingOrder, setPayingOrder] = useState<{ orderNo: string; gatewayUrl: string; payParams: Record<string, string>; credits: string } | null>(null)
   const [buySuccess, setBuySuccess] = useState<{ redeemCode: string; validityDays: number } | null>(null)
+  const [pollingTimeout, setPollingTimeout] = useState(false)
   const pollTimeoutRef = useRef<number | null>(null)
   const unmountedRef = useRef(false)
   const formRef = useRef<HTMLFormElement | null>(null)
@@ -93,17 +77,19 @@ export default function LinuxDoRedeem() {
   const [redeemCode, setRedeemCode] = useState('')
   const [redeemSubmitting, setRedeemSubmitting] = useState(false)
   const [redeemSuccess, setRedeemSuccess] = useState(false)
-  const [redeemResult, setRedeemResult] = useState<RedeemResult | null>(null)
+  const [redeemResult, setRedeemResult] = useState<PublicRedeemResponse | null>(null)
 
   // 换车状态
   const [rebindCode, setRebindCode] = useState('')
   const [rebindSubmitting, setRebindSubmitting] = useState(false)
   const [rebindSuccess, setRebindSuccess] = useState(false)
-  const [rebindResult, setRebindResult] = useState<RebindResult | null>(null)
+  const [rebindResult, setRebindResult] = useState<PublicRebindResponse | null>(null)
   const [querying, setQuerying] = useState(false)
-  const [statusResult, setStatusResult] = useState<StatusResult | null>(null)
+  const [statusResult, setStatusResult] = useState<PublicStatusResponse | null>(null)
 
+  // 组件挂载/卸载状态管理
   useEffect(() => {
+    unmountedRef.current = false
     return () => {
       unmountedRef.current = true
       if (pollTimeoutRef.current !== null) {
@@ -117,38 +103,64 @@ export default function LinuxDoRedeem() {
       linuxdoApi.getConfig().catch(() => ({ enabled: false })),
       linuxdoApi.getPlans().catch(() => []),
     ]).then(([config, plansData]) => {
-      setEnabled((config as { enabled: boolean }).enabled)
-      setPlans(plansData as Plan[])
+      setEnabled(config.enabled)
+      setPlans(plansData)
     }).finally(() => setLoading(false))
   }, [])
 
-  // 处理从支付网关跳转回来
+  // 处理从支付网关跳转回来（使用 orderNo 作为依赖）
+  const orderNo = searchParams.get('order_no')
   useEffect(() => {
-    const orderNo = searchParams.get('order_no')
     if (!orderNo) return
 
     const checkOrderStatus = async () => {
       try {
-        const response: any = await linuxdoApi.getOrderStatus(orderNo)
-        if (response.status === 'paid' && response.redeem_code) {
-          setBuySuccess({
-            redeemCode: response.redeem_code,
-            validityDays: response.validity_days || 30,
-          })
-        } else if (response.status === 'pending') {
-          setPayingOrder({
-            orderNo: orderNo,
-            gatewayUrl: '',
-            payParams: {},
-            credits: response.credits || '0',
-          })
-          startPolling(orderNo)
+        const response = await linuxdoApi.getOrderStatus(orderNo)
+
+        switch (response.status) {
+          case 'paid':
+            if (response.redeem_code) {
+              setBuySuccess({
+                redeemCode: response.redeem_code,
+                validityDays: response.validity_days || 30,
+              })
+            }
+            break
+
+          case 'pending':
+            setPayingOrder({
+              orderNo: orderNo,
+              gatewayUrl: '',
+              payParams: {},
+              credits: response.credits || '0',
+            })
+            startPolling(orderNo)
+            break
+
+          case 'failed':
+            message.error('支付失败，请重试')
+            console.error('Order failed:', response)
+            break
+
+          case 'canceled':
+            message.warning('订单已取消')
+            break
+
+          case 'expired':
+            message.warning('订单已过期')
+            break
+
+          default:
+            console.error('Unknown order status:', response)
         }
-      } catch { }
+      } catch (error) {
+        console.error('Failed to check order status:', error)
+        message.error('查询订单状态失败')
+      }
     }
 
     checkOrderStatus()
-  }, [searchParams])
+  }, [orderNo])
 
   const getDaysColor = (days: number | null | undefined) => {
     if (days === null || days === undefined) return '#86868b'
@@ -167,24 +179,30 @@ export default function LinuxDoRedeem() {
   }
 
   // ========== 购买流程 ==========
-  const handleBuyClick = (plan: Plan) => {
+  const handleBuyClick = (plan: LinuxDoPlan) => {
     setSelectedPlan(plan)
   }
 
   const handleCreateOrder = async () => {
     if (!selectedPlan) return
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-    if (!buyEmail.trim() || !emailRegex.test(buyEmail.trim())) {
+    if (!validateEmail(buyEmail)) {
       message.error('请输入正确的邮箱地址')
       return
     }
 
     setSubmitting(true)
     try {
-      const response: any = await linuxdoApi.createOrder({
+      const response = await linuxdoApi.createOrder({
         plan_id: selectedPlan.id,
         email: buyEmail.trim().toLowerCase(),
       })
+
+      // 验证支付网关 URL
+      if (!validateGatewayUrl(response.gateway_url)) {
+        message.error('支付链接异常，请联系管理员')
+        console.error('Invalid gateway URL:', response.gateway_url)
+        return
+      }
 
       setPayingOrder({
         orderNo: response.order_no,
@@ -199,6 +217,7 @@ export default function LinuxDoRedeem() {
 
       startPolling(response.order_no)
     } catch (error: any) {
+      console.error('Create order failed:', error)
       message.error(error.response?.data?.detail || '创建订单失败')
     } finally {
       setSubmitting(false)
@@ -211,16 +230,23 @@ export default function LinuxDoRedeem() {
       pollTimeoutRef.current = null
     }
 
+    setPollingTimeout(false)
     let attempts = 0
     const maxAttempts = 60
 
     const poll = async () => {
       if (unmountedRef.current) return
-      if (attempts >= maxAttempts) return
+
+      if (attempts >= maxAttempts) {
+        setPollingTimeout(true)
+        console.warn('Polling timeout after', maxAttempts, 'attempts')
+        return
+      }
+
       attempts++
 
       try {
-        const response: any = await linuxdoApi.getOrderStatus(orderNo)
+        const response = await linuxdoApi.getOrderStatus(orderNo)
         if (response.status === 'paid' && response.redeem_code) {
           setPayingOrder(null)
           setBuySuccess({
@@ -228,8 +254,14 @@ export default function LinuxDoRedeem() {
             validityDays: response.validity_days || 30,
           })
           return
+        } else if (response.status === 'failed' || response.status === 'canceled' || response.status === 'expired') {
+          setPayingOrder(null)
+          message.error(`订单${response.status === 'failed' ? '支付失败' : response.status === 'canceled' ? '已取消' : '已过期'}`)
+          return
         }
-      } catch { }
+      } catch (error) {
+        console.error('Polling error:', error)
+      }
 
       pollTimeoutRef.current = window.setTimeout(poll, 3000)
     }
@@ -239,17 +271,25 @@ export default function LinuxDoRedeem() {
 
   // ========== 兑换流程 ==========
   const handleRedeem = async () => {
-    if (!redeemEmail || !redeemEmail.includes('@')) { message.error('请输入有效的邮箱地址'); return }
-    if (!redeemCode || redeemCode.trim().length === 0) { message.error('请输入兑换码'); return }
+    if (!validateEmail(redeemEmail)) {
+      message.error('请输入正确的邮箱地址')
+      return
+    }
+    if (!redeemCode || redeemCode.trim().length === 0) {
+      message.error('请输入兑换码')
+      return
+    }
+
     setRedeemSubmitting(true)
     try {
-      const res = await axios.post('/api/v1/public/direct-redeem', {
+      const res = await publicApi.redeem({
         email: redeemEmail.trim().toLowerCase(),
         code: redeemCode.trim().toUpperCase()
       })
       setRedeemSuccess(true)
-      setRedeemResult(res.data)
+      setRedeemResult(res)
     } catch (e: any) {
+      console.error('Redeem failed:', e)
       const detail = e.response?.data?.detail
       message.error(typeof detail === 'object' ? detail.message : detail || '兑换失败')
     } finally {
@@ -260,13 +300,18 @@ export default function LinuxDoRedeem() {
   // ========== 换车流程 ==========
   const handleQueryStatus = async () => {
     const trimmedCode = rebindCode.trim().toUpperCase()
-    if (!trimmedCode) { message.error('请输入兑换码'); return }
+    if (!trimmedCode) {
+      message.error('请输入兑换码')
+      return
+    }
+
     setQuerying(true)
     setStatusResult(null)
     try {
-      const res: any = await publicApi.getStatus({ code: trimmedCode })
+      const res = await publicApi.getStatus({ code: trimmedCode })
       setStatusResult(res)
-    } catch {
+    } catch (error) {
+      console.error('Query status failed:', error)
       message.error('查询失败')
     } finally {
       setQuerying(false)
@@ -274,13 +319,18 @@ export default function LinuxDoRedeem() {
   }
 
   const handleRebind = async () => {
-    if (!rebindCode || rebindCode.trim().length === 0) { message.error('请输入兑换码'); return }
+    if (!rebindCode || rebindCode.trim().length === 0) {
+      message.error('请输入兑换码')
+      return
+    }
+
     setRebindSubmitting(true)
     try {
-      const res: any = await publicApi.rebind({ code: rebindCode.trim().toUpperCase() })
+      const res = await publicApi.rebind({ code: rebindCode.trim().toUpperCase() })
       setRebindSuccess(true)
       setRebindResult(res)
     } catch (e: any) {
+      console.error('Rebind failed:', e)
       const detail = e.response?.data?.detail
       message.error(typeof detail === 'object' ? detail.message : detail || '换车失败')
     } finally {
@@ -339,25 +389,61 @@ export default function LinuxDoRedeem() {
     return (
       <div style={{ minHeight: '100vh', background: `linear-gradient(180deg, rgba(0, 102, 255, 0.04) 0%, #f8fafc 100%)`, padding: '60px 20px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
         {payingOrder.gatewayUrl && (
-          <form ref={formRef} method="POST" action={payingOrder.gatewayUrl} target="_blank" style={{ display: 'none' }}>
+          <form ref={formRef} method="POST" action={payingOrder.gatewayUrl} target="_blank" rel="noopener noreferrer" style={{ display: 'none' }}>
             {Object.entries(payingOrder.payParams).map(([key, value]) => (
               <input key={key} type="hidden" name={key} value={value} />
             ))}
           </form>
         )}
         <div style={{ maxWidth: 500, width: '100%', textAlign: 'center', background: '#fff', padding: '48px 40px', borderRadius: 24, boxShadow: '0 20px 60px rgba(0, 0, 0, 0.08)' }}>
-          <Spin indicator={<LoadingOutlined style={{ fontSize: 56, color: LINUXDO_COLOR }} spin />} />
-          <Title level={3} style={{ color: '#1f2937', marginTop: 24 }}>等待支付确认</Title>
-          <Paragraph type="secondary">订单号：{payingOrder.orderNo}</Paragraph>
-          <Paragraph type="secondary">认证页面已在新窗口打开，请完成 L 币支付</Paragraph>
-          <div style={{ margin: '24px 0', padding: '16px 32px', background: `linear-gradient(135deg, rgba(0, 102, 255, 0.08) 0%, rgba(0, 102, 255, 0.04) 100%)`, borderRadius: 12, display: 'inline-block' }}>
-            <Text>L 币：</Text>
-            <Text style={{ fontSize: 32, fontWeight: 700, color: LINUXDO_COLOR }}>{payingOrder.credits}</Text>
-          </div>
-          {payingOrder.gatewayUrl && (
-            <div style={{ marginTop: 24 }}>
-              <Button onClick={() => formRef.current?.submit()} style={{ borderRadius: 10 }}>重新打开支付页面</Button>
-            </div>
+          {pollingTimeout ? (
+            <>
+              <ClockCircleOutlined style={{ fontSize: 56, color: '#ff9500' }} />
+              <Title level={3} style={{ color: '#1f2937', marginTop: 24 }}>等待支付超时</Title>
+              <Paragraph type="secondary">订单号：{payingOrder.orderNo}</Paragraph>
+              <Paragraph type="secondary">如果您已完成支付，请手动刷新状态</Paragraph>
+              <Space direction="vertical" size="middle" style={{ width: '100%', marginTop: 24 }}>
+                <Button type="primary" size="large" block onClick={async () => {
+                  try {
+                    const response = await linuxdoApi.getOrderStatus(payingOrder.orderNo)
+                    if (response.status === 'paid' && response.redeem_code) {
+                      setPayingOrder(null)
+                      setBuySuccess({
+                        redeemCode: response.redeem_code,
+                        validityDays: response.validity_days || 30,
+                      })
+                    } else {
+                      message.info(`订单状态：${response.status}`)
+                    }
+                  } catch (error) {
+                    console.error('Manual refresh failed:', error)
+                    message.error('刷新失败，请稍后重试')
+                  }
+                }} style={{ background: LINUXDO_COLOR, border: 'none', borderRadius: 12 }}>
+                  手动刷新状态
+                </Button>
+                <Button size="large" block onClick={() => { setPayingOrder(null); setPollingTimeout(false) }} style={{ borderRadius: 12 }}>
+                  返回
+                </Button>
+              </Space>
+            </>
+          ) : (
+            <>
+              <Spin indicator={<LoadingOutlined style={{ fontSize: 56, color: LINUXDO_COLOR }} spin />} />
+              <Title level={3} style={{ color: '#1f2937', marginTop: 24 }}>等待支付确认</Title>
+              <Paragraph type="secondary">订单号：{payingOrder.orderNo}</Paragraph>
+              <Paragraph type="secondary">认证页面已在新窗口打开，请完成 L 币支付</Paragraph>
+              <div style={{ margin: '24px 0', padding: '16px 32px', background: `linear-gradient(135deg, rgba(0, 102, 255, 0.08) 0%, rgba(0, 102, 255, 0.04) 100%)`, borderRadius: 12, display: 'inline-block' }}>
+                <Text>L 币：</Text>
+                <Text style={{ fontSize: 32, fontWeight: 700, color: LINUXDO_COLOR }}>{payingOrder.credits}</Text>
+              </div>
+              <Space direction="vertical" size="middle" style={{ width: '100%', marginTop: 24 }}>
+                {payingOrder.gatewayUrl && (
+                  <Button onClick={() => formRef.current?.submit()} style={{ borderRadius: 10 }}>重新打开支付页面</Button>
+                )}
+                <Button onClick={() => { setPayingOrder(null); setPollingTimeout(false) }} style={{ borderRadius: 10 }}>取消</Button>
+              </Space>
+            </>
           )}
         </div>
       </div>
@@ -392,7 +478,9 @@ export default function LinuxDoRedeem() {
         <Space direction="vertical" size={12} style={{ width: '100%' }}>
           {plans.map(plan => {
             const hasStock = plan.stock !== null && plan.stock !== undefined
-            const remaining = plan.remaining_stock ?? (hasStock ? 0 : null)
+            // 修复：使用 remaining_stock，如果缺失则用 stock - sold_count 兜底
+            const stockValue = plan.stock ?? 0
+            const remaining = plan.remaining_stock ?? (hasStock ? Math.max(0, stockValue - plan.sold_count) : null)
             const isSoldOut = hasStock && (remaining === null || remaining <= 0)
 
             return (
