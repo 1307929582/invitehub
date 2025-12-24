@@ -97,7 +97,7 @@ def _generate_order_no() -> str:
 def _generate_redeem_code(db: Session, validity_days: int, order_no: str) -> str:
     """生成兑换码（带唯一性约束重试，使用 savepoint 保护外层事务）"""
     for _ in range(10):
-        code = ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(12))
+        code = 'LD_' + ''.join(secrets.choice(string.ascii_uppercase + string.digits) for _ in range(12))
 
         # 使用 savepoint 隔离这次尝试，失败不影响外层事务
         savepoint = db.begin_nested()
