@@ -246,31 +246,35 @@ async def get_revenue_stats(
     week_start, week_end = get_week_range_utc8()
     month_start, month_end = get_month_range_utc8()
 
-    # 今日激活的兑换码数量（UTC+8）
+    # 今日激活的兑换码数量（UTC+8，排除 LinuxDo L币订单）
     today_count = db.query(RedeemCode).filter(
         RedeemCode.activated_at >= today_start,
-        RedeemCode.activated_at < today_end
+        RedeemCode.activated_at < today_end,
+        (RedeemCode.note.is_(None)) | (~RedeemCode.note.like("LinuxDo订单%"))
     ).count()
 
-    # 本周激活的兑换码数量（UTC+8）
+    # 本周激活的兑换码数量（UTC+8，排除 LinuxDo L币订单）
     week_count = db.query(RedeemCode).filter(
         RedeemCode.activated_at >= week_start,
-        RedeemCode.activated_at < week_end
+        RedeemCode.activated_at < week_end,
+        (RedeemCode.note.is_(None)) | (~RedeemCode.note.like("LinuxDo订单%"))
     ).count()
 
-    # 本月激活的兑换码数量（UTC+8）
+    # 本月激活的兑换码数量（UTC+8，排除 LinuxDo L币订单）
     month_count = db.query(RedeemCode).filter(
         RedeemCode.activated_at >= month_start,
-        RedeemCode.activated_at < month_end
+        RedeemCode.activated_at < month_end,
+        (RedeemCode.note.is_(None)) | (~RedeemCode.note.like("LinuxDo订单%"))
     ).count()
 
-    # 近 7 天销售趋势（UTC+8）
+    # 近 7 天销售趋势（UTC+8，排除 LinuxDo L币订单）
     recent_days = get_recent_days_ranges_utc8(7)
     daily_trend = []
     for date_str, start_utc, end_utc in recent_days:
         count = db.query(RedeemCode).filter(
             RedeemCode.activated_at >= start_utc,
-            RedeemCode.activated_at < end_utc
+            RedeemCode.activated_at < end_utc,
+            (RedeemCode.note.is_(None)) | (~RedeemCode.note.like("LinuxDo订单%"))
         ).count()
         daily_trend.append(DailyRevenue(
             date=date_str,
