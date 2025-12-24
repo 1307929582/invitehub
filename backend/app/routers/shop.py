@@ -22,6 +22,7 @@ from app.services.epay import (
     verify_sign,
     generate_order_no,
 )
+from app.services.email import send_email, is_email_configured
 from app.logger import get_logger
 
 logger = get_logger(__name__)
@@ -684,6 +685,14 @@ async def payment_notify(request: Request, db: Session = Depends(get_db)):
 
     logger.info(f"Order paid successfully: {order_no}, redeem_code: {redeem_code}")
 
+    # 发送兑换码邮件（异步，失败不影响订单）
+    if redeem_code and order.email:
+        try:
+            if is_email_configured(db):
+                _send_shop_redeem_code_email(db, order.email, redeem_code, plan.name, plan.validity_days, order.final_amount or order.amount)
+        except Exception as email_error:
+            logger.error(f"Failed to send email for order {order_no}: {email_error}")
+
     return "success"
 
 
@@ -768,4 +777,61 @@ def _generate_redeem_codes_batch(
             )
 
     return successful_count
+
+
+def _send_shop_redeem_code_email(db: Session, to_email: str, redeem_code: str, plan_name: str, validity_days: int, amount: int) -> bool:
+    """发送主站购买兑换码邮件"""
+    subject = "购买成功 - 您的兑换码"
+
+    # 获取站点 URL
+    site_url_cfg = db.query(SystemConfig).filter(SystemConfig.key == "site_url").first()
+    site_url = (site_url_cfg.value or "https://mmw-team.zenscaleai.com").strip()
+    redeem_url = f"{site_url}/direct/{redeem_code}"
+
+    # 金额转换为元
+    amount_yuan = amount / 100
+
+    content = f"""
+    <div style="text-align: center;">
+        <div style="margin-bottom: 24px;">
+            <span style="display: inline-block; padding: 8px 16px; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); color: #fff; border-radius: 20px; font-size: 13px; font-weight: 500;">ZenScale AI 购买</span>
+        </div>
+        <p style="margin: 0 0 24px 0; color: #333; font-size: 15px;">感谢您的购买！以下是您的兑换码信息：</p>
+
+        <div style="padding: 24px; background: linear-gradient(135deg, rgba(26, 26, 46, 0.08) 0%, rgba(26, 26, 46, 0.04) 100%); border-radius: 12px; margin: 0 0 24px 0; border: 1px solid rgba(26, 26, 46, 0.2);">
+            <div style="margin-bottom: 16px;">
+                <div style="color: #6b7280; font-size: 13px; margin-bottom: 8px;">兑换码</div>
+                <span style="font-size: 28px; font-weight: 700; color: #1a1a2e; letter-spacing: 3px; font-family: 'SF Mono', Monaco, monospace;">{redeem_code}</span>
+            </div>
+            <div style="padding-top: 16px; border-top: 1px solid rgba(26, 26, 46, 0.1);">
+                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                    <span style="color: #6b7280; font-size: 14px;">套餐</span>
+                    <span style="color: #1f2937; font-weight: 600; font-size: 14px;">{plan_name}</span>
+                </div>
+                <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+                    <span style="color: #6b7280; font-size: 14px;">有效期</span>
+                    <span style="color: #1f2937; font-weight: 600; font-size: 14px;">{validity_days} 天</span>
+                </div>
+                <div style="display: flex; justify-content: space-between;">
+                    <span style="color: #6b7280; font-size: 14px;">支付金额</span>
+                    <span style="color: #10b981; font-weight: 700; font-size: 14px;">¥ {amount_yuan:.2f}</span>
+                </div>
+            </div>
+        </div>
+
+        <div style="padding: 16px; background: #ecfdf5; border-radius: 8px; text-align: left; margin-bottom: 24px;">
+            <p style="margin: 0 0 8px 0; color: #065f46; font-size: 13px; font-weight: 500;">✨ 使用说明</p>
+            <p style="margin: 0 0 4px 0; color: #047857; font-size: 12px;">• 有效期从首次使用开始计算</p>
+            <p style="margin: 0 0 4px 0; color: #047857; font-size: 12px;">• 请妥善保管您的兑换码</p>
+            <p style="margin: 0; color: #047857; font-size: 12px;">• 如有问题请联系客服</p>
+        </div>
+
+        <a href="{redeem_url}" style="display: inline-block; padding: 12px 32px; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); color: white; text-decoration: none; border-radius: 12px; font-weight: 600; font-size: 15px;">
+            立即兑换
+        </a>
+    </div>
+    """
+
+    return send_email(db, subject, content, to_email=to_email)
+
 
