@@ -38,7 +38,7 @@ const validateEmail = (email: string): boolean => {
 }
 
 // 域名白名单验证（防止钓鱼跳转）
-const ALLOWED_GATEWAY_DOMAINS = ['easypay.co', 'linuxdo.org']
+const ALLOWED_GATEWAY_DOMAINS = ['easypay.co', 'linux.do']
 const validateGatewayUrl = (url: string): boolean => {
   try {
     const parsedUrl = new URL(url)
