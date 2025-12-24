@@ -48,6 +48,8 @@ class OrderStatsResponse(BaseModel):
     total_revenue: int  # 分
     today_orders: int
     today_revenue: int  # 分
+    linuxdo_revenue: int = 0  # LinuxDo 订单总收入（分）
+    linuxdo_orders: int = 0  # LinuxDo 订单总数
 
 
 # ============ 管理后台 API ============
@@ -145,6 +147,19 @@ async def get_order_stats(
         Order.status == OrderStatus.PAID
     ).scalar() or 0
 
+    # LinuxDo 订单统计
+    linuxdo_orders = db.query(Order).filter(
+        Order.pay_type == "linuxdo",
+        Order.status == OrderStatus.PAID
+    ).count()
+
+    linuxdo_revenue = db.query(func.sum(
+        func.coalesce(Order.final_amount, Order.amount)
+    )).filter(
+        Order.pay_type == "linuxdo",
+        Order.status == OrderStatus.PAID
+    ).scalar() or 0
+
     return OrderStatsResponse(
         total_orders=total_orders,
         paid_orders=paid_orders,
@@ -152,6 +167,8 @@ async def get_order_stats(
         total_revenue=total_revenue,
         today_orders=today_orders,
         today_revenue=today_revenue,
+        linuxdo_orders=linuxdo_orders,
+        linuxdo_revenue=linuxdo_revenue,
     )
 
 

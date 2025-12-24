@@ -36,6 +36,8 @@ interface OrderStats {
   total_revenue: number
   today_orders: number
   today_revenue: number
+  linuxdo_revenue?: number  // LinuxDo 订单总收入
+  linuxdo_orders?: number  // LinuxDo 订单总数
 }
 
 type FilterStatus = 'all' | 'pending' | 'paid' | 'expired'
@@ -98,6 +100,8 @@ export default function Orders() {
         return <span style={{ color: '#1677ff' }}>支付宝</span>
       case 'wxpay':
         return <span style={{ color: '#07c160' }}>微信</span>
+      case 'linuxdo':
+        return <span style={{ color: '#0066FF', fontWeight: 500 }}>L 币</span>
       default:
         return <span style={{ color: '#86868b' }}>-</span>
     }
@@ -134,6 +138,7 @@ export default function Orders() {
     {
       title: '套餐',
       dataIndex: 'plan_name',
+      width: 180,
       render: (v: string, r: Order) => (
         <div>
           <div style={{ fontWeight: 500 }}>{v || '-'}</div>
@@ -213,9 +218,17 @@ export default function Orders() {
     {
       title: '流水号',
       dataIndex: 'trade_no',
-      width: 140,
-      ellipsis: true,
-      render: (v: string) => <span style={{ color: '#64748b', fontSize: 12 }}>{v || '-'}</span>
+      width: 180,
+      render: (v: string) => {
+        if (!v) return <span style={{ color: '#86868b' }}>-</span>
+        return (
+          <Tooltip title={v}>
+            <span style={{ color: '#64748b', fontSize: 12, cursor: 'pointer' }}>
+              {v.length > 20 ? `${v.substring(0, 20)}...` : v}
+            </span>
+          </Tooltip>
+        )
+      }
     },
     {
       title: '支付时间',
@@ -241,7 +254,7 @@ export default function Orders() {
       {/* 统计卡片 */}
       {stats && (
         <Row gutter={16} style={{ marginBottom: 24 }}>
-          <Col span={6}>
+          <Col xs={24} sm={12} lg={6}>
             <Card>
               <Statistic
                 title="总订单数"
@@ -250,7 +263,7 @@ export default function Orders() {
               />
             </Card>
           </Col>
-          <Col span={6}>
+          <Col xs={24} sm={12} lg={6}>
             <Card>
               <Statistic
                 title="已支付"
@@ -259,7 +272,7 @@ export default function Orders() {
               />
             </Card>
           </Col>
-          <Col span={6}>
+          <Col xs={24} sm={12} lg={6}>
             <Card>
               <Statistic
                 title="总收入"
@@ -269,7 +282,7 @@ export default function Orders() {
               />
             </Card>
           </Col>
-          <Col span={6}>
+          <Col xs={24} sm={12} lg={6}>
             <Card>
               <Statistic
                 title="今日收入"
@@ -282,6 +295,23 @@ export default function Orders() {
               </div>
             </Card>
           </Col>
+          {/* LinuxDo 收入统计 */}
+          {stats.linuxdo_revenue !== undefined && stats.linuxdo_revenue > 0 && (
+            <Col xs={24} sm={12} lg={6}>
+              <Card>
+                <Statistic
+                  title="LinuxDo 收入"
+                  value={(stats.linuxdo_revenue / 100).toFixed(2)}
+                  prefix={<span style={{ color: '#0066FF', fontSize: 20, fontWeight: 700 }}>L</span>}
+                  suffix="元"
+                  valueStyle={{ color: '#0066FF' }}
+                />
+                <div style={{ fontSize: 12, color: '#86868b', marginTop: 4 }}>
+                  订单数：{stats.linuxdo_orders || 0} 笔
+                </div>
+              </Card>
+            </Col>
+          )}
         </Row>
       )}
 
