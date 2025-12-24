@@ -146,11 +146,12 @@ async def get_order_stats(
     # 待支付订单数
     pending_orders = db.query(Order).filter(Order.status == OrderStatus.PENDING).count()
 
-    # 总收入（使用实付金额）
+    # 总收入（使用实付金额，排除 LinuxDo L币订单）
     total_revenue = db.query(func.sum(
         func.coalesce(Order.final_amount, Order.amount)
     )).filter(
-        Order.status == OrderStatus.PAID
+        Order.status == OrderStatus.PAID,
+        Order.pay_type != "linuxdo"
     ).scalar() or 0
 
     # 今日订单
@@ -161,13 +162,14 @@ async def get_order_stats(
         Order.status == OrderStatus.PAID
     ).count()
 
-    # 今日收入（使用实付金额）
+    # 今日收入（使用实付金额，排除 LinuxDo L币订单）
     today_revenue = db.query(func.sum(
         func.coalesce(Order.final_amount, Order.amount)
     )).filter(
         Order.created_at >= today_start,
         Order.created_at < today_end,
-        Order.status == OrderStatus.PAID
+        Order.status == OrderStatus.PAID,
+        Order.pay_type != "linuxdo"
     ).scalar() or 0
 
     # LinuxDo 订单统计

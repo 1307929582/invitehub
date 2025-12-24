@@ -165,15 +165,18 @@ export default function Orders() {
       render: (_: any, r: Order) => {
         const finalAmt = r.final_amount ?? r.amount
         const hasDiscount = r.discount_amount > 0
+        const isLinuxDo = r.pay_type === 'linuxdo'
+        const currencySymbol = isLinuxDo ? 'L' : '¥'
+        const amountColor = isLinuxDo ? '#0066FF' : '#f5222d'
         return (
           <Space direction="vertical" size={0}>
-            <Text style={{ fontSize: 15, fontWeight: 600, color: '#f5222d', whiteSpace: 'nowrap' }}>
-              ¥{(finalAmt / 100).toFixed(2)}
+            <Text style={{ fontSize: 15, fontWeight: 600, color: amountColor, whiteSpace: 'nowrap' }}>
+              {currencySymbol}{(finalAmt / 100).toFixed(2)}
             </Text>
             {hasDiscount && (
               <Tooltip title={`优惠码: ${r.coupon_code}`}>
                 <Text type="secondary" delete style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
-                  ¥{(r.amount / 100).toFixed(2)}
+                  {currencySymbol}{(r.amount / 100).toFixed(2)}
                 </Text>
               </Tooltip>
             )}
@@ -188,10 +191,11 @@ export default function Orders() {
         if (!r.discount_amount || r.discount_amount === 0) {
           return <Text type="secondary">-</Text>
         }
+        const currencySymbol = r.pay_type === 'linuxdo' ? 'L' : '¥'
         return (
           <Tooltip title={r.coupon_code}>
             <Tag icon={<GiftOutlined />} color="green">
-              -¥{(r.discount_amount / 100).toFixed(2)}
+              -{currencySymbol}{(r.discount_amount / 100).toFixed(2)}
             </Tag>
           </Tooltip>
         )
@@ -311,10 +315,9 @@ export default function Orders() {
             <Col xs={24} sm={12} lg={6}>
               <Card>
                 <Statistic
-                  title="LinuxDo 收入"
+                  title="LinuxDo L币收入"
                   value={(stats.linuxdo_revenue / 100).toFixed(2)}
                   prefix={<span style={{ color: '#0066FF', fontSize: 20, fontWeight: 700 }}>L</span>}
-                  suffix="元"
                   valueStyle={{ color: '#0066FF' }}
                 />
                 <div style={{ fontSize: 12, color: '#86868b', marginTop: 4 }}>
