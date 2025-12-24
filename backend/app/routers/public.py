@@ -982,7 +982,7 @@ async def _do_redeem(data: RedeemRequest, db: Session) -> RedeemResponse:
                         )
                     )
                 db.commit()
-                logger.info(f"Rolled back redeem code {redeem_code.code} and RESERVED record after all failures")
+                logger.info(f"Rolled back redeem code ***{redeem_code.code[-4:]} and RESERVED record after all failures")
             except Exception as rollback_error:
                 logger.error(f"Failed to rollback redeem code: {rollback_error}")
 

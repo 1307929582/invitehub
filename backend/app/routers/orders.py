@@ -57,12 +57,16 @@ class OrderStatsResponse(BaseModel):
 @router.get("", response_model=OrderListResponse)
 async def list_orders(
     status: Optional[str] = None,
+    search: Optional[str] = Query(None, max_length=100, description="订单号/邮箱/交易号模糊搜索"),
+    email: Optional[str] = Query(None, max_length=100, description="邮箱精确搜索"),
+    date_from: Optional[datetime] = Query(None, description="起始日期（UTC）"),
+    date_to: Optional[datetime] = Query(None, description="结束日期（UTC）"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(UserRole.ADMIN, UserRole.OPERATOR))
 ):
-    """获取订单列表"""
+    """获取订单列表（支持搜索）"""
     query = db.query(Order).options(joinedload(Order.plan))
 
     # 状态筛选
@@ -72,6 +76,25 @@ async def list_orders(
             query = query.filter(Order.status == status_enum)
         except ValueError:
             pass
+
+    # 关键词搜索（订单号/邮箱/交易号）
+    if search:
+        search_pattern = f"%{search.strip()}%"
+        query = query.filter(
+            (Order.order_no.ilike(search_pattern)) |
+            (Order.email.ilike(search_pattern)) |
+            (Order.trade_no.ilike(search_pattern))
+        )
+
+    # 邮箱精确搜索
+    if email:
+        query = query.filter(Order.email == email.strip().lower())
+
+    # 日期范围筛选
+    if date_from:
+        query = query.filter(Order.created_at >= date_from)
+    if date_to:
+        query = query.filter(Order.created_at < date_to)
 
     # 总数
     total = query.count()

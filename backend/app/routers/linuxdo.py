@@ -138,13 +138,19 @@ async def get_config(db: Session = Depends(get_db)):
 
 @router.get("/plans", response_model=List[LinuxDoPlanResponse])
 async def get_plans(db: Session = Depends(get_db)):
-    """获取 LinuxDo 可用套餐列表（自动查询 plan_type=linuxdo 的套餐）"""
+    """获取 LinuxDo 可用套餐列表（仅返回白名单套餐）"""
     config = get_linuxdo_config(db)
     if not config.get("enabled"):
         raise HTTPException(status_code=400, detail="LinuxDo 兑换未启用")
 
-    # 查询所有 LinuxDo 类型的套餐
+    # 获取白名单套餐 ID（空白名单 = 未配置，返回空列表）
+    allowed_plan_ids = config.get("plan_ids", [])
+    if not allowed_plan_ids:
+        return []  # 未配置白名单时不暴露任何套餐
+
+    # 仅查询白名单中的套餐
     plans = db.query(Plan).filter(
+        Plan.id.in_(allowed_plan_ids),
         Plan.plan_type == "linuxdo",
         Plan.is_active == True,
     ).order_by(Plan.sort_order.asc(), Plan.id.asc()).all()
@@ -187,6 +193,11 @@ async def create_order(
 
     if not plan:
         raise HTTPException(status_code=404, detail="套餐不存在或已下架")
+
+    # 验证套餐是否在白名单中（空白名单 = 拒绝所有）
+    allowed_plan_ids = config.get("plan_ids", [])
+    if not allowed_plan_ids or plan.id not in allowed_plan_ids:
+        raise HTTPException(status_code=403, detail="该套餐不支持 LinuxDo 兑换")
 
     # 检查库存
     if plan.stock is not None:
@@ -433,7 +444,7 @@ async def payment_notify(request: Request, db: Session = Depends(get_db)):
 
     try:
         db.commit()
-        logger.info(f"LinuxDo order paid: {order_no}, redeem_code: {redeem_code}, plan_sold: {plan.sold_count}")
+        logger.info(f"LinuxDo order paid: {order_no}, plan_sold: {plan.sold_count}")
 
         # 发送兑换码邮件（异步，失败不影响订单）
         try:

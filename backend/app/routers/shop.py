@@ -8,7 +8,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from typing import Optional, List, Literal
 from fastapi import APIRouter, Depends, HTTPException, Request, Query
 from fastapi.responses import PlainTextResponse
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy.exc import IntegrityError
 from pydantic import BaseModel, Field, field_validator
 
@@ -321,10 +321,9 @@ async def create_order(
 
     if data.coupon_code:
         try:
-            # 验证优惠码（不加锁，仅验证）
-            # 实际扣减在支付成功回调时进行
+            # 验证优惠码并加锁防止并发超用
             coupon, discount_amount = _validate_coupon(
-                db, data.coupon_code, data.plan_id, original_amount, lock=False
+                db, data.coupon_code, data.plan_id, original_amount, lock=True
             )
             coupon_code_used = coupon.code
         except HTTPException as e:
@@ -421,9 +420,11 @@ async def get_order_status(
 async def query_orders_by_email(
     request: Request,
     email: str = Query(..., min_length=5, max_length=100, description="查询邮箱"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db)
 ):
-    """按邮箱查询订单列表"""
+    """按邮箱查询订单列表（支持分页）"""
     ensure_shop_available(request)
 
     # 格式校验
@@ -431,14 +432,19 @@ async def query_orders_by_email(
     if not EMAIL_REGEX.match(email):
         raise HTTPException(status_code=400, detail="邮箱格式不正确")
 
-    # 查询订单（按时间倒序）
-    orders = db.query(Order).filter(
-        Order.email == email
-    ).order_by(Order.created_at.desc()).limit(50).all()
+    # 构建查询（预加载 plan 关系避免 N+1 查询）
+    query = db.query(Order).options(joinedload(Order.plan)).filter(Order.email == email)
+
+    # 总数
+    total = query.count()
+
+    # 分页查询（按时间倒序）
+    orders = query.order_by(Order.created_at.desc()).offset(
+        (page - 1) * page_size
+    ).limit(page_size).all()
 
     result = []
     for order in orders:
-        plan = db.query(Plan).filter(Plan.id == order.plan_id).first()
         result.append(OrderStatusResponse(
             order_no=order.order_no,
             status=order.status.value if isinstance(order.status, OrderStatus) else order.status,
@@ -447,71 +453,19 @@ async def query_orders_by_email(
             final_amount=order.final_amount,
             email=order.email,
             redeem_code=order.redeem_code if order.status == OrderStatus.PAID else None,
-            plan_name=plan.name if plan else None,
-            validity_days=plan.validity_days if plan else None,
+            plan_name=order.plan.name if order.plan else None,
+            validity_days=order.plan.validity_days if order.plan else None,
             created_at=order.created_at,
             paid_at=order.paid_at,
         ))
 
-    return OrderListResponse(orders=result, total=len(result))
-
-
-@router.get("/debug-order/{order_no}")
-async def debug_order(order_no: str, db: Session = Depends(get_db)):
-    """调试：查看订单详情（上线前删除）"""
-    order = db.query(Order).filter(Order.order_no == order_no).first()
-    if not order:
-        return {"error": "Order not found"}
-    return {
-        "order_no": order.order_no,
-        "amount": order.amount,
-        "final_amount": order.final_amount,
-        "discount_amount": order.discount_amount,
-        "coupon_code": order.coupon_code,
-        "status": order.status.value if hasattr(order.status, 'value') else order.status,
-        "pay_type": order.pay_type,
-    }
-
-
-@router.post("/debug-notify/{order_no}")
-async def debug_notify(order_no: str, money: str, db: Session = Depends(get_db)):
-    """调试：模拟回调逻辑（上线前删除）"""
-    order = db.query(Order).filter(Order.order_no == order_no).first()
-    if not order:
-        return {"step": "order_lookup", "error": "Order not found"}
-
-    if order.status == OrderStatus.PAID:
-        return {"step": "status_check", "error": "Already paid"}
-
-    # 金额校验
-    try:
-        paid_money = Decimal(money).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-        expected_amount = order.final_amount if order.final_amount is not None else order.amount
-        expected_money = (Decimal(expected_amount) / Decimal(100)).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
-    except Exception as e:
-        return {"step": "money_parse", "error": str(e)}
-
-    if paid_money != expected_money:
-        return {
-            "step": "money_check",
-            "error": "Money mismatch",
-            "paid_money": str(paid_money),
-            "expected_money": str(expected_money),
-            "order_amount": order.amount,
-            "order_final_amount": order.final_amount,
-        }
-
-    return {
-        "step": "all_passed",
-        "message": "All checks passed",
-        "order_amount": order.amount,
-        "order_final_amount": order.final_amount,
-        "expected_money": str(expected_money),
-    }
+    return OrderListResponse(orders=result, total=total)
 
 
 @router.get("/notify", response_class=PlainTextResponse)
+@limiter.limit("10/minute")  # 限流：每分钟最多 10 次回调
 @router.post("/notify", response_class=PlainTextResponse)
+@limiter.limit("10/minute")
 async def payment_notify(request: Request, db: Session = Depends(get_db)):
     """
     易支付异步回调（支持 GET 和 POST）
@@ -549,6 +503,11 @@ async def payment_notify(request: Request, db: Session = Depends(get_db)):
         return "fail"
 
     # 验证签名（必须先验签再做任何业务处理）
+    sign_type = params.get("sign_type", "MD5")
+    if sign_type.upper() != "MD5":
+        logger.warning("Payment notify unsupported sign_type: %s, out_trade_no=%s", sign_type, params.get("out_trade_no"))
+        return "fail"
+
     if not verify_sign(params, config.get("key", "")):
         logger.warning("Payment notify sign verification failed: out_trade_no=%s", params.get("out_trade_no"))
         return "fail"
@@ -563,6 +522,10 @@ async def payment_notify(request: Request, db: Session = Depends(get_db)):
 
     if not order_no:
         logger.warning("Payment notify missing out_trade_no")
+        return "fail"
+
+    if not trade_no:
+        logger.warning("Payment notify missing trade_no, out_trade_no=%s", order_no)
         return "fail"
 
     # 校验 pid，避免配置串用
@@ -662,10 +625,14 @@ async def payment_notify(request: Request, db: Session = Depends(get_db)):
             db.rollback()  # 显式回滚事务
             return "fail"
 
-    # 优惠码使用次数 +1（支付成功后才扣减）
+    # 优惠码使用次数 +1（支付成功后才扣减，需重新验证防止并发超用）
     if order.coupon_code:
         coupon = db.query(Coupon).filter(Coupon.code == order.coupon_code).with_for_update().first()
         if coupon:
+            if coupon.max_uses > 0 and coupon.used_count >= coupon.max_uses:
+                logger.error(f"Coupon {coupon.code} exhausted at payment time for order {order_no}")
+                db.rollback()
+                return "fail"
             coupon.used_count = (coupon.used_count or 0) + 1
             logger.info(f"Coupon used: {coupon.code}, new count: {coupon.used_count}")
 
@@ -683,7 +650,7 @@ async def payment_notify(request: Request, db: Session = Depends(get_db)):
         logger.error("Payment notify commit failed: out_trade_no=%s err=%s", order_no, str(e))
         return "fail"
 
-    logger.info(f"Order paid successfully: {order_no}, redeem_code: {redeem_code}")
+    logger.info(f"Order paid successfully: {order_no}")
 
     # 发送兑换码邮件（异步，失败不影响订单）
     if redeem_code and order.email:

@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
-import { Card, Table, Tag, Statistic, Row, Col, Radio, Tooltip, Space, Typography } from 'antd'
-import { ShoppingCartOutlined, DollarOutlined, CheckCircleOutlined, ClockCircleOutlined, GiftOutlined } from '@ant-design/icons'
+import { Card, Table, Tag, Statistic, Row, Col, Radio, Tooltip, Space, Typography, Input, DatePicker, Button, Form } from 'antd'
+import { ShoppingCartOutlined, DollarOutlined, CheckCircleOutlined, ClockCircleOutlined, GiftOutlined, SearchOutlined, ClearOutlined } from '@ant-design/icons'
 import { orderApi } from '../api'
 import { formatDate } from '../utils/date'
+import dayjs from 'dayjs'
 
 const { Text } = Typography
+const { RangePicker } = DatePicker
 
 interface Order {
   id: number
@@ -51,11 +53,20 @@ export default function Orders() {
   const [status, setStatus] = useState<FilterStatus>('all')
   const pageSize = 20
 
+  // 搜索状态
+  const [searchKeyword, setSearchKeyword] = useState('')
+  const [searchEmail, setSearchEmail] = useState('')
+  const [dateRange, setDateRange] = useState<[dayjs.Dayjs | null, dayjs.Dayjs | null]>([null, null])
+
   const fetchOrders = async () => {
     setLoading(true)
     try {
       const params: any = { page, page_size: pageSize }
       if (status !== 'all') params.status = status
+      if (searchKeyword.trim()) params.search = searchKeyword.trim()
+      if (searchEmail.trim()) params.email = searchEmail.trim()
+      if (dateRange[0]) params.date_from = dateRange[0].toISOString()
+      if (dateRange[1]) params.date_to = dateRange[1].toISOString()
       const res: any = await orderApi.list(params)
       setOrders(res.orders)
       setTotal(res.total)
@@ -73,7 +84,7 @@ export default function Orders() {
 
   useEffect(() => {
     fetchOrders()
-  }, [page, status])
+  }, [page, status, searchKeyword, searchEmail, dateRange])
 
   useEffect(() => {
     fetchStats()
@@ -317,12 +328,47 @@ export default function Orders() {
 
       <Card bodyStyle={{ padding: 0 }}>
         <div style={{ padding: '16px 20px', borderBottom: '1px solid #f0f0f0' }}>
-          <Radio.Group value={status} onChange={e => { setStatus(e.target.value); setPage(1) }} buttonStyle="solid">
-            <Radio.Button value="all">全部</Radio.Button>
-            <Radio.Button value="pending">待支付</Radio.Button>
-            <Radio.Button value="paid">已支付</Radio.Button>
-            <Radio.Button value="expired">已过期</Radio.Button>
-          </Radio.Group>
+          <Space direction="vertical" size={12} style={{ width: '100%' }}>
+            <Radio.Group value={status} onChange={e => { setStatus(e.target.value); setPage(1) }} buttonStyle="solid">
+              <Radio.Button value="all">全部</Radio.Button>
+              <Radio.Button value="pending">待支付</Radio.Button>
+              <Radio.Button value="paid">已支付</Radio.Button>
+              <Radio.Button value="expired">已过期</Radio.Button>
+            </Radio.Group>
+            <Space wrap>
+              <Input
+                placeholder="搜索订单号/邮箱/交易号"
+                value={searchKeyword}
+                onChange={e => setSearchKeyword(e.target.value)}
+                prefix={<SearchOutlined />}
+                style={{ width: 240 }}
+                allowClear
+              />
+              <Input
+                placeholder="精确邮箱搜索"
+                value={searchEmail}
+                onChange={e => setSearchEmail(e.target.value)}
+                style={{ width: 200 }}
+                allowClear
+              />
+              <RangePicker
+                value={dateRange}
+                onChange={dates => setDateRange(dates as [dayjs.Dayjs | null, dayjs.Dayjs | null])}
+                style={{ width: 280 }}
+              />
+              <Button
+                icon={<ClearOutlined />}
+                onClick={() => {
+                  setSearchKeyword('')
+                  setSearchEmail('')
+                  setDateRange([null, null])
+                  setPage(1)
+                }}
+              >
+                清空筛选
+              </Button>
+            </Space>
+          </Space>
         </div>
         <Table
           dataSource={orders}

@@ -234,10 +234,47 @@ export default function DistributorRedeemCodes() {
         quantity: purchaseQuantity,
         pay_type: payType,
       }) as any
-      window.open(res.pay_url, '_blank', 'noopener,noreferrer')
-      message.success('订单已创建，请在新窗口中完成支付')
+
+      // URL 安全验证
+      const rawPayUrl = (res as any)?.pay_url
+      if (typeof rawPayUrl !== 'string' || !rawPayUrl.trim()) {
+        message.error('创建订单成功，但未获取到有效的支付链接')
+        return
+      }
+      const payUrl = rawPayUrl.trim()
+      if (payUrl.startsWith('//')) {
+        message.error('支付链接格式不安全，已取消跳转')
+        return
+      }
+
+      let url: URL
+      try {
+        url = new URL(payUrl, window.location.origin)
+      } catch {
+        message.error('支付链接格式无效，已取消跳转')
+        return
+      }
+      if (!['https:', 'http:'].includes(url.protocol)) {
+        message.error('支付链接协议不安全，已取消跳转')
+        return
+      }
+      if (url.username || url.password) {
+        message.error('支付链接包含不安全凭据，已取消跳转')
+        return
+      }
+
+      message.success('订单已创建，正在跳转到支付页面')
       setPurchaseModalVisible(false)
       purchaseForm.resetFields()
+
+      const a = document.createElement('a')
+      a.href = url.toString()
+      a.target = '_self'
+      a.rel = 'noreferrer'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+
       setTimeout(() => {
         fetchCodes()
       }, 5000)

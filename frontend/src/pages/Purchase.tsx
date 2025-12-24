@@ -323,15 +323,49 @@ export default function Purchase() {
         coupon_code: appliedCoupon?.code,
       }) as unknown as OrderResponse
 
+      // URL 安全验证
+      const rawPayUrl = response?.pay_url
+      if (typeof rawPayUrl !== 'string' || !rawPayUrl.trim()) {
+        message.error('创建订单成功，但未获取到有效的支付链接')
+        return
+      }
+      const payUrl = rawPayUrl.trim()
+      if (payUrl.startsWith('//')) {
+        message.error('支付链接格式不安全，已取消跳转')
+        return
+      }
+
+      let validatedUrl: URL
+      try {
+        validatedUrl = new URL(payUrl, window.location.origin)
+      } catch {
+        message.error('支付链接格式无效，已取消跳转')
+        return
+      }
+      if (!['https:', 'http:'].includes(validatedUrl.protocol)) {
+        message.error('支付链接协议不安全，已取消跳转')
+        return
+      }
+      if (validatedUrl.username || validatedUrl.password) {
+        message.error('支付链接包含不安全凭据，已取消跳转')
+        return
+      }
+
       setPayModalVisible(false)
       setPayingOrder({
         orderNo: response.order_no,
-        payUrl: response.pay_url,
+        payUrl: validatedUrl.toString(),
         amount: response.amount,
       })
 
-      // 打开支付页面
-      window.open(response.pay_url, '_blank')
+      // 打开支付页面（安全跳转）
+      const a = document.createElement('a')
+      a.href = validatedUrl.toString()
+      a.target = '_self'
+      a.rel = 'noreferrer'
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
 
       // 开始轮询
       startPolling(response.order_no)
@@ -514,7 +548,15 @@ export default function Purchase() {
           </div>
 
           <div style={{ marginTop: 24 }}>
-            <Button onClick={() => window.open(payingOrder.payUrl, '_blank')} style={{ borderRadius: 10 }}>
+            <Button onClick={() => {
+              const a = document.createElement('a')
+              a.href = payingOrder.payUrl
+              a.target = '_self'
+              a.rel = 'noreferrer'
+              document.body.appendChild(a)
+              a.click()
+              a.remove()
+            }} style={{ borderRadius: 10 }}>
               重新打开支付页面
             </Button>
           </div>

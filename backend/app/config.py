@@ -36,7 +36,13 @@ class Settings(BaseSettings):
     # Rate Limit
     INVITE_DELAY_SECONDS: float = 1.0
     MAX_BATCH_SIZE: int = 100
-    
+
+    # Proxy / client IP handling for rate limiting
+    # Only enable when running behind a trusted reverse proxy that sets these headers.
+    TRUST_PROXY_HEADERS: bool = False
+    # Comma-separated CIDRs or IPs of trusted proxies, e.g. "127.0.0.1,10.0.0.0/8"
+    TRUSTED_PROXY_IPS: str = ""
+
     # CORS
     CORS_ORIGINS: list = ["http://localhost:3000", "http://localhost:5173"]
     
