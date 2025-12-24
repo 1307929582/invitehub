@@ -141,7 +141,7 @@ export default function Orders() {
       width: 180,
       render: (v: string, r: Order) => (
         <div>
-          <div style={{ fontWeight: 500 }}>{v || '-'}</div>
+          <div style={{ fontWeight: 500, whiteSpace: 'nowrap' }}>{v || '-'}</div>
           {r.order_type === 'distributor_codes' && r.quantity && r.quantity > 1 && (
             <Text type="secondary" style={{ fontSize: 12 }}>x{r.quantity} 份</Text>
           )}
@@ -150,18 +150,18 @@ export default function Orders() {
     },
     {
       title: '金额',
-      width: 130,
+      width: 150,
       render: (_: any, r: Order) => {
         const finalAmt = r.final_amount ?? r.amount
         const hasDiscount = r.discount_amount > 0
         return (
           <Space direction="vertical" size={0}>
-            <Text style={{ fontSize: 15, fontWeight: 600, color: '#f5222d' }}>
+            <Text style={{ fontSize: 15, fontWeight: 600, color: '#f5222d', whiteSpace: 'nowrap' }}>
               ¥{(finalAmt / 100).toFixed(2)}
             </Text>
             {hasDiscount && (
               <Tooltip title={`优惠码: ${r.coupon_code}`}>
-                <Text type="secondary" delete style={{ fontSize: 12 }}>
+                <Text type="secondary" delete style={{ fontSize: 12, whiteSpace: 'nowrap' }}>
                   ¥{(r.amount / 100).toFixed(2)}
                 </Text>
               </Tooltip>
@@ -329,6 +329,7 @@ export default function Orders() {
           columns={columns}
           rowKey="id"
           loading={loading}
+          scroll={{ x: 1730 }}
           pagination={{
             current: page,
             pageSize,
