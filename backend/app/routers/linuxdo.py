@@ -178,21 +178,23 @@ async def create_order(
     if not config.get("enabled"):
         raise HTTPException(status_code=400, detail="LinuxDo 兑换未启用")
 
-    # 获取套餐（必须是 LinuxDo 类型）
+    # 获取套餐（加锁防止并发超卖）
     plan = db.query(Plan).filter(
         Plan.id == data.plan_id,
         Plan.plan_type == "linuxdo",
         Plan.is_active == True,
-    ).first()
+    ).with_for_update().first()
 
     if not plan:
         raise HTTPException(status_code=404, detail="套餐不存在或已下架")
 
-    # 检查库存
+    # 检查库存并预扣（创建订单时就扣减，防止超卖）
     if plan.stock is not None:
         remaining = plan.stock - (plan.sold_count or 0)
         if remaining <= 0:
             raise HTTPException(status_code=400, detail="该套餐已售罄")
+        # 预扣库存
+        plan.sold_count = (plan.sold_count or 0) + 1
 
     # 构建回调地址（notify_url 用主站域名，return_url 用用户访问的域名）
     site_url_cfg = db.query(SystemConfig).filter(SystemConfig.key == "site_url").first()
@@ -401,18 +403,13 @@ async def payment_notify(request: Request, db: Session = Depends(get_db)):
         logger.warning("LinuxDo notify trade_no mismatch: out_trade_no=%s", order_no)
         return "fail"
 
-    # 获取套餐（加锁，防止并发更新 sold_count）
-    plan = db.query(Plan).filter(Plan.id == order.plan_id).with_for_update().first()
+    # 获取套餐
+    plan = db.query(Plan).filter(Plan.id == order.plan_id).first()
     if not plan:
         logger.error(f"Plan not found for LinuxDo order: {order_no}")
         return "fail"
 
-    # 检查库存（再次校验，防止并发超卖）
-    if plan.stock is not None:
-        remaining = plan.stock - (plan.sold_count or 0)
-        if remaining <= 0:
-            logger.warning(f"LinuxDo order stock exhausted: {order_no}")
-            return "fail"
+    # 注意：库存已在创建订单时预扣，此处不再检查和扣减
 
     # 生成兑换码
     try:
@@ -427,9 +424,6 @@ async def payment_notify(request: Request, db: Session = Depends(get_db)):
     order.trade_no = trade_no
     order.redeem_code = redeem_code
     order.paid_at = datetime.utcnow()
-
-    # 增加已售数量
-    plan.sold_count = (plan.sold_count or 0) + 1
 
     try:
         db.commit()

@@ -121,4 +121,9 @@ celery_app.conf.beat_schedule = {
         'task': 'app.tasks_celery.cleanup_stale_reserved_records',
         'schedule': 900.0,  # 15分钟
     },
+    # 每5分钟清理过期订单并释放预扣库存
+    'cleanup-expired-orders': {
+        'task': 'app.tasks_celery.cleanup_expired_orders',
+        'schedule': 300.0,  # 5分钟
+    },
 }

@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 
 from app.celery_app import celery_app
 from app.database import SessionLocal
-from app.models import InviteRecord, InviteStatus, InviteQueue, InviteQueueStatus, RedeemCode
+from app.models import InviteRecord, InviteStatus, InviteQueue, InviteQueueStatus, RedeemCode, Order, OrderStatus, Plan
 from app.cache import invalidate_seat_cache
 from app.logger import get_logger
 
@@ -1381,3 +1381,66 @@ async def _send_stale_reserved_alert(cleaned_count: int, failed_count: int):
         logger.error(f"Failed to send stale RESERVED alert: {e}")
     finally:
         db.close()
+
+
+@celery_app.task(bind=True, base=DatabaseTask)
+def cleanup_expired_orders(self):
+    """
+    清理过期订单并释放预扣库存
+    
+    处理逻辑：
+    1. 查找所有 PENDING 状态且已过期的订单
+    2. 将状态更新为 EXPIRED
+    3. 释放预扣的库存（sold_count - 1）
+    """
+    from app.services.distributed_limiter import DistributedLock
+    
+    lock = DistributedLock("cleanup_expired_orders", timeout=300)
+    if not lock.acquire(blocking=False):
+        logger.info("cleanup_expired_orders: Another instance is running, skipping")
+        return
+    
+    try:
+        now = datetime.utcnow()
+        
+        # 查找过期的 PENDING 订单
+        expired_orders = self.db.query(Order).filter(
+            Order.status == OrderStatus.PENDING,
+            Order.expire_at < now,
+        ).all()
+        
+        if not expired_orders:
+            logger.debug("No expired orders to clean up")
+            return
+        
+        logger.info(f"Found {len(expired_orders)} expired orders to clean up")
+        
+        expired_count = 0
+        released_stock_count = 0
+        
+        for order in expired_orders:
+            try:
+                # 更新订单状态
+                order.status = OrderStatus.EXPIRED
+                
+                # 释放预扣库存（仅限有库存限制的套餐）
+                if order.plan_id:
+                    plan = self.db.query(Plan).filter(Plan.id == order.plan_id).with_for_update().first()
+                    if plan and plan.stock is not None and (plan.sold_count or 0) > 0:
+                        plan.sold_count = max(0, (plan.sold_count or 0) - 1)
+                        released_stock_count += 1
+                        logger.info(f"Released stock for expired order {order.order_no}, plan {plan.name}")
+                
+                expired_count += 1
+                
+            except Exception as e:
+                logger.error(f"Failed to expire order {order.order_no}: {e}")
+        
+        self.db.commit()
+        logger.info(f"Expired orders cleanup: expired={expired_count}, stock_released={released_stock_count}")
+        
+    except Exception as e:
+        logger.exception(f"cleanup_expired_orders failed: {e}")
+        self.db.rollback()
+    finally:
+        lock.release()
