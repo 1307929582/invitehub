@@ -178,24 +178,6 @@ async def create_order(
     if not config.get("enabled"):
         raise HTTPException(status_code=400, detail="LinuxDo 兑换未启用")
 
-    # 获取套餐（加锁防止并发超卖）
-    plan = db.query(Plan).filter(
-        Plan.id == data.plan_id,
-        Plan.plan_type == "linuxdo",
-        Plan.is_active == True,
-    ).with_for_update().first()
-
-    if not plan:
-        raise HTTPException(status_code=404, detail="套餐不存在或已下架")
-
-    # 检查库存并预扣（创建订单时就扣减，防止超卖）
-    if plan.stock is not None:
-        remaining = plan.stock - (plan.sold_count or 0)
-        if remaining <= 0:
-            raise HTTPException(status_code=400, detail="该套餐已售罄")
-        # 预扣库存
-        plan.sold_count = (plan.sold_count or 0) + 1
-
     # 构建回调地址（notify_url 用主站域名，return_url 用用户访问的域名）
     site_url_cfg = db.query(SystemConfig).filter(SystemConfig.key == "site_url").first()
     site_url = (site_url_cfg.value or "").strip() if site_url_cfg else ""
@@ -214,6 +196,25 @@ async def create_order(
     notify_url = f"{notify_base_url}/api/v1/linuxdo/notify"
 
     for _ in range(5):
+        # 获取套餐（加锁防止并发超卖）- 每次重试都要重新获取
+        plan = db.query(Plan).filter(
+            Plan.id == data.plan_id,
+            Plan.plan_type == "linuxdo",
+            Plan.is_active == True,
+        ).with_for_update().first()
+
+        if not plan:
+            db.rollback()
+            raise HTTPException(status_code=404, detail="套餐不存在或已下架")
+
+        # 检查库存并预扣（创建订单时就扣减，防止超卖）
+        if plan.stock is not None:
+            remaining = plan.stock - (plan.sold_count or 0)
+            if remaining <= 0:
+                db.rollback()
+                raise HTTPException(status_code=400, detail="该套餐已售罄")
+            plan.sold_count = (plan.sold_count or 0) + 1
+
         order_no = _generate_order_no()
         return_url = f"{return_base_url}/linuxdo/result?order_no={order_no}"
 
@@ -226,6 +227,7 @@ async def create_order(
             return_url=return_url,
         )
         if not payment_data:
+            db.rollback()
             raise HTTPException(status_code=500, detail="创建支付参数失败")
 
         order = Order(
@@ -386,6 +388,26 @@ async def payment_notify(request: Request, db: Session = Depends(get_db)):
     # 检查订单是否已过期（库存已释放，不能再发货）
     if order.status == OrderStatus.EXPIRED:
         logger.warning(f"LinuxDo order expired, cannot process payment: {order_no}")
+        # 返回 success 避免支付平台重试，但需要人工处理退款
+        return "success"
+
+    # 以 expire_at 为准，避免"过期后支付但尚未被清理任务标记"的不一致
+    now = datetime.utcnow()
+    if order.expire_at and order.expire_at < now:
+        logger.warning(f"LinuxDo order expired by time, cannot process payment: {order_no}")
+        # 在回调侧兜底标记过期并释放预扣库存
+        order.status = OrderStatus.EXPIRED
+        if not order.trade_no:
+            order.trade_no = trade_no
+        try:
+            plan = db.query(Plan).filter(Plan.id == order.plan_id).with_for_update().first()
+            if plan and plan.stock is not None and (plan.sold_count or 0) > 0:
+                plan.sold_count = max(0, (plan.sold_count or 0) - 1)
+            db.commit()
+        except Exception as e:
+            logger.error(f"Failed to mark expired LinuxDo order {order_no} in notify: {e}")
+            db.rollback()
+            return "fail"
         # 返回 success 避免支付平台重试，但需要人工处理退款
         return "success"
 

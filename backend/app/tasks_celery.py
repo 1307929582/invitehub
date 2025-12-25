@@ -1389,7 +1389,7 @@ def cleanup_expired_orders(self):
     清理过期订单并释放预扣库存
 
     处理逻辑：
-    1. 查找所有 PENDING 状态且已过期的订单
+    1. 查找所有 PENDING 状态且已过期的 linuxdo 订单
     2. 将状态更新为 EXPIRED
     3. 释放预扣的库存（sold_count - 1）
     """
@@ -1403,10 +1403,11 @@ def cleanup_expired_orders(self):
     try:
         now = datetime.utcnow()
 
-        # 查找过期的 PENDING 订单 ID（先不加锁，只获取 ID 列表）
+        # 查找过期的 PENDING 订单 ID（仅限 linuxdo：创建时已预扣库存）
         expired_order_ids = [
             o.id for o in self.db.query(Order.id).filter(
                 Order.status == OrderStatus.PENDING,
+                Order.order_type == "linuxdo",
                 Order.expire_at < now,
             ).all()
         ]
@@ -1423,10 +1424,10 @@ def cleanup_expired_orders(self):
 
         for order_id in expired_order_ids:
             try:
-                # 加锁获取订单，防止与支付回调竞争
+                # 加锁获取订单，skip_locked 避免阻塞支付回调
                 order = self.db.query(Order).filter(
                     Order.id == order_id
-                ).with_for_update().first()
+                ).with_for_update(skip_locked=True).first()
 
                 if not order:
                     continue
@@ -1448,12 +1449,14 @@ def cleanup_expired_orders(self):
                         released_stock_count += 1
                         logger.info(f"Released stock for expired order {order.order_no}, plan {plan.name}")
 
+                # 每个订单单独提交，避免一个失败影响全部
+                self.db.commit()
                 expired_count += 1
 
             except Exception as e:
                 logger.error(f"Failed to expire order id={order_id}: {e}")
+                self.db.rollback()
 
-        self.db.commit()
         logger.info(f"Expired orders cleanup: expired={expired_count}, stock_released={released_stock_count}, skipped={skipped_count}")
 
     except Exception as e:
