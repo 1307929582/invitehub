@@ -383,6 +383,12 @@ async def payment_notify(request: Request, db: Session = Depends(get_db)):
         logger.info(f"LinuxDo order already paid, skipping: {order_no}")
         return "success"
 
+    # 检查订单是否已过期（库存已释放，不能再发货）
+    if order.status == OrderStatus.EXPIRED:
+        logger.warning(f"LinuxDo order expired, cannot process payment: {order_no}")
+        # 返回 success 避免支付平台重试，但需要人工处理退款
+        return "success"
+
     # 校验金额（积分）
     try:
         paid_money = Decimal(money).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)

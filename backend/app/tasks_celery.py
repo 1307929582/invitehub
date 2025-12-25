@@ -1387,42 +1387,59 @@ async def _send_stale_reserved_alert(cleaned_count: int, failed_count: int):
 def cleanup_expired_orders(self):
     """
     清理过期订单并释放预扣库存
-    
+
     处理逻辑：
     1. 查找所有 PENDING 状态且已过期的订单
     2. 将状态更新为 EXPIRED
     3. 释放预扣的库存（sold_count - 1）
     """
     from app.services.distributed_limiter import DistributedLock
-    
+
     lock = DistributedLock("cleanup_expired_orders", timeout=300)
     if not lock.acquire(blocking=False):
         logger.info("cleanup_expired_orders: Another instance is running, skipping")
         return
-    
+
     try:
         now = datetime.utcnow()
-        
-        # 查找过期的 PENDING 订单
-        expired_orders = self.db.query(Order).filter(
-            Order.status == OrderStatus.PENDING,
-            Order.expire_at < now,
-        ).all()
-        
-        if not expired_orders:
+
+        # 查找过期的 PENDING 订单 ID（先不加锁，只获取 ID 列表）
+        expired_order_ids = [
+            o.id for o in self.db.query(Order.id).filter(
+                Order.status == OrderStatus.PENDING,
+                Order.expire_at < now,
+            ).all()
+        ]
+
+        if not expired_order_ids:
             logger.debug("No expired orders to clean up")
             return
-        
-        logger.info(f"Found {len(expired_orders)} expired orders to clean up")
-        
+
+        logger.info(f"Found {len(expired_order_ids)} expired orders to clean up")
+
         expired_count = 0
         released_stock_count = 0
-        
-        for order in expired_orders:
+        skipped_count = 0
+
+        for order_id in expired_order_ids:
             try:
+                # 加锁获取订单，防止与支付回调竞争
+                order = self.db.query(Order).filter(
+                    Order.id == order_id
+                ).with_for_update().first()
+
+                if not order:
+                    continue
+
+                # 再次检查状态（可能已被支付回调处理）
+                if order.status != OrderStatus.PENDING:
+                    skipped_count += 1
+                    logger.info(f"Order {order.order_no} status changed to {order.status}, skipping")
+                    continue
+
                 # 更新订单状态
                 order.status = OrderStatus.EXPIRED
-                
+
                 # 释放预扣库存（仅限有库存限制的套餐）
                 if order.plan_id:
                     plan = self.db.query(Plan).filter(Plan.id == order.plan_id).with_for_update().first()
@@ -1430,15 +1447,15 @@ def cleanup_expired_orders(self):
                         plan.sold_count = max(0, (plan.sold_count or 0) - 1)
                         released_stock_count += 1
                         logger.info(f"Released stock for expired order {order.order_no}, plan {plan.name}")
-                
+
                 expired_count += 1
-                
+
             except Exception as e:
-                logger.error(f"Failed to expire order {order.order_no}: {e}")
-        
+                logger.error(f"Failed to expire order id={order_id}: {e}")
+
         self.db.commit()
-        logger.info(f"Expired orders cleanup: expired={expired_count}, stock_released={released_stock_count}")
-        
+        logger.info(f"Expired orders cleanup: expired={expired_count}, stock_released={released_stock_count}, skipped={skipped_count}")
+
     except Exception as e:
         logger.exception(f"cleanup_expired_orders failed: {e}")
         self.db.rollback()
