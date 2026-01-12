@@ -9,6 +9,8 @@ export default function EmailSettings() {
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
+  const [mailSyncing, setMailSyncing] = useState(false)
+  const [mailScanning, setMailScanning] = useState(false)
   const [form] = Form.useForm()
 
   const fetchConfigs = async () => {
@@ -60,6 +62,30 @@ export default function EmailSettings() {
       message.error(e.response?.data?.detail || '发送失败，请检查 SMTP 配置')
     } finally {
       setTesting(false)
+    }
+  }
+
+  const handleMailSync = async () => {
+    setMailSyncing(true)
+    try {
+      await configApi.syncMailboxes()
+      message.success('邮箱同步任务已提交')
+    } catch (e: any) {
+      message.error(e.response?.data?.detail || '提交失败')
+    } finally {
+      setMailSyncing(false)
+    }
+  }
+
+  const handleMailScan = async () => {
+    setMailScanning(true)
+    try {
+      await configApi.scanBanEmails()
+      message.success('封禁邮件扫描任务已提交')
+    } catch (e: any) {
+      message.error(e.response?.data?.detail || '提交失败')
+    } finally {
+      setMailScanning(false)
     }
   }
 
@@ -182,6 +208,15 @@ export default function EmailSettings() {
           <Form.Item name="mail_team_id_regex" label="Team ID 提取正则（可选）" extra="默认使用前缀+数字+域名解析">
             <Input placeholder="^xygpt\\+(\\d+)@xmdbd\\.com$" size="large" />
           </Form.Item>
+
+          <Space size="middle">
+            <Button loading={mailSyncing} onClick={handleMailSync}>
+              立即同步邮箱
+            </Button>
+            <Button type="primary" loading={mailScanning} onClick={handleMailScan}>
+              立即扫描封禁邮件
+            </Button>
+          </Space>
         </Form>
       </Card>
     </div>

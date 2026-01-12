@@ -212,6 +212,28 @@ async def test_telegram(
         raise HTTPException(status_code=400, detail=f"{e.message}: {e.detail}")
 
 
+@router.post("/mail/sync")
+async def trigger_mailbox_sync(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """手动触发临时邮箱同步"""
+    from app.tasks_celery import sync_temp_mailboxes
+    sync_temp_mailboxes.delay()
+    return {"message": "邮箱同步任务已提交"}
+
+
+@router.post("/mail/scan")
+async def trigger_mail_scan(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """手动触发封禁邮件扫描"""
+    from app.tasks_celery import scan_ban_emails
+    scan_ban_emails.delay()
+    return {"message": "封禁邮件扫描任务已提交"}
+
+
 @router.post("/setup-telegram-webhook")
 async def setup_telegram_webhook(
     db: Session = Depends(get_db),

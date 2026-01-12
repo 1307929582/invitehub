@@ -1185,7 +1185,7 @@ def sync_temp_mailboxes(self):
 
     定时任务：每小时执行一次
     """
-    from app.models import Team
+    from app.models import Team, OperationLog
     from app.services.mail_api import (
         get_mail_settings,
         list_emails,
@@ -1202,6 +1202,8 @@ def sync_temp_mailboxes(self):
     logger.info("Starting temp mailbox sync")
     cursor = None
     updated = 0
+    scanned = 0
+    matched = 0
 
     while True:
         items, next_cursor = list_emails(settings, cursor)
@@ -1209,6 +1211,7 @@ def sync_temp_mailboxes(self):
             break
 
         for item in items:
+            scanned += 1
             email_id, address = extract_email_fields(item)
             if not email_id or not address:
                 continue
@@ -1230,6 +1233,7 @@ def sync_temp_mailboxes(self):
                 ).first()
             if not team:
                 continue
+            matched += 1
 
             changed = False
             if team.mailbox_id != email_id:
@@ -1251,6 +1255,20 @@ def sync_temp_mailboxes(self):
         self.db.commit()
         logger.info(f"Temp mailbox sync updated {updated} teams")
 
+    # 记录操作日志
+    try:
+        log = OperationLog(
+            user_id=None,
+            action="mail_sync",
+            target="temp_mailbox",
+            details=f"scanned={scanned}, matched={matched}, updated={updated}",
+            ip_address="system"
+        )
+        self.db.add(log)
+        self.db.commit()
+    except Exception as e:
+        logger.warning(f"Failed to write mail_sync log: {e}")
+
 
 @celery_app.task(bind=True, base=DatabaseTask)
 def scan_ban_emails(self):
@@ -1259,7 +1277,7 @@ def scan_ban_emails(self):
 
     定时任务：每 5 分钟执行一次
     """
-    from app.models import Team, TeamStatus, TeamMember
+    from app.models import Team, TeamStatus, TeamMember, OperationLog
     from app.services.mail_api import (
         get_mail_settings,
         list_messages,
@@ -1282,11 +1300,15 @@ def scan_ban_emails(self):
         return
 
     logger.info(f"Scanning ban emails for {len(teams)} mailboxes")
+    scanned_boxes = 0
+    matched_messages = 0
+    banned_teams = 0
 
     for team in teams:
         email_id = team.mailbox_id
         if not email_id:
             continue
+        scanned_boxes += 1
 
         cursor = get_mail_cursor(self.db, email_id)
         messages, next_cursor = list_messages(settings, email_id, cursor)
@@ -1306,11 +1328,28 @@ def scan_ban_emails(self):
             if not is_ban_message(sender, subject, body, settings):
                 continue
 
+            matched_messages += 1
             if team.status != TeamStatus.BANNED:
                 team.status = TeamStatus.BANNED
                 team.status_message = f"Email detected: {subject[:160]}"
                 team.status_changed_at = datetime.utcnow()
                 self.db.commit()
+                banned_teams += 1
+
+                # 记录日志（按 Team）
+                try:
+                    log = OperationLog(
+                        user_id=None,
+                        team_id=team.id,
+                        action="mail_ban",
+                        target=team.name,
+                        details=f"subject={subject[:160]}",
+                        ip_address="system"
+                    )
+                    self.db.add(log)
+                    self.db.commit()
+                except Exception as e:
+                    logger.warning(f"Failed to write mail_ban log for team {team.id}: {e}")
 
                 # 发送 Telegram 通知
                 try:
@@ -1335,6 +1374,20 @@ def scan_ban_emails(self):
 
         if next_cursor and next_cursor != cursor:
             set_mail_cursor(self.db, email_id, next_cursor)
+
+    # 扫描汇总日志
+    try:
+        summary = OperationLog(
+            user_id=None,
+            action="mail_scan",
+            target="ban_email",
+            details=f"mailboxes={scanned_boxes}, matched={matched_messages}, banned={banned_teams}",
+            ip_address="system"
+        )
+        self.db.add(summary)
+        self.db.commit()
+    except Exception as e:
+        logger.warning(f"Failed to write mail_scan log: {e}")
 
 async def _send_orphan_alert(orphan_users: list):
     """发送孤儿用户告警到 Telegram"""
