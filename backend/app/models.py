@@ -73,6 +73,10 @@ class Team(Base):
     device_id = Column(String(100), nullable=True)
     cookie = Column(Text, nullable=True)
     token_expires_at = Column(DateTime, nullable=True)
+    # 临时邮箱绑定（用于封禁邮件检测）
+    mailbox_id = Column(String(128), nullable=True, index=True)
+    mailbox_email = Column(String(255), nullable=True, index=True)
+    mailbox_synced_at = Column(DateTime, nullable=True)
     max_seats = Column(Integer, default=5)  # 最大座位数
     group_id = Column(Integer, ForeignKey("team_groups.id"), nullable=True)  # 所属分组
     is_active = Column(Boolean, default=True)
@@ -462,5 +466,4 @@ class Coupon(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     creator = relationship("User")
-
 

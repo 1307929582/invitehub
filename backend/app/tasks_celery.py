@@ -1178,6 +1178,164 @@ def detect_orphan_users(self):
         logger.exception(f"Orphan user detection failed: {e}")
 
 
+@celery_app.task(bind=True, base=DatabaseTask)
+def sync_temp_mailboxes(self):
+    """
+    同步临时邮箱列表并绑定到 Team（基于邮箱地址解析 Team ID）
+
+    定时任务：每小时执行一次
+    """
+    from app.models import Team
+    from app.services.mail_api import (
+        get_mail_settings,
+        list_emails,
+        extract_email_fields,
+        extract_team_suffix_from_address,
+    )
+    from datetime import datetime
+    from sqlalchemy import func
+
+    settings = get_mail_settings(self.db)
+    if not settings.get("enabled"):
+        return
+
+    logger.info("Starting temp mailbox sync")
+    cursor = None
+    updated = 0
+
+    while True:
+        items, next_cursor = list_emails(settings, cursor)
+        if not items:
+            break
+
+        for item in items:
+            email_id, address = extract_email_fields(item)
+            if not email_id or not address:
+                continue
+
+            suffix = extract_team_suffix_from_address(address, settings)
+            if not suffix:
+                continue
+
+            team = None
+            if suffix.isdigit():
+                team = self.db.query(Team).filter(Team.id == int(suffix)).first()
+            if not team:
+                team = self.db.query(Team).filter(
+                    func.lower(Team.name) == f"team+{suffix}".lower()
+                ).first()
+            if not team and suffix.isdigit():
+                team = self.db.query(Team).filter(
+                    func.lower(Team.name) == f"team+{int(suffix)}".lower()
+                ).first()
+            if not team:
+                continue
+
+            changed = False
+            if team.mailbox_id != email_id:
+                team.mailbox_id = email_id
+                changed = True
+            if team.mailbox_email != address:
+                team.mailbox_email = address
+                changed = True
+
+            if changed:
+                team.mailbox_synced_at = datetime.utcnow()
+                updated += 1
+
+        if not next_cursor or next_cursor == cursor:
+            break
+        cursor = next_cursor
+
+    if updated:
+        self.db.commit()
+        logger.info(f"Temp mailbox sync updated {updated} teams")
+
+
+@celery_app.task(bind=True, base=DatabaseTask)
+def scan_ban_emails(self):
+    """
+    扫描临时邮箱中的封禁邮件并更新 Team 状态为 BANNED
+
+    定时任务：每 5 分钟执行一次
+    """
+    from app.models import Team, TeamStatus, TeamMember
+    from app.services.mail_api import (
+        get_mail_settings,
+        list_messages,
+        get_message,
+        extract_message_fields,
+        extract_body,
+        is_ban_message,
+        get_mail_cursor,
+        set_mail_cursor,
+    )
+    from app.services.telegram import send_admin_notification
+    from datetime import datetime
+
+    settings = get_mail_settings(self.db)
+    if not settings.get("enabled"):
+        return
+
+    teams = self.db.query(Team).filter(Team.mailbox_id.isnot(None)).all()
+    if not teams:
+        return
+
+    logger.info(f"Scanning ban emails for {len(teams)} mailboxes")
+
+    for team in teams:
+        email_id = team.mailbox_id
+        if not email_id:
+            continue
+
+        cursor = get_mail_cursor(self.db, email_id)
+        messages, next_cursor = list_messages(settings, email_id, cursor)
+
+        for item in messages:
+            message_id, subject, sender, snippet = extract_message_fields(item)
+            if not message_id:
+                continue
+
+            # 先用摘要判断，命中后再拉取详情
+            if not is_ban_message(sender, subject, snippet, settings):
+                continue
+
+            detail = get_message(settings, email_id, message_id) or {}
+            body = extract_body(detail) or snippet
+
+            if not is_ban_message(sender, subject, body, settings):
+                continue
+
+            if team.status != TeamStatus.BANNED:
+                team.status = TeamStatus.BANNED
+                team.status_message = f"Email detected: {subject[:160]}"
+                team.status_changed_at = datetime.utcnow()
+                self.db.commit()
+
+                # 发送 Telegram 通知
+                try:
+                    member_count = self.db.query(TeamMember).filter(TeamMember.team_id == team.id).count()
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        loop.run_until_complete(
+                            send_admin_notification(
+                                self.db,
+                                "team_banned",
+                                team_name=team.name,
+                                team_id=team.id,
+                                member_count=member_count,
+                                error_message=team.status_message or ""
+                            )
+                        )
+                    finally:
+                        loop.close()
+                except Exception as e:
+                    logger.warning(f"Failed to send ban alert for team {team.id}: {e}")
+
+        if next_cursor and next_cursor != cursor:
+            set_mail_cursor(self.db, email_id, next_cursor)
+
 async def _send_orphan_alert(orphan_users: list):
     """发送孤儿用户告警到 Telegram"""
     from app.models import SystemConfig, TeamMember, Team

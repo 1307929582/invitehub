@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Card, Form, Input, Button, message, Alert, Switch, Space } from 'antd'
+import { Card, Form, Input, Button, message, Alert, Switch, Space, Divider } from 'antd'
 import { SaveOutlined, ArrowLeftOutlined, MailOutlined, SendOutlined } from '@ant-design/icons'
 import { configApi } from '../../api'
 
@@ -135,6 +135,53 @@ export default function EmailSettings() {
               发送测试邮件
             </Button>
           </Space>
+
+          <Divider style={{ margin: '32px 0 16px' }}>临时邮箱封禁检测</Divider>
+
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message="用于自动识别封禁邮件并更新 Team 状态（无需刷新 Token）"
+          />
+
+          <Form.Item
+            name="mail_api_enabled"
+            label="启用封禁邮件检测"
+            valuePropName="checked"
+            getValueFromEvent={(checked) => checked}
+            getValueProps={(value) => ({ checked: value === 'true' || value === true })}
+          >
+            <Switch checkedChildren="开启" unCheckedChildren="关闭" />
+          </Form.Item>
+
+          <Form.Item name="mail_api_base" label="邮箱 API Base URL">
+            <Input placeholder="https://mail.xmdbd.com/api" size="large" />
+          </Form.Item>
+
+          <Form.Item name="mail_api_key" label="邮箱 API Key">
+            <Input.Password placeholder="API Key" size="large" />
+          </Form.Item>
+
+          <Form.Item name="mail_domain" label="邮箱域名" extra="如 xmdbd.com">
+            <Input placeholder="xmdbd.com" size="large" />
+          </Form.Item>
+
+          <Form.Item name="mail_address_prefix" label="邮箱前缀" extra="如 xygpt+">
+            <Input placeholder="xygpt+" size="large" />
+          </Form.Item>
+
+          <Form.Item name="mail_sender_keywords" label="发件人关键字" extra="逗号分隔，如 openai,chatgpt">
+            <Input placeholder="openai,chatgpt" size="large" />
+          </Form.Item>
+
+          <Form.Item name="mail_ban_keywords" label="封禁关键词" extra="逗号分隔，如 banned,suspended,terminated">
+            <Input placeholder="banned,suspended,terminated" size="large" />
+          </Form.Item>
+
+          <Form.Item name="mail_team_id_regex" label="Team ID 提取正则（可选）" extra="默认使用前缀+数字+域名解析">
+            <Input placeholder="^xygpt\\+(\\d+)@xmdbd\\.com$" size="large" />
+          </Form.Item>
         </Form>
       </Card>
     </div>

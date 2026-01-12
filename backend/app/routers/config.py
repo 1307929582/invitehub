@@ -36,6 +36,15 @@ class ConfigListResponse(BaseModel):
     configs: List[ConfigResponse]
 
 
+def is_sensitive_key(key: str) -> bool:
+    lowered = key.lower()
+    if any(token in lowered for token in ["secret", "password", "token", "api_key", "access_key", "private_key"]):
+        return True
+    if lowered.endswith("_key"):
+        return True
+    return False
+
+
 # 默认配置项
 DEFAULT_CONFIGS = [
     {"key": "linuxdo_client_id", "description": "LinuxDO OAuth Client ID"},
@@ -62,6 +71,15 @@ DEFAULT_CONFIGS = [
     {"key": "telegram_enabled", "description": "是否启用 Telegram 通知"},
     {"key": "telegram_notify_invite", "description": "新用户上车时通知"},
     {"key": "telegram_notify_alert", "description": "座位预警时通知"},
+    # 临时邮箱封禁检测
+    {"key": "mail_api_enabled", "description": "是否启用临时邮箱封禁检测"},
+    {"key": "mail_api_base", "description": "临时邮箱 API Base URL"},
+    {"key": "mail_api_key", "description": "临时邮箱 API Key"},
+    {"key": "mail_domain", "description": "邮箱域名（用于解析 Team ID）"},
+    {"key": "mail_address_prefix", "description": "邮箱前缀（如 xygpt+）"},
+    {"key": "mail_sender_keywords", "description": "发件人关键字（逗号分隔）"},
+    {"key": "mail_ban_keywords", "description": "封禁关键词（逗号分隔）"},
+    {"key": "mail_team_id_regex", "description": "Team ID 提取正则（可选）"},
 ]
 
 
@@ -89,7 +107,7 @@ async def list_configs(
     return ConfigListResponse(configs=[
         ConfigResponse(
             key=c.key,
-            value=c.value if "secret" not in c.key.lower() else ("*" * 8 if c.value else ""),
+            value=c.value if not is_sensitive_key(c.key) else ("*" * 8 if c.value else ""),
             description=c.description,
             updated_at=c.updated_at
         ) for c in configs
@@ -108,7 +126,7 @@ async def update_config(
     
     if config:
         # 如果是 secret 且值为 ****，不更新
-        if "secret" in key.lower() and data.value and data.value.startswith("*"):
+        if is_sensitive_key(key) and data.value and data.value.startswith("*"):
             pass
         else:
             config.value = data.value
@@ -137,7 +155,7 @@ async def batch_update_configs(
         config = db.query(SystemConfig).filter(SystemConfig.key == item.key).first()
         
         if config:
-            if "secret" in item.key.lower() and item.value and item.value.startswith("*"):
+            if is_sensitive_key(item.key) and item.value and item.value.startswith("*"):
                 continue
             config.value = item.value
             if item.description:
