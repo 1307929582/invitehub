@@ -1297,6 +1297,18 @@ def scan_ban_emails(self):
 
     teams = self.db.query(Team).filter(Team.mailbox_id.isnot(None)).all()
     if not teams:
+        try:
+            summary = OperationLog(
+                user_id=None,
+                action="mail_scan",
+                target="ban_email",
+                details="mailboxes=0, matched=0, banned=0 (no mailboxes)",
+                ip_address="system"
+            )
+            self.db.add(summary)
+            self.db.commit()
+        except Exception as e:
+            logger.warning(f"Failed to write mail_scan log (no mailboxes): {e}")
         return
 
     logger.info(f"Scanning ban emails for {len(teams)} mailboxes")

@@ -219,7 +219,23 @@ async def trigger_mailbox_sync(
 ):
     """手动触发临时邮箱同步"""
     from app.tasks_celery import sync_temp_mailboxes
+    from app.models import OperationLog
+    from app.logger import get_logger
+
+    logger = get_logger(__name__)
     sync_temp_mailboxes.delay()
+    try:
+        log = OperationLog(
+            user_id=current_user.id,
+            action="mail_sync_trigger",
+            target=current_user.username,
+            details="manual trigger",
+            ip_address="system"
+        )
+        db.add(log)
+        db.commit()
+    except Exception as e:
+        logger.warning(f"Failed to write mail_sync_trigger log: {e}")
     return {"message": "邮箱同步任务已提交"}
 
 
@@ -230,7 +246,23 @@ async def trigger_mail_scan(
 ):
     """手动触发封禁邮件扫描"""
     from app.tasks_celery import scan_ban_emails
+    from app.models import OperationLog
+    from app.logger import get_logger
+
+    logger = get_logger(__name__)
     scan_ban_emails.delay()
+    try:
+        log = OperationLog(
+            user_id=current_user.id,
+            action="mail_scan_trigger",
+            target=current_user.username,
+            details="manual trigger",
+            ip_address="system"
+        )
+        db.add(log)
+        db.commit()
+    except Exception as e:
+        logger.warning(f"Failed to write mail_scan_trigger log: {e}")
     return {"message": "封禁邮件扫描任务已提交"}
 
 

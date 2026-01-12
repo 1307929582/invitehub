@@ -24,6 +24,8 @@ const actionMap: Record<string, { label: string; color: string }> = {
   mail_sync: { label: '邮箱同步', color: 'cyan' },
   mail_scan: { label: '邮件扫描', color: 'gold' },
   mail_ban: { label: '封禁命中', color: 'red' },
+  mail_sync_trigger: { label: '触发同步', color: 'blue' },
+  mail_scan_trigger: { label: '触发扫描', color: 'blue' },
 }
 
 export default function Logs() {
