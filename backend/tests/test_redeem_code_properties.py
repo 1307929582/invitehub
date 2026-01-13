@@ -405,8 +405,8 @@ class TestStatusQueryCompletenessProperties:
         code.is_active = True
         
         # Simulate what the status endpoint would return for an active subscription
-        # can_rebind is True when team is inactive AND code is not expired
-        can_rebind = not team_active and not code.is_user_expired
+        # can_rebind is True when code is not expired and has remaining rebind count
+        can_rebind = code.can_rebind
         
         response = StatusResponse(
             found=True,
@@ -427,13 +427,11 @@ class TestStatusQueryCompletenessProperties:
         assert response.remaining_days is not None, "remaining_days should not be None for activated code"
         assert response.can_rebind is not None, "can_rebind should not be None"
         
-        # Verify can_rebind logic: can only rebind if team is inactive AND code not expired
-        if team_active:
-            assert response.can_rebind is False, "can_rebind should be False when team is active"
-        elif code.is_user_expired:
+        # Verify can_rebind logic: only depends on code validity and remaining count
+        if code.is_user_expired:
             assert response.can_rebind is False, "can_rebind should be False when code is expired"
         else:
-            assert response.can_rebind is True, "can_rebind should be True when team is inactive and code not expired"
+            assert response.can_rebind is True, "can_rebind should be True when code is valid and has remaining count"
     
     @settings(max_examples=100)
     @given(
@@ -525,10 +523,10 @@ class TestRebindOperationIntegrityProperties:
         email=email_strategy,
         validity_days=validity_days_strategy
     )
-    def test_rebind_requires_inactive_team(self, email: str, validity_days: int):
+    def test_rebind_requires_valid_code_and_remaining_limit(self, email: str, validity_days: int):
         """
-        Property 5 (Part 1): For any valid rebind request, the current team must be inactive.
-        Rebind should only be allowed when team is inactive AND code is not expired.
+        Property 5 (Part 1): For any valid rebind request, the code must be valid
+        and have remaining rebind count.
         
         **Feature: commercial-refactor, Property 5: Rebind operation integrity**
         **Validates: Requirements 3.1**
@@ -543,19 +541,9 @@ class TestRebindOperationIntegrityProperties:
         code.bound_email = normalized_email
         code.is_active = True
         
-        # Simulate team states
-        team_active = True
-        team_inactive = False
-        
-        # can_rebind logic: team must be inactive AND code not expired
-        can_rebind_active_team = not team_active and not code.is_user_expired
-        can_rebind_inactive_team = not team_inactive and not code.is_user_expired
-        
-        assert can_rebind_active_team is False, (
-            "Rebind should not be allowed when team is active"
-        )
-        assert can_rebind_inactive_team is True, (
-            "Rebind should be allowed when team is inactive and code not expired"
+        # can_rebind logic: only depends on code validity and remaining count
+        assert code.can_rebind is True, (
+            "Rebind should be allowed when code is valid and has remaining count"
         )
     
     @settings(max_examples=100)
@@ -582,13 +570,10 @@ class TestRebindOperationIntegrityProperties:
         code.bound_email = normalized_email
         code.is_active = True
         
-        # Even with inactive team, expired code should not allow rebind
-        team_inactive = False
-        can_rebind = not team_inactive and not code.is_user_expired
-        
+        # Expired code should not allow rebind regardless of team status
         assert code.is_user_expired is True, "Code should be expired"
-        assert can_rebind is False, (
-            "Rebind should be rejected for expired code even when team is inactive"
+        assert code.can_rebind is False, (
+            "Rebind should be rejected for expired code"
         )
     
     @settings(max_examples=100)

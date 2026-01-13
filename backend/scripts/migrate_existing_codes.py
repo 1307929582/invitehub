@@ -3,7 +3,7 @@
 数据迁移脚本：初始化现有兑换码的商业版字段
 
 此脚本是幂等的，可以安全地多次运行。它会：
-1. 为所有现有兑换码设置 rebind_count=0, rebind_limit=3
+1. 为所有现有兑换码设置 rebind_count=0, rebind_limit=1
 2. 根据激活状态和过期时间智能推断 status
 3. 调整 validity_days 到 31-35 天范围（容错）
 4. 【重要】从 InviteRecord 回填 activated_at 和 bound_email
@@ -124,9 +124,9 @@ def migrate_existing_codes():
                 updates['rebind_count'] = 0
                 needs_update = True
 
-            # 2. 初始化 rebind_limit（如果为 NULL）
-            if code.rebind_limit is None:
-                updates['rebind_limit'] = 3
+            # 2. 初始化/收紧 rebind_limit（仅一次机会）
+            if code.rebind_limit is None or code.rebind_limit > 1:
+                updates['rebind_limit'] = 1
                 needs_update = True
 
             # 3. 智能推断 status（如果为 NULL）
@@ -171,7 +171,11 @@ def migrate_existing_codes():
                 # 打印详细日志（排除已打印的回填信息）
                 if 'status' in updates or 'rebind_count' in updates or 'rebind_limit' in updates:
                     status_str = updates.get('status', code.status or 'N/A')
-                    rebind_info = f"rebind: {updates.get('rebind_count', code.rebind_count or 0)}/{updates.get('rebind_limit', code.rebind_limit or 3)}"
+                    effective_limit = updates.get(
+                        'rebind_limit',
+                        code.rebind_limit if code.rebind_limit is not None else 1
+                    )
+                    rebind_info = f"rebind: {updates.get('rebind_count', code.rebind_count or 0)}/{effective_limit}"
                     activated = "已激活" if (updates.get('activated_at') or code.activated_at) else "未激活"
 
                     print(f"  [{code.code}] {activated} -> status={status_str}, {rebind_info}")

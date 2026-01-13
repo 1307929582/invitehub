@@ -667,13 +667,17 @@ export default function LinuxDoRedeem() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}><MailOutlined style={{ color: LINUXDO_COLOR }} /><span>绑定邮箱：</span><span style={{ fontWeight: 600 }}>{statusResult.email || '未绑定'}</span></div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}><TeamOutlined style={{ color: LINUXDO_COLOR }} /><span>当前 Team：</span><span style={{ fontWeight: 500 }}>{statusResult.team_name || '未知'}</span>{statusResult.team_active !== undefined && <Tag color={statusResult.team_active ? 'success' : 'error'} style={{ marginLeft: 4 }}>{statusResult.team_active ? '正常' : '异常'}</Tag>}</div>
                 {statusResult.remaining_days !== null && statusResult.remaining_days !== undefined && <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}><ClockCircleOutlined style={{ color: getDaysColor(statusResult.remaining_days) }} /><span style={{ color: getDaysColor(statusResult.remaining_days), fontWeight: 600 }}>剩余 {statusResult.remaining_days} 天</span></div>}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><SwapOutlined style={{ color: statusResult.can_rebind ? '#34c759' : '#ff3b30' }} /><span style={{ color: statusResult.can_rebind ? '#34c759' : '#ff3b30', fontWeight: 500 }}>{statusResult.can_rebind ? '可以换车' : '暂时无法换车（仅 Team 被封时可换车）'}</span></div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><SwapOutlined style={{ color: statusResult.can_rebind ? '#34c759' : '#ff3b30' }} /><span style={{ color: statusResult.can_rebind ? '#34c759' : '#ff3b30', fontWeight: 500 }}>{statusResult.can_rebind ? '可以换车（仅一次机会）' : '暂时无法换车（机会已用完或已过期）'}</span></div>
               </div>
             ) : (
               <div style={{ padding: 16, background: 'rgba(255, 59, 48, 0.04)', borderRadius: 12, textAlign: 'center', color: '#ff3b30' }}>未找到该兑换码的绑定记录</div>
             )}
           </div>
         )}
+
+        <div style={{ marginBottom: 16, fontSize: 12, color: '#d97706' }}>
+          仅一次换车机会，请确认当前 Team 已封禁后再使用；若在正常状态换车，后续封禁将不再提供第二次换车。
+        </div>
 
         <Button type="primary" block size="large" loading={rebindSubmitting} onClick={handleRebind} disabled={!rebindCode || (statusResult !== null && !statusResult.can_rebind)} icon={<SwapOutlined />} style={{ height: 48, borderRadius: 12, fontWeight: 600, background: LINUXDO_COLOR, border: 'none' }}>
           立即换车
@@ -779,7 +783,8 @@ export default function LinuxDoRedeem() {
                 ) : (
                   <ul style={{ paddingLeft: 18, margin: 0 }}>
                     <li>输入兑换码查询绑定状态</li>
-                    <li>仅当 Team 被封时可以换车</li>
+                    <li>每个兑换码仅有 1 次换车机会</li>
+                    <li>请确认当前 Team 已封禁后再换车（若在正常状态换车，后续封禁将不再提供第二次）</li>
                     <li>换车后原 Team 邀请失效</li>
                   </ul>
                 )}

@@ -42,11 +42,11 @@ const faqData: { category: string; items: FAQItem[] }[] = [
     items: [
       {
         question: '什么是"换车"？',
-        answer: '换车是指当您当前所在的 ChatGPT Team 出现问题（如被封禁）时，可以自助转移到其他正常运行的 Team，无需等待人工处理。'
+        answer: '换车是指在兑换码有效期内，将账号从当前 ChatGPT Team 转移到其他 Team。每个兑换码仅有 1 次换车机会，建议在 Team 被封禁或异常时使用。'
       },
       {
         question: '什么情况下可以换车？',
-        answer: '只有当您当前所在的 Team 被封禁或异常时才能换车。如果 Team 正常运行，系统会提示"当前 Team 正常运行，无需换车"。'
+        answer: '兑换码有效期内仅有一次换车机会。请确认当前 Team 已封禁后再换车；若在正常状态换车，后续封禁将不再提供第二次换车。'
       },
       {
         question: '换车后原来的数据还在吗？',
@@ -54,7 +54,7 @@ const faqData: { category: string; items: FAQItem[] }[] = [
       },
       {
         question: '换车需要额外付费吗？',
-        answer: '不需要。在兑换码有效期内，换车是免费的，这是我们提供的售后保障服务。'
+        answer: '不需要，但每个兑换码仅有一次换车机会。'
       },
     ]
   },

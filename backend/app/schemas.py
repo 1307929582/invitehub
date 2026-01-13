@@ -232,7 +232,7 @@ class StatusResponse(BaseModel):
 
 # ========== Rebind API (Commercial) ==========
 class RebindRequest(BaseModel):
-    """换车请求（简化版：只需兑换码，邮箱从 bound_email 获取）
+    """换车请求（简化版：只需兑换码，邮箱从 bound_email 获取，默认仅一次机会）
 
     Requirements: 3.1, 3.2, 3.3, 3.4, 3.5
     """

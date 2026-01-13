@@ -103,6 +103,13 @@ export default function Rebind() {
   }
 
   const canSubmit = statusResult?.found && statusResult?.can_rebind
+  const rebindStatusText = (() => {
+    if (!statusResult) return ''
+    if (!statusResult.can_rebind) return '暂时无法换车（机会已用完或已过期）'
+    if (statusResult.team_active === false) return 'Team 已封禁，可使用唯一换车机会'
+    if (statusResult.team_active === true) return 'Team 正常，也可换车（仅一次机会）'
+    return '可换车（仅一次机会）'
+  })()
 
   return (
     <div style={{
@@ -191,8 +198,8 @@ export default function Rebind() {
                 message="换车说明"
                 description={
                   <ul style={{ margin: '8px 0 0', paddingLeft: 20, fontSize: 13 }}>
-                    <li>输入兑换码后自动查询绑定信息</li>
-                    <li>仅当原 Team 被封禁时才能换车</li>
+                    <li>每个兑换码仅有 1 次换车机会</li>
+                    <li>请确认当前 Team 已封禁后再使用（若在正常状态换车，后续封禁将不再提供第二次）</li>
                     <li>换车后新邀请将发送到绑定邮箱</li>
                   </ul>
                 }
@@ -300,9 +307,7 @@ export default function Rebind() {
                           fontWeight: 500,
                           fontSize: 13
                         }}>
-                          {statusResult.can_rebind
-                            ? '当前 Team 已封禁，可以换车'
-                            : '当前 Team 正常运行，无需换车'}
+                          {rebindStatusText}
                         </span>
                       </div>
                     </>

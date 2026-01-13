@@ -348,7 +348,7 @@ export default function DirectInvite() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <SwapOutlined style={{ color: statusResult.can_rebind ? '#34c759' : '#ff3b30' }} />
                 <span style={{ color: statusResult.can_rebind ? '#34c759' : '#ff3b30', fontWeight: 500 }}>
-                  {statusResult.can_rebind ? '可以换车' : '暂时无法换车（仅 Team 被封时可换车）'}
+                  {statusResult.can_rebind ? '可以换车（仅一次机会）' : '暂时无法换车（机会已用完或已过期）'}
                 </span>
               </div>
             </div>
@@ -359,6 +359,10 @@ export default function DirectInvite() {
           )}
         </div>
       )}
+
+      <div style={{ marginBottom: 16, fontSize: 12, color: '#d97706' }}>
+        仅一次换车机会，请确认当前 Team 已封禁后再使用；若在正常状态换车，后续封禁将不再提供第二次换车。
+      </div>
 
       {/* 换车按钮 */}
       <Button
@@ -591,7 +595,8 @@ export default function DirectInvite() {
                 ) : (
                   <ul style={{ paddingLeft: 18, margin: 0 }}>
                     <li>输入兑换码查询绑定状态</li>
-                    <li>仅当 Team 被封时可以换车</li>
+                    <li>每个兑换码仅有 1 次换车机会</li>
+                    <li>请确认当前 Team 已封禁后再换车（若在正常状态换车，后续封禁将不再提供第二次）</li>
                     <li>换车后原 Team 邀请失效</li>
                   </ul>
                 )}

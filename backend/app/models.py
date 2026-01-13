@@ -204,7 +204,7 @@ class RedeemCode(Base):
 
     # 换车相关字段
     rebind_count = Column(Integer, nullable=True, default=0)  # 已换车次数
-    rebind_limit = Column(Integer, nullable=True, default=3)  # 最大换车次数
+    rebind_limit = Column(Integer, nullable=True, default=1)  # 最大换车次数（默认 1）
     status = Column(String(20), nullable=True, default=RedeemCodeStatus.BOUND.value)  # 状态
     removed_at = Column(DateTime, nullable=True)  # 移除时间
     removal_retry_count = Column(Integer, nullable=True, default=0)  # 移除失败重试次数
@@ -242,7 +242,9 @@ class RedeemCode(Base):
     @property
     def safe_rebind_limit(self) -> int:
         """安全获取换车限制（处理 NULL）"""
-        return self.rebind_limit if self.rebind_limit is not None else 3
+        limit = self.rebind_limit if self.rebind_limit is not None else 1
+        # 全站仅一次换车机会，若配置更大则按 1 计
+        return min(limit, 1)
 
     @property
     def safe_status(self) -> str:
@@ -251,7 +253,7 @@ class RedeemCode(Base):
 
     @property
     def can_rebind(self) -> bool:
-        """是否可以换车"""
+        """是否可以换车（仅一次机会）"""
         return self.safe_rebind_count < self.safe_rebind_limit and not self.is_user_expired
 
 
@@ -466,4 +468,3 @@ class Coupon(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
 
     creator = relationship("User")
-

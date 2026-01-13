@@ -4,8 +4,8 @@
 
 本次更新添加了**自由换车**功能，允许用户在兑换码有效期内自由更换 Team，主要特性：
 
-- ✅ **自由换车**：用户可随时更换 Team，不再受 Team 状态限制
-- ✅ **次数限制**：每个兑换码最多可换车 3 次（可配置）
+- ✅ **自由换车**：用户可随时更换 Team，不再受 Team 状态限制（仅一次机会）
+- ✅ **次数限制**：每个兑换码最多可换车 1 次（可配置）
 - ✅ **有效期管理**：兑换码有效期 31-35 天，过期后自动移出 Team
 - ✅ **悲观锁保护**：使用数据库行锁防止并发问题
 - ✅ **状态机设计**：bound → removing → removed 状态流转
@@ -74,7 +74,7 @@ python scripts/migrate_existing_codes.py
 ```
 
 **脚本功能：**
-- 为所有现有兑换码设置 `rebind_count=0`, `rebind_limit=3`
+- 为所有现有兑换码设置 `rebind_count=0`, `rebind_limit=1`
 - 根据激活状态和过期时间智能推断 `status`
 - 调整 `validity_days` 到 31-35 天范围（容错）
 - 幂等性设计，可以安全地多次运行
@@ -317,7 +317,7 @@ WHERE key IN ('telegram_enabled', 'telegram_bot_token', 'telegram_chat_id');
 | 字段名 | 类型 | 默认值 | 说明 |
 |--------|------|--------|------|
 | rebind_count | integer | 0 | 已换车次数 |
-| rebind_limit | integer | 3 | 最大换车次数 |
+| rebind_limit | integer | 1 | 最大换车次数 |
 | status | varchar(20) | 'bound' | 状态：bound/removing/removed |
 | removed_at | timestamp | NULL | 移除时间 |
 
