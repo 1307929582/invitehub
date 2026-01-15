@@ -17,6 +17,13 @@ depends_on = None
 
 
 def upgrade():
+    # 扩展 alembic_version.version_num 长度，避免新版本号超长报错
+    op.alter_column(
+        "alembic_version",
+        "version_num",
+        existing_type=sa.String(length=32),
+        type_=sa.String(length=64)
+    )
     op.add_column('invite_records', sa.Column('consumed_at', sa.DateTime(), nullable=True))
     op.add_column('invite_queue', sa.Column('is_rebind', sa.Boolean(), nullable=False, server_default=sa.text('false')))
     op.add_column('invite_queue', sa.Column('old_team_id', sa.Integer(), nullable=True))
