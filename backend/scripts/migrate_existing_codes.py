@@ -5,7 +5,7 @@
 此脚本是幂等的，可以安全地多次运行。它会：
 1. 为所有现有兑换码设置 rebind_count=0, rebind_limit=1
 2. 根据激活状态和过期时间智能推断 status
-3. 调整 validity_days 到 31-35 天范围（容错）
+3. 调整 validity_days 到 30 天（容错）
 4. 【重要】从 InviteRecord 回填 activated_at 和 bound_email
 5. 打印详细的处理日志
 
@@ -151,13 +151,13 @@ def migrate_existing_codes():
                         updates['status'] = RedeemCodeStatus.BOUND.value
                 needs_update = True
 
-            # 4. 调整 validity_days 到 31-35 天范围（容错）
-            if code.validity_days is not None and code.validity_days < 31:
+            # 4. 调整 validity_days 到 30 天（容错）
+            if code.validity_days is not None and code.validity_days < 30:
                 old_days = code.validity_days
-                # 调整到 33 天（中间值）
-                updates['validity_days'] = 33
+                # 调整到 30 天
+                updates['validity_days'] = 30
                 adjusted_validity_count += 1
-                print(f"  [{code.code}] 调整有效期: {old_days} 天 -> 33 天")
+                print(f"  [{code.code}] 调整有效期: {old_days} 天 -> 30 天")
 
             # 执行更新
             if needs_update:

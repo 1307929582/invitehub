@@ -10,6 +10,7 @@ from celery import Task
 from sqlalchemy.orm import Session
 
 from app.celery_app import celery_app
+from app.config import settings
 from app.database import SessionLocal
 from app.models import InviteRecord, InviteStatus, InviteQueue, InviteQueueStatus, RedeemCode, Order, OrderStatus, Plan
 from app.cache import invalidate_seat_cache
@@ -56,6 +57,7 @@ def process_invite_task(
     old_team_id: int = None,  # 原 Team ID（用于踢人）
     old_team_chatgpt_user_id: str = None,  # 原 chatgpt_user_id（用于踢人）
     used_redis: bool = False,  # 是否使用了 Redis 令牌桶（用于回滚判断）
+    consume_immediately: bool = True,  # 是否在请求阶段已消耗次数
     reserved_team_id: int = None  # P0-1: 预占的 Team ID（已在 API 层预占座位）
 ):
     """
@@ -94,6 +96,7 @@ def process_invite_task(
                 "consume_rebind_count": consume_rebind_count,
                 "old_team_id": old_team_id,
                 "old_team_chatgpt_user_id": old_team_chatgpt_user_id,
+                "consume_immediately": consume_immediately,
                 "reserved_team_id": reserved_team_id,  # P0-1: 传递预占的 Team ID
                 "created_at": datetime.utcnow()
             }]))
@@ -117,7 +120,11 @@ def process_invite_task(
                 status=InviteQueueStatus.FAILED,
                 error_message=str(e)[:200],
                 retry_count=self.request.retries,
-                processed_at=datetime.utcnow()
+                processed_at=datetime.utcnow(),
+                is_rebind=is_rebind,
+                old_team_id=old_team_id,
+                old_team_chatgpt_user_id=old_team_chatgpt_user_id,
+                consume_immediately=consume_immediately
             )
             self.db.add(queue_record)
             self.db.commit()
@@ -127,7 +134,16 @@ def process_invite_task(
         # 最终失败时回滚兑换码使用次数和 RESERVED 记录
         if is_final_failure and redeem_code:
             try:
-                _rollback_redeem_code_usage(self.db, redeem_code, email, is_rebind, consume_rebind_count, used_redis, reserved_team_id)
+                _rollback_redeem_code_usage(
+                    self.db,
+                    redeem_code,
+                    email,
+                    is_rebind,
+                    consume_rebind_count,
+                    used_redis,
+                    reserved_team_id,
+                    consume_immediately
+                )
                 logger.info(f"Rolled back redeem code usage for {redeem_code} after final failure")
             except Exception as rollback_err:
                 logger.error(f"Failed to rollback redeem code: {rollback_err}")
@@ -136,7 +152,16 @@ def process_invite_task(
         raise self.retry(exc=e)
 
 
-def _rollback_redeem_code_usage(db: Session, code_str: str, email: str, is_rebind: bool, consume_rebind_count: bool = False, used_redis: bool = False, reserved_team_id: int = None):
+def _rollback_redeem_code_usage(
+    db: Session,
+    code_str: str,
+    email: str,
+    is_rebind: bool,
+    consume_rebind_count: bool = False,
+    used_redis: bool = False,
+    reserved_team_id: int = None,
+    consume_immediately: bool = True
+):
     """
     回滚兑换码使用次数和 RESERVED 记录
 
@@ -175,6 +200,9 @@ def _rollback_redeem_code_usage(db: Session, code_str: str, email: str, is_rebin
                 logger.info(f"Deleted RESERVED record for {email} in team {reserved_team_id}")
         except Exception as e:
             logger.error(f"Failed to delete RESERVED record: {e}")
+
+    if not consume_immediately:
+        return
 
     # 1. 回滚 Redis 令牌桶（仅当确实使用了 Redis 时才回滚）
     redis_client = get_redis()
@@ -218,6 +246,8 @@ def sync_redeem_count_task(self, code_id: int):
         code_id: 兑换码 ID
     """
     try:
+        if not settings.REDEEM_REDIS_LIMITER_ENABLED:
+            return
         from app.services.redeem_limiter import RedeemLimiter
         from app.cache import get_redis
 
@@ -267,6 +297,8 @@ def batch_sync_redeem_counts(self):
     定时任务：每5分钟执行一次
     """
     try:
+        if not settings.REDEEM_REDIS_LIMITER_ENABLED:
+            return
         from app.services.redeem_limiter import RedeemLimiter
         from app.cache import get_redis
 
@@ -1053,7 +1085,10 @@ def retry_failed_invites(self):
                     email=record.email,
                     redeem_code=record.redeem_code,
                     group_id=record.group_id,
-                    is_rebind=False
+                    is_rebind=record.is_rebind,
+                    old_team_id=getattr(record, "old_team_id", None),
+                    old_team_chatgpt_user_id=getattr(record, "old_team_chatgpt_user_id", None),
+                    consume_immediately=getattr(record, "consume_immediately", True)
                 )
                 processed_count += 1
                 logger.info(f"Processed waiting invite for {record.email}")

@@ -22,7 +22,16 @@ async def get_invite_queue() -> asyncio.Queue:
     return _invite_queue
 
 
-async def enqueue_invite(email: str, redeem_code: str, group_id: int = None, linuxdo_user_id: int = None, is_rebind: bool = False) -> str:
+async def enqueue_invite(
+    email: str,
+    redeem_code: str,
+    group_id: int = None,
+    linuxdo_user_id: int = None,
+    is_rebind: bool = False,
+    consume_immediately: bool = True,
+    old_team_id: int = None,
+    old_team_chatgpt_user_id: str = None
+) -> str:
     """添加邀请到队列，返回队列 ID
     
     Args:
@@ -42,6 +51,9 @@ async def enqueue_invite(email: str, redeem_code: str, group_id: int = None, lin
         "group_id": group_id,
         "linuxdo_user_id": linuxdo_user_id,
         "is_rebind": is_rebind,
+        "consume_immediately": consume_immediately,
+        "old_team_id": old_team_id,
+        "old_team_chatgpt_user_id": old_team_chatgpt_user_id,
         "created_at": datetime.utcnow()
     }
     
@@ -131,6 +143,10 @@ async def process_invite_batch(batch: List[Dict]):
                         redeem_code=item.get("redeem_code"),
                         linuxdo_user_id=item.get("linuxdo_user_id"),
                         group_id=group_id if group_id else None,
+                        is_rebind=item.get("is_rebind", False),
+                        old_team_id=item.get("old_team_id"),
+                        old_team_chatgpt_user_id=item.get("old_team_chatgpt_user_id"),
+                        consume_immediately=item.get("consume_immediately", True),
                         status=InviteQueueStatus.WAITING,  # 等待空位
                         error_message="所有 Team 已满，等待空位",
                         processed_at=None  # 未处理
@@ -147,6 +163,7 @@ async def process_invite_batch(batch: List[Dict]):
                     redeem_code=item.get("redeem_code"),
                     group_id=group_id if group_id else None,
                     is_rebind=item.get("is_rebind", False),
+                    consume_immediately=item.get("consume_immediately", True),
                     consume_rebind_count=item.get("consume_rebind_count", False),
                     old_team_id=item.get("old_team_id"),
                     old_team_chatgpt_user_id=item.get("old_team_chatgpt_user_id")
@@ -166,6 +183,10 @@ async def process_invite_batch(batch: List[Dict]):
                     email=task.email,
                     redeem_code=task.redeem_code,
                     group_id=task.group_id,
+                    is_rebind=task.is_rebind,
+                    old_team_id=task.old_team_id,
+                    old_team_chatgpt_user_id=task.old_team_chatgpt_user_id,
+                    consume_immediately=task.consume_immediately,
                     status=InviteQueueStatus.WAITING,  # 等待空位
                     error_message="座位不足，等待空位",
                     processed_at=None  # 未处理
@@ -260,6 +281,9 @@ async def _process_reserved_invites(db, items: List[Dict]):
                         "batch_id": batch_id,
                         "is_rebind": item.get("is_rebind", False)
                     })
+                    if item.get("redeem_code"):
+                        from app.services.email import send_invite_ready_email
+                        send_invite_ready_email(db, item["email"], team.name, is_rebind=item.get("is_rebind", False))
 
                 logger.info(f"Reserved invite success: {len(emails)} emails to {team.name}")
 
@@ -354,6 +378,10 @@ async def _process_team_invites_with_lock(
                         email=task.email,
                         redeem_code=task.redeem_code,
                         group_id=task.group_id,
+                        is_rebind=task.is_rebind,
+                        old_team_id=task.old_team_id,
+                        old_team_chatgpt_user_id=task.old_team_chatgpt_user_id,
+                        consume_immediately=task.consume_immediately,
                         status=InviteQueueStatus.WAITING,
                         error_message=f"Team {team.name} 状态异常，等待重新分配",
                         processed_at=None
@@ -372,6 +400,10 @@ async def _process_team_invites_with_lock(
                         email=task.email,
                         redeem_code=task.redeem_code,
                         group_id=task.group_id,
+                        is_rebind=task.is_rebind,
+                        old_team_id=task.old_team_id,
+                        old_team_chatgpt_user_id=task.old_team_chatgpt_user_id,
+                        consume_immediately=task.consume_immediately,
                         status=InviteQueueStatus.WAITING,  # 等待空位
                         error_message=f"Team {team.name} 已满，等待空位",
                         processed_at=None
@@ -391,6 +423,10 @@ async def _process_team_invites_with_lock(
                         email=task.email,
                         redeem_code=task.redeem_code,
                         group_id=task.group_id,
+                        is_rebind=task.is_rebind,
+                        old_team_id=task.old_team_id,
+                        old_team_chatgpt_user_id=task.old_team_chatgpt_user_id,
+                        consume_immediately=task.consume_immediately,
                         status=InviteQueueStatus.WAITING,  # 等待空位
                         error_message=f"Team {team.name} 座位不足，等待空位",
                         processed_at=None
@@ -416,6 +452,9 @@ async def _process_team_invites_with_lock(
                         is_rebind=task.is_rebind
                     )
                     db.add(invite)
+                    if task.redeem_code:
+                        from app.services.email import send_invite_ready_email
+                        send_invite_ready_email(db, task.email, team.name, is_rebind=task.is_rebind)
                 
                 logger.info(f"Batch invite success: {len(emails)} emails to {team.name}")
 
@@ -452,6 +491,9 @@ async def _process_team_invites_with_lock(
                             is_rebind=task.is_rebind
                         )
                         db.add(invite)
+                        if task.redeem_code:
+                            from app.services.email import send_invite_ready_email
+                            send_invite_ready_email(db, task.email, team.name, is_rebind=task.is_rebind)
                     except Exception as e2:
                         invite = InviteRecord(
                             team_id=team.id,
@@ -481,6 +523,10 @@ async def _process_team_invites_with_lock(
             email=task.email,
             redeem_code=task.redeem_code,
             group_id=task.group_id,
+            is_rebind=task.is_rebind,
+            old_team_id=task.old_team_id,
+            old_team_chatgpt_user_id=task.old_team_chatgpt_user_id,
+            consume_immediately=task.consume_immediately,
             status=InviteQueueStatus.WAITING,  # 等待重试
             error_message="处理超时，等待自动重试",
             processed_at=None

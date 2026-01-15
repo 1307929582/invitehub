@@ -245,6 +245,9 @@ class RebindResponse(BaseModel):
     success: bool
     message: str
     new_team_name: Optional[str] = None
+    state: Optional[str] = None  # INVITE_QUEUED | WAITING_FOR_SEAT
+    queue_position: Optional[int] = None
+    email: Optional[EmailStr] = None
 
 
 # ========== Export API ==========

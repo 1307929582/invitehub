@@ -260,6 +260,9 @@ export interface PublicRebindResponse {
   success: boolean
   message: string
   new_team_name?: string
+  state?: 'INVITE_QUEUED' | 'WAITING_FOR_SEAT'
+  queue_position?: number
+  email?: string
 }
 
 export interface PublicRedeemResponse {

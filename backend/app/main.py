@@ -23,6 +23,8 @@ async def sync_all_teams():
     from app.services.chatgpt_api import ChatGPTAPI, ChatGPTAPIError
     from app.services.authorization import check_is_unauthorized
     from datetime import datetime
+    from app.models import RedeemCode
+    from sqlalchemy import or_
 
     db = SessionLocal()
     try:
@@ -49,12 +51,46 @@ async def sync_all_teams():
                 pending_invites = db.query(InviteRecord).filter(
                     InviteRecord.team_id == team.id,
                     InviteRecord.status == InviteStatus.SUCCESS,
-                    InviteRecord.accepted_at == None
+                    or_(
+                        InviteRecord.accepted_at == None,
+                        InviteRecord.consumed_at == None
+                    )
                 ).all()
 
                 for invite in pending_invites:
                     if invite.email.lower().strip() in member_emails:
-                        invite.accepted_at = datetime.utcnow()
+                        now = datetime.utcnow()
+                        if invite.accepted_at is None:
+                            invite.accepted_at = now
+
+                        # 兑换/换车次数消耗：仅在加入成功时处理
+                        if invite.redeem_code and not invite.consumed_at:
+                            code = db.query(RedeemCode).filter(
+                                RedeemCode.code == invite.redeem_code
+                            ).with_for_update().first()
+                            if code:
+                                if invite.is_rebind:
+                                    if code.safe_rebind_count < code.safe_rebind_limit:
+                                        code.rebind_count = (code.rebind_count or 0) + 1
+                                    else:
+                                        logger.warning("Rebind count exceeded on consume", extra={
+                                            "code": invite.redeem_code,
+                                            "email": invite.email
+                                        })
+                                else:
+                                    if code.max_uses == 0 or code.used_count < code.max_uses:
+                                        code.used_count = (code.used_count or 0) + 1
+                                    else:
+                                        logger.warning("Used count exceeded on consume", extra={
+                                            "code": invite.redeem_code,
+                                            "email": invite.email
+                                        })
+                                    if not code.activated_at:
+                                        code.activated_at = now
+                                    if not code.bound_email:
+                                        code.bound_email = invite.email.lower().strip()
+
+                                invite.consumed_at = now
 
                 # ✅ 保存旧的授权状态（防止同步覆盖管理员手动授权）
                 old_members = db.query(TeamMember).filter(TeamMember.team_id == team.id).all()
@@ -284,26 +320,27 @@ async def lifespan(app: FastAPI):
     # 启动时初始化数据库
     init_db()
 
-    # 初始化 Redis 令牌桶（用于兑换码限流）
-    try:
-        from app.cache import get_redis
-        from app.services.redeem_limiter import RedeemLimiter
-        from app.models import RedeemCode
+    # 初始化 Redis 令牌桶（用于旧版兑换码限流，默认关闭）
+    if settings.REDEEM_REDIS_LIMITER_ENABLED:
+        try:
+            from app.cache import get_redis
+            from app.services.redeem_limiter import RedeemLimiter
+            from app.models import RedeemCode
 
-        redis_client = get_redis()
-        if redis_client:
-            limiter = RedeemLimiter(redis_client)
-            db = SessionLocal()
-            try:
-                codes = db.query(RedeemCode).filter(RedeemCode.is_active == True).all()
-                limiter.batch_init_codes([
-                    (c.code, c.max_uses, c.used_count) for c in codes
-                ])
-                logger.info(f"Initialized {len(codes)} redeem codes in Redis token bucket")
-            finally:
-                db.close()
-    except Exception as e:
-        logger.warning(f"Failed to initialize Redis token bucket: {e}")
+            redis_client = get_redis()
+            if redis_client:
+                limiter = RedeemLimiter(redis_client)
+                db = SessionLocal()
+                try:
+                    codes = db.query(RedeemCode).filter(RedeemCode.is_active == True).all()
+                    limiter.batch_init_codes([
+                        (c.code, c.max_uses, c.used_count) for c in codes
+                    ])
+                    logger.info(f"Initialized {len(codes)} redeem codes in Redis token bucket")
+                finally:
+                    db.close()
+        except Exception as e:
+            logger.warning(f"Failed to initialize Redis token bucket: {e}")
 
     # 启动异步任务 worker
     await start_task_worker()

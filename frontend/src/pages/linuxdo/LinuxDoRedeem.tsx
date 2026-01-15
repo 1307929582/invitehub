@@ -148,6 +148,79 @@ export default function LinuxDoRedeem() {
     }).finally(() => setLoading(false))
   }, [])
 
+  // 等待队列轮询（兑换）
+  useEffect(() => {
+    if (redeemResult?.state !== 'WAITING_FOR_SEAT' || !redeemEmail) return
+    let cancelled = false
+
+    const pollStatus = async () => {
+      try {
+        const res: any = await publicApi.getInviteStatus(redeemEmail.trim().toLowerCase())
+        if (cancelled || !res?.found) return
+        if (res.status === 'waiting') {
+          setRedeemResult(prev => prev ? {
+            ...prev,
+            message: res.status_message || prev.message,
+            queue_position: res.queue_position ?? prev.queue_position,
+          } : prev)
+        } else {
+          setRedeemResult(prev => prev ? {
+            ...prev,
+            message: res.status_message || prev.message,
+            team_name: res.team_name || prev.team_name,
+            state: 'INVITE_QUEUED',
+            queue_position: undefined,
+          } : prev)
+        }
+      } catch {
+        // ignore polling errors
+      }
+    }
+
+    pollStatus()
+    const timer = window.setInterval(pollStatus, 8000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [redeemResult?.state, redeemEmail])
+
+  // 等待队列轮询（换车）
+  useEffect(() => {
+    if (rebindResult?.state !== 'WAITING_FOR_SEAT' || !rebindResult.email) return
+    let cancelled = false
+
+    const pollStatus = async () => {
+      try {
+        const res: any = await publicApi.getInviteStatus(rebindResult.email as string)
+        if (cancelled || !res?.found) return
+        if (res.status === 'waiting') {
+          setRebindResult(prev => prev ? {
+            ...prev,
+            message: res.status_message || prev.message,
+            queue_position: res.queue_position ?? prev.queue_position,
+          } : prev)
+        } else {
+          setRebindResult(prev => prev ? {
+            ...prev,
+            message: res.status_message || prev.message,
+            state: 'INVITE_QUEUED',
+            queue_position: undefined,
+          } : prev)
+        }
+      } catch {
+        // ignore polling errors
+      }
+    }
+
+    pollStatus()
+    const timer = window.setInterval(pollStatus, 8000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [rebindResult?.state, rebindResult?.email])
+
   // 处理从支付网关跳转回来（使用 orderNo 作为依赖）
   const orderNo = searchParams.get('order_no')
   useEffect(() => {
@@ -600,7 +673,7 @@ export default function LinuxDoRedeem() {
         <Result
           status={isWaiting ? 'info' : 'success'}
           icon={isWaiting ? <HourglassOutlined style={{ color: '#ff9500' }} /> : <CheckCircleOutlined style={{ color: LINUXDO_COLOR }} />}
-          title={isWaiting ? '已进入等待队列' : (redeemResult.is_first_use ? '兑换码已激活！' : '请求已提交！')}
+          title={isWaiting ? '已进入等待队列' : (redeemResult.is_first_use ? '兑换码已绑定！' : '请求已提交！')}
           subTitle={
             <div>
               <p style={{ margin: '0 0 12px', color: '#1d1d1f' }}>{redeemResult.message}</p>
@@ -610,7 +683,7 @@ export default function LinuxDoRedeem() {
                   <span style={{ color: getDaysColor(redeemResult.remaining_days), fontWeight: 600 }}>有效期剩余 {redeemResult.remaining_days} 天</span>
                 </div>
               )}
-              {redeemResult.is_first_use && <Tag color="blue" style={{ marginBottom: 12 }}>首次激活，邮箱已绑定</Tag>}
+              {redeemResult.is_first_use && <Tag color="blue" style={{ marginBottom: 12 }}>首次绑定，邮箱已绑定</Tag>}
             </div>
           }
           extra={<Button type="primary" onClick={() => { setRedeemSuccess(false); setRedeemResult(null) }} style={{ borderRadius: 8, background: LINUXDO_COLOR, border: 'none' }}>继续兑换</Button>}
@@ -638,12 +711,24 @@ export default function LinuxDoRedeem() {
 
   const renderRebindContent = () => {
     if (rebindSuccess && rebindResult) {
+      const isWaiting = rebindResult.state === 'WAITING_FOR_SEAT'
       return (
         <Result
-          status="success"
-          icon={<CheckCircleOutlined style={{ color: LINUXDO_COLOR }} />}
-          title="换车请求已提交"
-          subTitle={<div><p style={{ margin: '0 0 8px', color: '#1d1d1f' }}>{rebindResult.message}</p><p style={{ margin: 0, color: '#ff9500' }}>请查收邮箱并接受新邀请</p></div>}
+          status={isWaiting ? 'info' : 'success'}
+          icon={isWaiting ? <HourglassOutlined style={{ color: '#ff9500' }} /> : <CheckCircleOutlined style={{ color: LINUXDO_COLOR }} />}
+          title={isWaiting ? '换车已进入等待队列' : '换车请求已提交'}
+          subTitle={
+            <div>
+              <p style={{ margin: '0 0 8px', color: '#1d1d1f' }}>{rebindResult.message}</p>
+              {isWaiting && rebindResult.queue_position && (
+                <div style={{ background: 'rgba(255, 149, 0, 0.1)', padding: '12px 16px', borderRadius: 12, marginBottom: 8 }}>
+                  <HourglassOutlined style={{ color: '#ff9500', marginRight: 6 }} />
+                  <span style={{ color: '#ff9500', fontWeight: 600 }}>排队位置：第 {rebindResult.queue_position} 位</span>
+                </div>
+              )}
+              {!isWaiting && <p style={{ margin: 0, color: '#ff9500' }}>请查收邮箱并接受新邀请</p>}
+            </div>
+          }
           extra={<Button type="primary" onClick={() => { setRebindSuccess(false); setRebindResult(null) }} style={{ borderRadius: 8, background: LINUXDO_COLOR, border: 'none' }}>继续操作</Button>}
         />
       )
@@ -667,7 +752,7 @@ export default function LinuxDoRedeem() {
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}><MailOutlined style={{ color: LINUXDO_COLOR }} /><span>绑定邮箱：</span><span style={{ fontWeight: 600 }}>{statusResult.email || '未绑定'}</span></div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}><TeamOutlined style={{ color: LINUXDO_COLOR }} /><span>当前 Team：</span><span style={{ fontWeight: 500 }}>{statusResult.team_name || '未知'}</span>{statusResult.team_active !== undefined && <Tag color={statusResult.team_active ? 'success' : 'error'} style={{ marginLeft: 4 }}>{statusResult.team_active ? '正常' : '异常'}</Tag>}</div>
                 {statusResult.remaining_days !== null && statusResult.remaining_days !== undefined && <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}><ClockCircleOutlined style={{ color: getDaysColor(statusResult.remaining_days) }} /><span style={{ color: getDaysColor(statusResult.remaining_days), fontWeight: 600 }}>剩余 {statusResult.remaining_days} 天</span></div>}
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><SwapOutlined style={{ color: statusResult.can_rebind ? '#34c759' : '#ff3b30' }} /><span style={{ color: statusResult.can_rebind ? '#34c759' : '#ff3b30', fontWeight: 500 }}>{statusResult.can_rebind ? '可以换车（仅一次机会）' : '暂时无法换车（机会已用完或已过期）'}</span></div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}><SwapOutlined style={{ color: statusResult.can_rebind ? '#34c759' : '#ff3b30' }} /><span style={{ color: statusResult.can_rebind ? '#34c759' : '#ff3b30', fontWeight: 500 }}>{statusResult.can_rebind ? '可以换车（仅一次机会，激活后15天内）' : '暂时无法换车（机会已用完/已过期/超过15天）'}</span></div>
               </div>
             ) : (
               <div style={{ padding: 16, background: 'rgba(255, 59, 48, 0.04)', borderRadius: 12, textAlign: 'center', color: '#ff3b30' }}>未找到该兑换码的绑定记录</div>
@@ -676,7 +761,7 @@ export default function LinuxDoRedeem() {
         )}
 
         <div style={{ marginBottom: 16, fontSize: 12, color: '#d97706' }}>
-          仅一次换车机会，请确认当前 Team 已封禁后再使用；若在正常状态换车，后续封禁将不再提供第二次换车。
+          仅一次换车机会，且需在激活后 15 天内使用；请确认当前 Team 已封禁后再使用，若在正常状态换车，后续封禁将不再提供第二次换车。
         </div>
 
         <Button type="primary" block size="large" loading={rebindSubmitting} onClick={handleRebind} disabled={!rebindCode || (statusResult !== null && !statusResult.can_rebind)} icon={<SwapOutlined />} style={{ height: 48, borderRadius: 12, fontWeight: 600, background: LINUXDO_COLOR, border: 'none' }}>
@@ -784,6 +869,7 @@ export default function LinuxDoRedeem() {
                   <ul style={{ paddingLeft: 18, margin: 0 }}>
                     <li>输入兑换码查询绑定状态</li>
                     <li>每个兑换码仅有 1 次换车机会</li>
+                    <li>换车需在激活后 15 天内完成</li>
                     <li>请确认当前 Team 已封禁后再换车（若在正常状态换车，后续封禁将不再提供第二次）</li>
                     <li>换车后原 Team 邀请失效</li>
                   </ul>

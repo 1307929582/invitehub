@@ -575,6 +575,19 @@ class TestRebindOperationIntegrityProperties:
         assert code.can_rebind is False, (
             "Rebind should be rejected for expired code"
         )
+
+    def test_rebind_window_expired(self):
+        """
+        Rebind should be rejected when beyond the 15-day window after activation.
+        """
+        code = RedeemCode()
+        code.validity_days = 30
+        code.activated_at = datetime.utcnow() - timedelta(days=16)
+        code.rebind_count = 0
+        code.rebind_limit = 1
+
+        assert code.is_rebind_window_expired is True
+        assert code.can_rebind is False
     
     @settings(max_examples=100)
     @given(

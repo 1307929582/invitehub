@@ -27,6 +27,8 @@ class NotificationSettings(BaseModel):
     seat_warning_threshold: int = 80
     notify_new_invite: bool = True
     notify_invite_accepted: bool = False
+    notify_waiting_queue: bool = True
+    notify_invite_ready: bool = True
     daily_report_enabled: bool = False
     daily_report_hour: int = 9
 

@@ -563,7 +563,8 @@ async def add_member(
         email=payload.email.lower(),
         team_id=payload.team_id,
         redeem_code=previous_invite.redeem_code,
-        status=InviteStatus.PENDING
+        status=InviteStatus.PENDING,
+        consumed_at=datetime.utcnow()
     )
     db.add(new_invite)
 

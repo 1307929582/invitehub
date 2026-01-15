@@ -22,6 +22,8 @@ class NotificationType:
     NEW_INVITE = "new_invite"              # 新邀请发送
     INVITE_ACCEPTED = "invite_accepted"    # 邀请已接受
     DAILY_REPORT = "daily_report"          # 每日报告
+    USER_QUEUE = "user_queue"              # 用户进入等待队列
+    USER_INVITE_READY = "user_invite_ready"  # 邀请已发送提醒（用户）
 
 
 def get_config(db: Session, key: str) -> Optional[str]:
@@ -60,6 +62,8 @@ def get_notification_settings(db: Session) -> Dict[str, Any]:
         "group_seat_warning_threshold": 5,  # 分组剩余座位预警阈值
         "notify_new_invite": True,     # 是否通知新邀请
         "notify_invite_accepted": False,  # 是否通知邀请接受
+        "notify_waiting_queue": True,  # 用户进入等待队列邮件提醒
+        "notify_invite_ready": True,   # 邀请已发送邮件提醒
         "daily_report_enabled": False,    # 是否发送每日报告
         "daily_report_hour": 9,           # 每日报告发送时间（小时）
     }
@@ -317,6 +321,57 @@ def send_new_invite_notification(db: Session, team_name: str, emails: List[str],
     """
     
     return send_email(db, subject, content)
+
+
+def _should_notify_user(db: Session, key: str) -> bool:
+    settings = get_notification_settings(db)
+    return settings.get("enabled") and settings.get(key, False)
+
+
+def send_waiting_queue_email(
+    db: Session,
+    to_email: str,
+    queue_position: Optional[int],
+    eta_message: str,
+    is_rebind: bool = False
+) -> bool:
+    """发送等待队列提醒给用户"""
+    if not to_email or not _should_notify_user(db, "notify_waiting_queue"):
+        return False
+
+    title = "换车已加入等待队列" if is_rebind else "已加入等待队列"
+    position_text = f"当前排队位置：第 {queue_position} 位。" if queue_position else "我们已为你排队处理中。"
+    content = f"""
+    <div style="padding: 20px; background: #fff7ed; border-radius: 12px; border-left: 4px solid #fb923c;">
+        <h3 style="margin: 0 0 12px 0; color: #c2410c;">{title}</h3>
+        <p style="margin: 0 0 8px 0;">{position_text}</p>
+        <p style="margin: 0 0 8px 0;">{eta_message}</p>
+        <p style="margin: 0; color: #6b7280;">系统会在有空位时自动处理，无需重复提交。</p>
+    </div>
+    """
+    return send_email(db, title, content, to_email=to_email)
+
+
+def send_invite_ready_email(
+    db: Session,
+    to_email: str,
+    team_name: Optional[str],
+    is_rebind: bool = False
+) -> bool:
+    """发送邀请已发送提醒给用户"""
+    if not to_email or not _should_notify_user(db, "notify_invite_ready"):
+        return False
+
+    title = "换车邀请已发送" if is_rebind else "上车邀请已发送"
+    team_text = f"分配 Team：{team_name}" if team_name else "我们已为你发送邀请"
+    content = f"""
+    <div style="padding: 20px; background: #ecfdf5; border-radius: 12px; border-left: 4px solid #10b981;">
+        <h3 style="margin: 0 0 12px 0; color: #059669;">{title}</h3>
+        <p style="margin: 0 0 8px 0;">{team_text}</p>
+        <p style="margin: 0;">请尽快查收邮箱并接受邀请，以免名额被释放。</p>
+    </div>
+    """
+    return send_email(db, title, content, to_email=to_email)
 
 
 def send_daily_report(db: Session, stats: Dict[str, Any]) -> bool:

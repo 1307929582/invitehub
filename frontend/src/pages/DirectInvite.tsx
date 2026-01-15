@@ -52,6 +52,9 @@ interface RebindResult {
   success: boolean
   message: string
   new_team_name?: string
+  state?: 'INVITE_QUEUED' | 'WAITING_FOR_SEAT'
+  queue_position?: number
+  email?: string
 }
 
 interface StatusResult {
@@ -106,6 +109,79 @@ export default function DirectInvite() {
       setActiveTab('redeem')
     }
   }, [urlCode])
+
+  // 等待队列轮询（兑换）
+  useEffect(() => {
+    if (redeemResult?.state !== 'WAITING_FOR_SEAT' || !email) return
+    let cancelled = false
+
+    const pollStatus = async () => {
+      try {
+        const res: any = await publicApi.getInviteStatus(email.trim().toLowerCase())
+        if (cancelled || !res?.found) return
+        if (res.status === 'waiting') {
+          setRedeemResult(prev => prev ? {
+            ...prev,
+            message: res.status_message || prev.message,
+            queue_position: res.queue_position ?? prev.queue_position,
+          } : prev)
+        } else {
+          setRedeemResult(prev => prev ? {
+            ...prev,
+            message: res.status_message || prev.message,
+            team_name: res.team_name || prev.team_name,
+            state: 'INVITE_QUEUED',
+            queue_position: undefined,
+          } : prev)
+        }
+      } catch {
+        // ignore polling errors
+      }
+    }
+
+    pollStatus()
+    const timer = window.setInterval(pollStatus, 8000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [redeemResult?.state, email])
+
+  // 等待队列轮询（换车）
+  useEffect(() => {
+    if (rebindResult?.state !== 'WAITING_FOR_SEAT' || !rebindResult.email) return
+    let cancelled = false
+
+    const pollStatus = async () => {
+      try {
+        const res: any = await publicApi.getInviteStatus(rebindResult.email as string)
+        if (cancelled || !res?.found) return
+        if (res.status === 'waiting') {
+          setRebindResult(prev => prev ? {
+            ...prev,
+            message: res.status_message || prev.message,
+            queue_position: res.queue_position ?? prev.queue_position,
+          } : prev)
+        } else {
+          setRebindResult(prev => prev ? {
+            ...prev,
+            message: res.status_message || prev.message,
+            state: 'INVITE_QUEUED',
+            queue_position: undefined,
+          } : prev)
+        }
+      } catch {
+        // ignore polling errors
+      }
+    }
+
+    pollStatus()
+    const timer = window.setInterval(pollStatus, 8000)
+    return () => {
+      cancelled = true
+      window.clearInterval(timer)
+    }
+  }, [rebindResult?.state, rebindResult?.email])
 
   const getDaysColor = (days: number | null | undefined) => {
     if (days === null || days === undefined) return '#86868b'
@@ -178,7 +254,7 @@ export default function DirectInvite() {
         }
         title={isWaiting
           ? '已进入等待队列'
-          : (redeemResult?.is_first_use ? '兑换码已激活！' : '请求已提交！')
+          : (redeemResult?.is_first_use ? '兑换码已绑定！' : '请求已提交！')
         }
         subTitle={
           <div>
@@ -211,7 +287,7 @@ export default function DirectInvite() {
                 )}
               </div>
             )}
-            {redeemResult?.is_first_use && <Tag color="blue" style={{ marginBottom: 12 }}>首次激活，邮箱已绑定</Tag>}
+            {redeemResult?.is_first_use && <Tag color="blue" style={{ marginBottom: 12 }}>首次绑定，邮箱已绑定</Tag>}
             {!isWaiting && (
               <p style={{ color: '#ff9500', fontSize: 13, marginTop: 8 }}>
                 {siteConfig?.success_message || '请查收邮箱并接受邀请'}
@@ -224,21 +300,35 @@ export default function DirectInvite() {
     )
   }
 
-  // 换车成功
-  const renderRebindSuccess = () => (
-    <Result
-      status="success"
-      icon={<CheckCircleOutlined style={{ color: '#34c759' }} />}
-      title="换车请求已提交"
-      subTitle={
-        <div>
-          <p style={{ margin: '0 0 8px', color: '#1d1d1f' }}>{rebindResult?.message}</p>
-          <p style={{ margin: 0, color: '#ff9500' }}>请查收邮箱并接受新邀请</p>
-        </div>
-      }
-      extra={<Button type="primary" onClick={() => { setRebindSuccess(false); setRebindResult(null) }} style={{ borderRadius: 8 }}>继续操作</Button>}
-    />
-  )
+  // 换车成功/等待
+  const renderRebindSuccess = () => {
+    const isWaiting = rebindResult?.state === 'WAITING_FOR_SEAT'
+    return (
+      <Result
+        status={isWaiting ? 'info' : 'success'}
+        icon={isWaiting
+          ? <HourglassOutlined style={{ color: '#ff9500' }} />
+          : <CheckCircleOutlined style={{ color: '#34c759' }} />
+        }
+        title={isWaiting ? '换车已进入等待队列' : '换车请求已提交'}
+        subTitle={
+          <div>
+            <p style={{ margin: '0 0 8px', color: '#1d1d1f' }}>{rebindResult?.message}</p>
+            {isWaiting && rebindResult?.queue_position && (
+              <div style={{ background: 'rgba(255, 149, 0, 0.1)', padding: '12px 16px', borderRadius: 12, marginBottom: 8 }}>
+                <HourglassOutlined style={{ color: '#ff9500', marginRight: 6 }} />
+                <span style={{ color: '#ff9500', fontWeight: 600 }}>排队位置：第 {rebindResult.queue_position} 位</span>
+              </div>
+            )}
+            {!isWaiting && (
+              <p style={{ margin: 0, color: '#ff9500' }}>请查收邮箱并接受新邀请</p>
+            )}
+          </div>
+        }
+        extra={<Button type="primary" onClick={() => { setRebindSuccess(false); setRebindResult(null) }} style={{ borderRadius: 8 }}>继续操作</Button>}
+      />
+    )
+  }
 
   // 兑换表单
   const renderRedeemForm = () => (
@@ -348,7 +438,7 @@ export default function DirectInvite() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <SwapOutlined style={{ color: statusResult.can_rebind ? '#34c759' : '#ff3b30' }} />
                 <span style={{ color: statusResult.can_rebind ? '#34c759' : '#ff3b30', fontWeight: 500 }}>
-                  {statusResult.can_rebind ? '可以换车（仅一次机会）' : '暂时无法换车（机会已用完或已过期）'}
+                  {statusResult.can_rebind ? '可以换车（仅一次机会，激活后15天内）' : '暂时无法换车（机会已用完/已过期/超过15天）'}
                 </span>
               </div>
             </div>
@@ -361,7 +451,7 @@ export default function DirectInvite() {
       )}
 
       <div style={{ marginBottom: 16, fontSize: 12, color: '#d97706' }}>
-        仅一次换车机会，请确认当前 Team 已封禁后再使用；若在正常状态换车，后续封禁将不再提供第二次换车。
+        仅一次换车机会，且需在激活后 15 天内使用；请确认当前 Team 已封禁后再使用，若在正常状态换车，后续封禁将不再提供第二次换车。
       </div>
 
       {/* 换车按钮 */}
@@ -596,6 +686,7 @@ export default function DirectInvite() {
                   <ul style={{ paddingLeft: 18, margin: 0 }}>
                     <li>输入兑换码查询绑定状态</li>
                     <li>每个兑换码仅有 1 次换车机会</li>
+                    <li>换车需在激活后 15 天内完成</li>
                     <li>请确认当前 Team 已封禁后再换车（若在正常状态换车，后续封禁将不再提供第二次）</li>
                     <li>换车后原 Team 邀请失效</li>
                   </ul>

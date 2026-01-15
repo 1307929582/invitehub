@@ -132,6 +132,7 @@ class InviteRecord(Base):
 
     # 新增字段 - 商业版功能
     is_rebind = Column(Boolean, default=False)  # 是否为换车操作
+    consumed_at = Column(DateTime, nullable=True)  # 兑换/换车次数已消耗时间（加入成功后）
 
     team = relationship("Team", back_populates="invites")
 
@@ -247,14 +248,32 @@ class RedeemCode(Base):
         return min(limit, 1)
 
     @property
+    def rebind_window_expires_at(self) -> Optional[datetime]:
+        """换车窗口截止时间（从激活开始 15 天）"""
+        if self.activated_at:
+            return self.activated_at + timedelta(days=15)
+        return None
+
+    @property
+    def is_rebind_window_expired(self) -> bool:
+        """换车窗口是否过期（未激活则视为不可换车）"""
+        if not self.rebind_window_expires_at:
+            return True
+        return datetime.utcnow() > self.rebind_window_expires_at
+
+    @property
     def safe_status(self) -> str:
         """安全获取状态（处理 NULL）"""
         return self.status if self.status else RedeemCodeStatus.BOUND.value
 
     @property
     def can_rebind(self) -> bool:
-        """是否可以换车（仅一次机会）"""
-        return self.safe_rebind_count < self.safe_rebind_limit and not self.is_user_expired
+        """是否可以换车（仅一次机会，且需在激活后 15 天内）"""
+        return (
+            self.safe_rebind_count < self.safe_rebind_limit
+            and not self.is_user_expired
+            and not self.is_rebind_window_expired
+        )
 
 
 class LinuxDOUser(Base):
@@ -300,9 +319,13 @@ class InviteQueue(Base):
     redeem_code = Column(String(50), nullable=True)
     linuxdo_user_id = Column(Integer, ForeignKey("linuxdo_users.id"), nullable=True)
     group_id = Column(Integer, ForeignKey("team_groups.id"), nullable=True)  # 指定分组
+    old_team_id = Column(Integer, nullable=True)  # 换车时原 Team ID
+    old_team_chatgpt_user_id = Column(String(100), nullable=True)  # 换车时原 ChatGPT user_id
     status = Column(Enum(InviteQueueStatus, values_callable=lambda x: [e.value for e in x]), default=InviteQueueStatus.PENDING, index=True)
     error_message = Column(Text, nullable=True)
     retry_count = Column(Integer, default=0)
+    is_rebind = Column(Boolean, default=False)  # 是否为换车等待
+    consume_immediately = Column(Boolean, default=True)  # 是否已在请求阶段消耗次数
     created_at = Column(DateTime, default=datetime.utcnow)
     processed_at = Column(DateTime, nullable=True)
 

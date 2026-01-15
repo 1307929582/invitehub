@@ -258,7 +258,8 @@ def reserve_seat_atomically(
     db: Session,
     email: str,
     redeem_code: str,
-    group_id: Optional[int] = None
+    group_id: Optional[int] = None,
+    is_rebind: bool = False
 ) -> Tuple[bool, Optional[int], Optional[str]]:
     """
     原子性座位预占（核心防超员逻辑）
@@ -373,7 +374,7 @@ def reserve_seat_atomically(
         email=email.lower().strip(),
         redeem_code=redeem_code,
         status=InviteStatus.RESERVED,
-        is_rebind=False
+        is_rebind=is_rebind
     )
     db.add(invite_record)
 

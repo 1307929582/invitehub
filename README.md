@@ -303,6 +303,8 @@ chmod +x team
 3️⃣ 收到新邀请 → 加入新 Team
 ```
 
+> 换车需在兑换码激活后 15 天内完成，且仅一次机会。
+
 📖 **Token 获取指南**：[docs/TOKEN_GUIDE.md](docs/TOKEN_GUIDE.md)
 
 ---

@@ -12,6 +12,9 @@ class Settings(BaseSettings):
     APP_NAME: str = "ChatGPT Team Manager"
     APP_VERSION: str = "1.4.0"
     DEBUG: bool = False
+
+    # Redis 兑换码令牌桶（旧限流机制，默认关闭）
+    REDEEM_REDIS_LIMITER_ENABLED: bool = False
     
     # GitHub 仓库（用于版本检查）
     GITHUB_REPO: str = "1307929582/team-invite"
