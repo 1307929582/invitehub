@@ -228,7 +228,8 @@ async def get_my_sales(
     from app.models import Team
 
     records = db.query(InviteRecord).filter(
-        InviteRecord.redeem_code.in_(my_codes_list)
+        InviteRecord.redeem_code.in_(my_codes_list),
+        InviteRecord.is_rebind == False
     ).order_by(InviteRecord.created_at.desc()).limit(limit).all()
 
     # 获取 Team 名称映射
@@ -289,7 +290,8 @@ async def get_distributor_sales(
     from app.models import Team
 
     records = db.query(InviteRecord).filter(
-        InviteRecord.redeem_code.in_(codes_list)
+        InviteRecord.redeem_code.in_(codes_list),
+        InviteRecord.is_rebind == False
     ).order_by(InviteRecord.created_at.desc()).limit(limit).all()
 
     # 获取 Team 名称映射

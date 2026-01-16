@@ -564,14 +564,7 @@ def cleanup_expired_users(self):
                     from app.metrics import record_expired_user_cleanup
                     record_expired_user_cleanup(success=False, reason="max_retries_exceeded")
 
-                    # 仅发送一次告警（避免告警风暴）
-                    try:
-                        asyncio.get_event_loop().run_until_complete(
-                            _send_cleanup_failure_alert(email, code.code, team.name if team else "unknown",
-                                                       f"重试 5 次失败: {e.message}")
-                        )
-                    except Exception as tg_error:
-                        logger.error(f"Failed to send Telegram alert: {tg_error}")
+                    # 过期清理失败不再发送 Telegram 告警
                 else:
                     # 回滚状态，下次重试
                     code.status = RedeemCodeStatus.BOUND.value
@@ -606,40 +599,6 @@ def cleanup_expired_users(self):
         lock.release()
 
 
-async def _send_cleanup_failure_alert(email: str, code: str, team_name: str, error_msg: str):
-    """发送清理失败告警到 Telegram"""
-    from app.models import SystemConfig
-    from app.services.telegram import send_telegram_message
-
-    db = SessionLocal()
-    try:
-        tg_enabled = db.query(SystemConfig).filter(SystemConfig.key == "telegram_enabled").first()
-        if not tg_enabled or tg_enabled.value != "true":
-            return
-
-        bot_token_config = db.query(SystemConfig).filter(SystemConfig.key == "telegram_bot_token").first()
-        chat_id_config = db.query(SystemConfig).filter(SystemConfig.key == "telegram_chat_id").first()
-
-        if not bot_token_config or not chat_id_config:
-            return
-
-        message = f"""
-⚠️ **过期用户清理失败**
-
-📧 邮箱: `{email}`
-🔑 兑换码: `{code}`
-🏢 Team: `{team_name}`
-❌ 错误: {error_msg}
-
-请手动介入处理。
-        """
-
-        await send_telegram_message(bot_token_config.value, chat_id_config.value, message)
-
-    except Exception as e:
-        logger.error(f"Failed to send cleanup failure alert: {e}")
-    finally:
-        db.close()
 
 
 async def _send_expiration_warning_email(email: str, code: str, days_left: int, expires_at: str):

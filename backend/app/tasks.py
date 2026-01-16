@@ -639,6 +639,8 @@ async def send_batch_telegram_notify(
         today_start, today_end = get_today_range_utc8()
 
         for task in tasks:
+            if getattr(task, "is_rebind", False):
+                continue
             if not task.redeem_code:
                 continue
 
@@ -667,6 +669,7 @@ async def send_batch_telegram_notify(
                     db.query(RedeemCode.code).filter(RedeemCode.created_by == distributor.id)
                 ),
                 InviteRecord.status == InviteStatus.SUCCESS,
+                InviteRecord.is_rebind == False,
                 InviteRecord.created_at >= today_start,
                 InviteRecord.created_at < today_end
             ).scalar() or 0
