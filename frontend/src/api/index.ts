@@ -166,6 +166,14 @@ export const notificationApi = {
   testSend: () => api.post('/notifications/test-send'),
 }
 
+// Bulk Email API
+export const bulkEmailApi = {
+  preview: (data: { target: 'expiring' | 'expired' | 'all'; days?: number }) =>
+    api.post('/bulk-email/preview', data),
+  send: (data: { target: 'expiring' | 'expired' | 'all'; days?: number; subject: string; content: string; confirm: boolean }) =>
+    api.post('/bulk-email/send', data),
+}
+
 // Setup API (无需认证)
 export const setupApi = {
   getStatus: () => axios.get('/api/v1/setup/status').then(r => r.data),

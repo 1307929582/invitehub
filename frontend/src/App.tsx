@@ -30,6 +30,7 @@ import Coupons from './pages/Coupons'
 import Purchase from './pages/Purchase'
 import PayResult from './pages/PayResult'
 import UnauthorizedMembers from './pages/UnauthorizedMembers'
+import BulkEmail from './pages/BulkEmail'
 import Legal from './pages/Legal'
 import FAQ from './pages/FAQ'
 import NotFound from './pages/NotFound'
@@ -246,6 +247,7 @@ function App() {
           <Route path="settings/payment" element={<PaymentSettings />} />
           <Route path="settings/linuxdo" element={<LinuxDoSettings />} />
           <Route path="settings/linuxdo/plans" element={<LinuxDoPlans />} />
+          <Route path="bulk-email" element={<BulkEmail />} />
           <Route path="plans" element={<Plans />} />
           <Route path="orders" element={<Orders />} />
           <Route path="coupons" element={<Coupons />} />

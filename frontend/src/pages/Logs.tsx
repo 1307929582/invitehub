@@ -21,6 +21,7 @@ const actionMap: Record<string, { label: string; color: string }> = {
   create: { label: '创建', color: 'purple' },
   update: { label: '更新', color: 'orange' },
   delete: { label: '删除', color: 'red' },
+  bulk_email: { label: '邮件群发', color: 'geekblue' },
 }
 
 export default function Logs() {

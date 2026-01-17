@@ -39,6 +39,13 @@ const settingModules = [
     path: '/admin/settings/telegram',
   },
   {
+    key: 'bulk-email',
+    title: '邮件群发',
+    description: '向用户发送公告或到期提醒',
+    icon: <MailOutlined style={{ fontSize: 28, color: '#10b981' }} />,
+    path: '/admin/bulk-email',
+  },
+  {
     key: 'alerts',
     title: '预警设置',
     description: '配置预警阈值和规则',

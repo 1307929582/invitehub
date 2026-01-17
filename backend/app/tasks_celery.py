@@ -735,6 +735,66 @@ def send_expiration_warnings(self):
         lock.release()
 
 
+@celery_app.task(bind=True, base=DatabaseTask)
+def send_bulk_email_task(self, payload: dict):
+    """发送批量邮件（管理员手动触发）"""
+    from app.services.bulk_email import collect_recipients, build_template_context, render_template
+    from app.services.email import send_email
+    from app.models import OperationLog
+
+    target = payload.get("target")
+    days = payload.get("days")
+    subject_tpl = payload.get("subject") or ""
+    content_tpl = payload.get("content") or ""
+    operator = payload.get("operator") or "system"
+
+    recipients = collect_recipients(self.db, target, days)
+    if not recipients:
+        try:
+            log = OperationLog(
+                user_id=None,
+                action="bulk_email",
+                target=operator,
+                details="recipients=0",
+                ip_address="system"
+            )
+            self.db.add(log)
+            self.db.commit()
+        except Exception as e:
+            logger.warning(f"Failed to write bulk_email log: {e}")
+        return {"sent": 0, "failed": 0}
+
+    sent = 0
+    failed = 0
+
+    for record in recipients:
+        context = build_template_context(record)
+        subject = render_template(subject_tpl, context).strip()
+        content = render_template(content_tpl, context)
+        if not subject:
+            failed += 1
+            continue
+        if send_email(self.db, subject, content, to_email=record.get("email")):
+            sent += 1
+        else:
+            failed += 1
+
+    try:
+        log = OperationLog(
+            user_id=None,
+            action="bulk_email",
+            target=operator,
+            details=f"sent={sent}, failed={failed}, total={len(recipients)}",
+            ip_address="system"
+        )
+        self.db.add(log)
+        self.db.commit()
+    except Exception as e:
+        logger.warning(f"Failed to write bulk_email log: {e}")
+
+    return {"sent": sent, "failed": failed}
+
+
 @celery_app.task(
     bind=True,
     base=DatabaseTask,

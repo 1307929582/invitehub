@@ -91,6 +91,7 @@ const menuItems = [
       { key: '/admin/logs', icon: <FileTextOutlined />, label: '操作日志' },
       { key: '/admin/admins', icon: <UserOutlined />, label: '管理员管理' },
       { key: '/admin/settings', icon: <SettingOutlined />, label: '系统设置' },
+      { key: '/admin/bulk-email', icon: <MailOutlined />, label: '邮件群发' },
       { key: '/admin/settings/linuxdo', icon: <AppstoreOutlined />, label: 'LinuxDo 配置' },
     ],
   },
