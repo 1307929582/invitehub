@@ -10,6 +10,7 @@ from app.models import SystemConfig, User, Team
 from app.services.auth import get_current_user
 from app.services.email import send_email, send_alert_email
 from app.services.telegram import send_telegram_message
+from app.cache import invalidate_public_cache
 from app.logger import get_logger
 
 router = APIRouter(prefix="/config", tags=["config"])
@@ -53,6 +54,9 @@ DEFAULT_CONFIGS = [
     {"key": "site_url", "description": "站点 URL（用于生成链接）"},
     {"key": "site_title", "description": "站点标题"},
     {"key": "site_description", "description": "站点描述"},
+    {"key": "support_group_message", "description": "上车/换车后弹窗文案", "value": "欢迎加入售后交流群，获取使用答疑与公告。"},
+    {"key": "support_tg_link", "description": "Telegram 群链接", "value": "https://t.me/+k9NwmID50XJmMzE9"},
+    {"key": "support_qq_group", "description": "QQ群号", "value": "127743359"},
     {"key": "min_trust_level", "description": "最低信任等级要求（0-4）"},
     # 商业版配置
     {"key": "redeem_unit_price", "description": "兑换码单价（用于销售统计）"},
@@ -97,7 +101,7 @@ async def list_configs(
         if default["key"] not in existing_keys:
             new_config = SystemConfig(
                 key=default["key"],
-                value="",
+                value=default.get("value", ""),
                 description=default["description"]
             )
             db.add(new_config)
@@ -141,6 +145,7 @@ async def update_config(
         db.add(config)
     
     db.commit()
+    invalidate_public_cache()
     return {"message": "配置已更新", "key": key}
 
 
@@ -169,6 +174,7 @@ async def batch_update_configs(
             db.add(config)
     
     db.commit()
+    invalidate_public_cache()
     return {"message": f"已更新 {len(configs)} 项配置"}
 
 

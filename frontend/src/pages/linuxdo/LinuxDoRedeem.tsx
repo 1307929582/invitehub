@@ -16,9 +16,16 @@ import {
   type PublicRebindResponse,
   type PublicStatusResponse,
 } from '../../api'
+import SupportGroupModal from '../../components/SupportGroupModal'
 
 const { useBreakpoint } = Grid
 const { Title, Text, Paragraph } = Typography
+
+interface SupportConfig {
+  support_group_message?: string
+  support_tg_link?: string
+  support_qq_group?: string
+}
 
 // LinuxDo 主题色
 const LINUXDO_COLOR = '#0066FF'
@@ -104,6 +111,8 @@ export default function LinuxDoRedeem() {
   const [redeemSubmitting, setRedeemSubmitting] = useState(false)
   const [redeemSuccess, setRedeemSuccess] = useState(false)
   const [redeemResult, setRedeemResult] = useState<PublicRedeemResponse | null>(null)
+  const [redeemSupportOpen, setRedeemSupportOpen] = useState(false)
+  const [redeemSupportShown, setRedeemSupportShown] = useState(false)
 
   // 换车状态
   const [rebindCode, setRebindCode] = useState('')
@@ -112,6 +121,10 @@ export default function LinuxDoRedeem() {
   const [rebindResult, setRebindResult] = useState<PublicRebindResponse | null>(null)
   const [querying, setQuerying] = useState(false)
   const [statusResult, setStatusResult] = useState<PublicStatusResponse | null>(null)
+  const [rebindSupportOpen, setRebindSupportOpen] = useState(false)
+  const [rebindSupportShown, setRebindSupportShown] = useState(false)
+
+  const [supportConfig, setSupportConfig] = useState<SupportConfig | null>(null)
 
   // 组件挂载/卸载状态管理
   useEffect(() => {
@@ -147,6 +160,38 @@ export default function LinuxDoRedeem() {
       console.error('Initial load failed:', error)
     }).finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    publicApi.getSiteConfig()
+      .then((config: any) => setSupportConfig(config))
+      .catch(() => { })
+  }, [])
+
+  const supportTg = (supportConfig?.support_tg_link || '').trim()
+  const supportQq = (supportConfig?.support_qq_group || '').trim()
+  const canShowSupport = !!(supportTg || supportQq)
+
+  useEffect(() => {
+    if (!redeemSuccess) {
+      setRedeemSupportShown(false)
+      return
+    }
+    if (redeemSuccess && redeemResult && canShowSupport && !redeemSupportShown) {
+      setRedeemSupportOpen(true)
+      setRedeemSupportShown(true)
+    }
+  }, [redeemSuccess, redeemResult, canShowSupport, redeemSupportShown])
+
+  useEffect(() => {
+    if (!rebindSuccess) {
+      setRebindSupportShown(false)
+      return
+    }
+    if (rebindSuccess && rebindResult && canShowSupport && !rebindSupportShown) {
+      setRebindSupportOpen(true)
+      setRebindSupportShown(true)
+    }
+  }, [rebindSuccess, rebindResult, canShowSupport, rebindSupportShown])
 
   // 等待队列轮询（兑换）
   useEffect(() => {
@@ -884,6 +929,20 @@ export default function LinuxDoRedeem() {
           </Col>
         </Row>
       </Card>
+      <SupportGroupModal
+        open={redeemSupportOpen}
+        onClose={() => setRedeemSupportOpen(false)}
+        messageText={supportConfig?.support_group_message}
+        tgLink={supportTg}
+        qqGroup={supportQq}
+      />
+      <SupportGroupModal
+        open={rebindSupportOpen}
+        onClose={() => setRebindSupportOpen(false)}
+        messageText={supportConfig?.support_group_message}
+        tgLink={supportTg}
+        qqGroup={supportQq}
+      />
     </div>
   )
 }

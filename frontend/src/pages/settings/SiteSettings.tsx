@@ -123,6 +123,38 @@ export default function SiteSettings() {
 
           <Divider>
             <GlobalOutlined style={{ marginRight: 8 }} />
+            售后交流群弹窗
+          </Divider>
+
+          <Form.Item
+            name="support_group_message"
+            label="弹窗文案"
+            extra="用户上车/换车成功后弹窗提示文案"
+          >
+            <Input.TextArea
+              placeholder="欢迎加入售后交流群，获取使用答疑与公告。"
+              rows={2}
+            />
+          </Form.Item>
+
+          <Form.Item
+            name="support_tg_link"
+            label="Telegram 群链接"
+            extra="例如：https://t.me/xxxx 或邀请链接"
+          >
+            <Input placeholder="https://t.me/xxxx" size="large" />
+          </Form.Item>
+
+          <Form.Item
+            name="support_qq_group"
+            label="QQ群号"
+            extra="例如：127743359"
+          >
+            <Input placeholder="127743359" size="large" />
+          </Form.Item>
+
+          <Divider>
+            <GlobalOutlined style={{ marginRight: 8 }} />
             纯净页面配置
           </Divider>
 

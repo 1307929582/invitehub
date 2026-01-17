@@ -51,6 +51,12 @@ def get_config(db: Session, key: str) -> Optional[str]:
     return config.value if config else None
 
 
+def get_config_or_default(db: Session, key: str, default: str) -> str:
+    """获取配置，若不存在则返回默认值（允许空字符串）"""
+    value = get_config(db, key)
+    return default if value is None else value
+
+
 def _build_waiting_eta_message() -> str:
     """生成更友好的等待提示（北京时间）"""
     now = now_beijing()
@@ -152,6 +158,9 @@ ALLOWED_FEATURE_ICONS = {
 MAX_FEATURES_JSON_CHARS = 10_000
 MAX_FEATURES = 12
 MAX_FEATURE_TEXT_LEN = 200
+DEFAULT_SUPPORT_MESSAGE = "欢迎加入售后交流群，获取使用答疑与公告。"
+DEFAULT_SUPPORT_TG_LINK = "https://t.me/+k9NwmID50XJmMzE9"
+DEFAULT_SUPPORT_QQ_GROUP = "127743359"
 
 
 class FeatureItem(BaseModel):
@@ -167,6 +176,9 @@ class SiteConfig(BaseModel):
     home_notice: str = ""  # 首页公告
     success_message: str = "邀请已发送！请查收邮箱并接受邀请"
     footer_text: str = ""  # 页脚文字
+    support_group_message: str = DEFAULT_SUPPORT_MESSAGE  # 上车/换车后弹窗文案
+    support_tg_link: str = DEFAULT_SUPPORT_TG_LINK  # Telegram 群链接
+    support_qq_group: str = DEFAULT_SUPPORT_QQ_GROUP  # QQ 群号
     is_simple_page: bool = False  # 是否为纯净页面（只显示兑换表单，不显示左侧广告）
     # 左侧面板配置
     hero_title: Optional[str] = None  # 大标题
@@ -237,6 +249,9 @@ async def get_site_config(request: Request, db: Session = Depends(get_db)):
             home_notice=get_config(db, "home_notice") or "",
             success_message=get_config(db, "success_message") or "邀请已发送！请查收邮箱并接受邀请",
             footer_text=get_config(db, "footer_text") or "",
+            support_group_message=get_config_or_default(db, "support_group_message", DEFAULT_SUPPORT_MESSAGE),
+            support_tg_link=get_config_or_default(db, "support_tg_link", DEFAULT_SUPPORT_TG_LINK),
+            support_qq_group=get_config_or_default(db, "support_qq_group", DEFAULT_SUPPORT_QQ_GROUP),
             is_simple_page=True,  # 纯净页面：只显示兑换表单
             hero_title=get_config(db, "hero_title"),
             hero_subtitle=get_config(db, "hero_subtitle"),
@@ -256,6 +271,9 @@ async def get_site_config(request: Request, db: Session = Depends(get_db)):
         home_notice=get_config(db, "home_notice") or "",
         success_message=get_config(db, "success_message") or "邀请已发送！请查收邮箱并接受邀请",
         footer_text=get_config(db, "footer_text") or "",
+        support_group_message=get_config_or_default(db, "support_group_message", DEFAULT_SUPPORT_MESSAGE),
+        support_tg_link=get_config_or_default(db, "support_tg_link", DEFAULT_SUPPORT_TG_LINK),
+        support_qq_group=get_config_or_default(db, "support_qq_group", DEFAULT_SUPPORT_QQ_GROUP),
         is_simple_page=False,  # 普通页面：完整显示
         hero_title=get_config(db, "hero_title"),
         hero_subtitle=get_config(db, "hero_subtitle"),

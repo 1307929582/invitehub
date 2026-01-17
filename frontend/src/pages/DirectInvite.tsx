@@ -8,6 +8,7 @@ import {
 } from '@ant-design/icons'
 import axios from 'axios'
 import { publicApi } from '../api'
+import SupportGroupModal from '../components/SupportGroupModal'
 
 const { useBreakpoint } = Grid
 const { Title, Text } = Typography
@@ -34,6 +35,9 @@ interface SiteConfig {
   hero_subtitle?: string
   features?: Feature[]
   is_simple_page?: boolean  // 纯净页面：只显示兑换表单
+  support_group_message?: string
+  support_tg_link?: string
+  support_qq_group?: string
 }
 
 interface RedeemResult {
@@ -81,6 +85,8 @@ export default function DirectInvite() {
   const [submitting, setSubmitting] = useState(false)
   const [redeemSuccess, setRedeemSuccess] = useState(false)
   const [redeemResult, setRedeemResult] = useState<RedeemResult | null>(null)
+  const [redeemSupportOpen, setRedeemSupportOpen] = useState(false)
+  const [redeemSupportShown, setRedeemSupportShown] = useState(false)
 
   // 换车状态（简化版：只需兑换码）
   const [rebindCode, setRebindCode] = useState('')
@@ -89,6 +95,8 @@ export default function DirectInvite() {
   const [rebindResult, setRebindResult] = useState<RebindResult | null>(null)
   const [querying, setQuerying] = useState(false)
   const [statusResult, setStatusResult] = useState<StatusResult | null>(null)
+  const [rebindSupportOpen, setRebindSupportOpen] = useState(false)
+  const [rebindSupportShown, setRebindSupportShown] = useState(false)
 
   // Tab 状态
   const [activeTab, setActiveTab] = useState('redeem')
@@ -109,6 +117,32 @@ export default function DirectInvite() {
       setActiveTab('redeem')
     }
   }, [urlCode])
+
+  const supportTg = (siteConfig?.support_tg_link || '').trim()
+  const supportQq = (siteConfig?.support_qq_group || '').trim()
+  const canShowSupport = !!(supportTg || supportQq)
+
+  useEffect(() => {
+    if (!redeemSuccess) {
+      setRedeemSupportShown(false)
+      return
+    }
+    if (redeemSuccess && redeemResult && canShowSupport && !redeemSupportShown) {
+      setRedeemSupportOpen(true)
+      setRedeemSupportShown(true)
+    }
+  }, [redeemSuccess, redeemResult, canShowSupport, redeemSupportShown])
+
+  useEffect(() => {
+    if (!rebindSuccess) {
+      setRebindSupportShown(false)
+      return
+    }
+    if (rebindSuccess && rebindResult && canShowSupport && !rebindSupportShown) {
+      setRebindSupportOpen(true)
+      setRebindSupportShown(true)
+    }
+  }, [rebindSuccess, rebindResult, canShowSupport, rebindSupportShown])
 
   // 等待队列轮询（兑换）
   useEffect(() => {
@@ -710,6 +744,20 @@ export default function DirectInvite() {
           </Col>
         </Row>
       </Card>
+      <SupportGroupModal
+        open={redeemSupportOpen}
+        onClose={() => setRedeemSupportOpen(false)}
+        messageText={siteConfig?.support_group_message}
+        tgLink={supportTg}
+        qqGroup={supportQq}
+      />
+      <SupportGroupModal
+        open={rebindSupportOpen}
+        onClose={() => setRebindSupportOpen(false)}
+        messageText={siteConfig?.support_group_message}
+        tgLink={supportTg}
+        qqGroup={supportQq}
+      />
     </div>
   )
 }

@@ -3,6 +3,7 @@ import { Input, Button, Card, Alert, Result, Spin, message, Tag } from 'antd'
 import { SwapOutlined, KeyOutlined, CheckCircleOutlined, CloseCircleOutlined, HomeOutlined, ClockCircleOutlined, TeamOutlined, MailOutlined, LoadingOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
 import { publicApi } from '../api'
+import SupportGroupModal from '../components/SupportGroupModal'
 
 interface StatusResult {
   found: boolean
@@ -21,12 +22,21 @@ interface RebindResponse {
   new_team_name?: string
 }
 
+interface SupportConfig {
+  support_group_message?: string
+  support_tg_link?: string
+  support_qq_group?: string
+}
+
 export default function Rebind() {
   const [code, setCode] = useState('')
   const [loading, setLoading] = useState(false)
   const [result, setResult] = useState<RebindResponse | null>(null)
   const [querying, setQuerying] = useState(false)
   const [statusResult, setStatusResult] = useState<StatusResult | null>(null)
+  const [supportConfig, setSupportConfig] = useState<SupportConfig | null>(null)
+  const [supportModalOpen, setSupportModalOpen] = useState(false)
+  const [supportModalShown, setSupportModalShown] = useState(false)
   const navigate = useNavigate()
 
   // 计算剩余天数颜色
@@ -69,6 +79,12 @@ export default function Rebind() {
     return () => clearTimeout(timer)
   }, [code, queryStatus])
 
+  useEffect(() => {
+    publicApi.getSiteConfig()
+      .then((config: any) => setSupportConfig(config))
+      .catch(() => { })
+  }, [])
+
   const handleSubmit = async () => {
     const trimmedCode = code.trim().toUpperCase()
     if (trimmedCode.length < 6) {
@@ -103,6 +119,20 @@ export default function Rebind() {
   }
 
   const canSubmit = statusResult?.found && statusResult?.can_rebind
+  const supportTg = (supportConfig?.support_tg_link || '').trim()
+  const supportQq = (supportConfig?.support_qq_group || '').trim()
+  const canShowSupport = !!(supportTg || supportQq)
+
+  useEffect(() => {
+    if (!result?.success) {
+      setSupportModalShown(false)
+      return
+    }
+    if (result?.success && canShowSupport && !supportModalShown) {
+      setSupportModalOpen(true)
+      setSupportModalShown(true)
+    }
+  }, [result?.success, canShowSupport, supportModalShown])
   const rebindStatusText = (() => {
     if (!statusResult) return ''
     if (!statusResult.can_rebind) return '暂时无法换车（机会已用完/已过期/超过15天）'
@@ -451,6 +481,13 @@ export default function Rebind() {
             如遇问题，请联系：<a href="mailto:contact@zenscaleai.com" style={{ color: '#007aff' }}>contact@zenscaleai.com</a>
           </p>
         </div>
+        <SupportGroupModal
+          open={supportModalOpen}
+          onClose={() => setSupportModalOpen(false)}
+          messageText={supportConfig?.support_group_message}
+          tgLink={supportTg}
+          qqGroup={supportQq}
+        />
       </div>
     </div>
   )
