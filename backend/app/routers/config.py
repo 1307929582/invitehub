@@ -3,7 +3,7 @@ from datetime import datetime, timedelta
 from typing import Optional, List
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
-from pydantic import BaseModel
+from pydantic import BaseModel, EmailStr
 
 from app.database import get_db
 from app.models import SystemConfig, User, Team
@@ -35,6 +35,14 @@ class ConfigResponse(BaseModel):
 
 class ConfigListResponse(BaseModel):
     configs: List[ConfigResponse]
+
+
+class TestSmtpAccountRequest(BaseModel):
+    host: str
+    port: int
+    user: str
+    password: str
+    to_email: Optional[EmailStr] = None
 
 
 def is_sensitive_key(key: str) -> bool:
@@ -195,6 +203,30 @@ async def test_email(
         return {"message": "测试邮件已发送，请检查收件箱"}
     else:
         raise HTTPException(status_code=400, detail="邮件发送失败，请检查 SMTP 配置")
+
+
+@router.post("/test-smtp-account")
+async def test_smtp_account(
+    data: TestSmtpAccountRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+):
+    """测试指定 SMTP 账号（发送测试邮件）"""
+    from app.services.email import send_test_email_with_account
+
+    result = send_test_email_with_account(
+        db,
+        {
+            "host": data.host,
+            "port": data.port,
+            "user": data.user,
+            "password": data.password
+        },
+        to_email=str(data.to_email) if data.to_email else None
+    )
+    if result.get("success"):
+        return {"message": result.get("message", "测试邮件已发送")}
+    raise HTTPException(status_code=400, detail=result.get("message", "测试失败"))
 
 
 @router.post("/test-telegram")

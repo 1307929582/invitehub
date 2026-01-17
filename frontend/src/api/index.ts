@@ -138,6 +138,8 @@ export const configApi = {
   batchUpdate: (configs: { key: string; value: string; description?: string | null }[]) => 
     api.post('/config/batch', configs),
   testEmail: () => api.post('/config/test-email'),
+  testSmtpAccount: (data: { host: string; port: number; user: string; password: string; to_email?: string }) =>
+    api.post('/config/test-smtp-account', data),
   testTelegram: () => api.post('/config/test-telegram'),
   syncMailboxes: () => api.post('/config/mail/sync'),
   scanBanEmails: () => api.post('/config/mail/scan'),

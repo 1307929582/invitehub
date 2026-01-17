@@ -734,6 +734,40 @@ def test_email_connection(db: Session) -> Dict[str, Any]:
         return {"success": False, "message": f"连接失败: {str(e)}"}
 
 
+def send_test_email_with_account(
+    db: Session,
+    account: Dict[str, Any],
+    to_email: Optional[str] = None
+) -> Dict[str, Any]:
+    """使用指定 SMTP 账号发送测试邮件"""
+    normalized = _normalize_smtp_account(account)
+    if not normalized:
+        return {"success": False, "message": "SMTP 账号信息不完整"}
+
+    target_email = to_email or get_config(db, "admin_email")
+    if not target_email:
+        return {"success": False, "message": "请先配置管理员邮箱"}
+
+    date_key = _get_today_key()
+    limit = normalized.get("daily_limit")
+    used = _get_usage_count(normalized["account_id"], date_key)
+    if limit is not None and limit > 0 and used >= limit:
+        return {"success": False, "message": "该账号今日发送量已达上限"}
+
+    subject = "测试邮件 - 指定账号"
+    content = """
+    <div style="padding: 20px; background: #ecfdf5; border-radius: 8px; border-left: 4px solid #10b981;">
+        <h3 style="margin: 0 0 10px 0; color: #059669;">测试邮件</h3>
+        <p style="margin: 0;">如果您收到这封邮件，说明该 SMTP 账号配置正确。</p>
+    </div>
+    """
+    from_name = _get_from_name(db)
+    if _send_via_account(normalized, subject, content, target_email, from_name):
+        _increment_usage(normalized["account_id"], date_key)
+        return {"success": True, "message": "测试邮件已发送"}
+    return {"success": False, "message": "发送失败，请检查账号或网络"}
+
+
 def send_verification_code_email(db: Session, to_email: str, code: str) -> bool:
     """发送分销商注册验证码"""
     subject = "注册验证码"

@@ -9,6 +9,7 @@ export default function EmailSettings() {
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
+  const [testingAccount, setTestingAccount] = useState<Record<number, boolean>>({})
   const [mailSyncing, setMailSyncing] = useState(false)
   const [mailScanning, setMailScanning] = useState(false)
   const [form] = Form.useForm()
@@ -95,6 +96,31 @@ export default function EmailSettings() {
     }
   }
 
+  const handleTestAccount = async (index: number) => {
+    const accounts = form.getFieldValue('smtp_accounts') || []
+    const account = accounts[index] || {}
+    if (!account.host || !account.port || !account.user || !account.password) {
+      message.error('请先填写完整账号信息')
+      return
+    }
+    const toEmail = form.getFieldValue('admin_email')
+    setTestingAccount(prev => ({ ...prev, [index]: true }))
+    try {
+      await configApi.testSmtpAccount({
+        host: String(account.host).trim(),
+        port: Number(account.port),
+        user: String(account.user).trim(),
+        password: String(account.password).trim(),
+        to_email: toEmail ? String(toEmail).trim() : undefined
+      })
+      message.success('测试邮件已发送')
+    } catch (e: any) {
+      message.error(e.response?.data?.detail || '测试失败，请检查配置')
+    } finally {
+      setTestingAccount(prev => ({ ...prev, [index]: false }))
+    }
+  }
+
   const handleMailSync = async () => {
     setMailSyncing(true)
     try {
@@ -173,7 +199,7 @@ export default function EmailSettings() {
             type="info"
             showIcon
             style={{ marginBottom: 16 }}
-            message="填写多个 SMTP 账号后将按轮询发送，并支持单账号每日限额；未填写时使用下方单账号配置。"
+            message="填写多个 SMTP 账号后将按轮询发送，并支持单账号每日限额；未填写时使用下方单账号配置。测试按钮会向管理员邮箱发送测试邮件。"
           />
 
           <Form.List name="smtp_accounts">
@@ -192,9 +218,18 @@ export default function EmailSettings() {
                   >
                     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
                       <div style={{ fontWeight: 600 }}>账号 {field.name + 1}</div>
-                      <Button type="text" danger icon={<DeleteOutlined />} onClick={() => remove(field.name)}>
-                        删除
-                      </Button>
+                      <Space>
+                        <Button
+                          icon={<SendOutlined />}
+                          loading={!!testingAccount[field.name]}
+                          onClick={() => handleTestAccount(field.name)}
+                        >
+                          测试
+                        </Button>
+                        <Button type="text" danger icon={<DeleteOutlined />} onClick={() => remove(field.name)}>
+                          删除
+                        </Button>
+                      </Space>
                     </div>
 
                     <Form.Item
