@@ -85,15 +85,6 @@ DEFAULT_CONFIGS = [
     {"key": "telegram_enabled", "description": "是否启用 Telegram 通知"},
     {"key": "telegram_notify_invite", "description": "新用户上车时通知"},
     {"key": "telegram_notify_alert", "description": "座位预警时通知"},
-    # 临时邮箱封禁检测
-    {"key": "mail_api_enabled", "description": "是否启用临时邮箱封禁检测"},
-    {"key": "mail_api_base", "description": "临时邮箱 API Base URL"},
-    {"key": "mail_api_key", "description": "临时邮箱 API Key"},
-    {"key": "mail_domain", "description": "邮箱域名（用于解析 Team ID）"},
-    {"key": "mail_address_prefix", "description": "邮箱前缀（如 xygpt+）"},
-    {"key": "mail_sender_keywords", "description": "发件人关键字（逗号分隔）"},
-    {"key": "mail_ban_keywords", "description": "封禁关键词（逗号分隔）"},
-    {"key": "mail_team_id_regex", "description": "Team ID 提取正则（可选）"},
 ]
 
 
@@ -250,60 +241,6 @@ async def test_telegram(
         return {"message": "测试消息已发送，请检查 Telegram"}
     except TelegramError as e:
         raise HTTPException(status_code=400, detail=f"{e.message}: {e.detail}")
-
-
-@router.post("/mail/sync")
-async def trigger_mailbox_sync(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """手动触发临时邮箱同步"""
-    from app.tasks_celery import sync_temp_mailboxes
-    from app.models import OperationLog
-    from app.logger import get_logger
-
-    logger = get_logger(__name__)
-    sync_temp_mailboxes.delay()
-    try:
-        log = OperationLog(
-            user_id=current_user.id,
-            action="mail_sync_trigger",
-            target=current_user.username,
-            details="manual trigger",
-            ip_address="system"
-        )
-        db.add(log)
-        db.commit()
-    except Exception as e:
-        logger.warning(f"Failed to write mail_sync_trigger log: {e}")
-    return {"message": "邮箱同步任务已提交"}
-
-
-@router.post("/mail/scan")
-async def trigger_mail_scan(
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user)
-):
-    """手动触发封禁邮件扫描"""
-    from app.tasks_celery import scan_ban_emails
-    from app.models import OperationLog
-    from app.logger import get_logger
-
-    logger = get_logger(__name__)
-    scan_ban_emails.delay()
-    try:
-        log = OperationLog(
-            user_id=current_user.id,
-            action="mail_scan_trigger",
-            target=current_user.username,
-            details="manual trigger",
-            ip_address="system"
-        )
-        db.add(log)
-        db.commit()
-    except Exception as e:
-        logger.warning(f"Failed to write mail_scan_trigger log: {e}")
-    return {"message": "封禁邮件扫描任务已提交"}
 
 
 @router.post("/setup-telegram-webhook")

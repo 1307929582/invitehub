@@ -73,7 +73,6 @@ class Team(Base):
     device_id = Column(String(100), nullable=True)
     cookie = Column(Text, nullable=True)
     token_expires_at = Column(DateTime, nullable=True)
-    # 临时邮箱绑定（用于封禁邮件检测）
     mailbox_id = Column(String(128), nullable=True, index=True)
     mailbox_email = Column(String(255), nullable=True, index=True)
     mailbox_synced_at = Column(DateTime, nullable=True)

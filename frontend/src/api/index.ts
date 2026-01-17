@@ -141,8 +141,6 @@ export const configApi = {
   testSmtpAccount: (data: { host: string; port: number; user: string; password: string; to_email?: string }) =>
     api.post('/config/test-smtp-account', data),
   testTelegram: () => api.post('/config/test-telegram'),
-  syncMailboxes: () => api.post('/config/mail/sync'),
-  scanBanEmails: () => api.post('/config/mail/scan'),
   setupTelegramWebhook: () => api.post('/config/setup-telegram-webhook'),
   checkAlerts: () => api.post('/config/check-alerts'),
 }

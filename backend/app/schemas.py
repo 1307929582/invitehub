@@ -48,8 +48,6 @@ class TeamCreate(BaseModel):
     device_id: Optional[str] = None
     cookie: Optional[str] = None
     group_id: Optional[int] = None
-    mailbox_id: Optional[str] = None
-    mailbox_email: Optional[str] = None
 
 
 class TeamUpdate(BaseModel):
@@ -62,8 +60,6 @@ class TeamUpdate(BaseModel):
     status: Optional[TeamStatus] = None
     group_id: Optional[int] = None
     max_seats: Optional[int] = None
-    mailbox_id: Optional[str] = None
-    mailbox_email: Optional[str] = None
 
 
 class TeamResponse(BaseModel):
@@ -77,9 +73,6 @@ class TeamResponse(BaseModel):
     status_changed_at: Optional[datetime] = None
     max_seats: int = 5
     token_expires_at: Optional[datetime]
-    mailbox_id: Optional[str] = None
-    mailbox_email: Optional[str] = None
-    mailbox_synced_at: Optional[datetime] = None
     created_at: datetime
     member_count: Optional[int] = 0
     group_id: Optional[int] = None

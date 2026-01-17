@@ -126,14 +126,4 @@ celery_app.conf.beat_schedule = {
         'task': 'app.tasks_celery.cleanup_expired_orders',
         'schedule': 300.0,  # 5分钟
     },
-    # 每小时同步临时邮箱列表到 Team
-    'sync-temp-mailboxes': {
-        'task': 'app.tasks_celery.sync_temp_mailboxes',
-        'schedule': 3600.0,  # 1小时
-    },
-    # 每5分钟扫描封禁邮件
-    'scan-ban-emails': {
-        'task': 'app.tasks_celery.scan_ban_emails',
-        'schedule': 300.0,  # 5分钟
-    },
 }

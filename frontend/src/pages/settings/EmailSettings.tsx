@@ -10,8 +10,6 @@ export default function EmailSettings() {
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testingAccount, setTestingAccount] = useState<Record<number, boolean>>({})
-  const [mailSyncing, setMailSyncing] = useState(false)
-  const [mailScanning, setMailScanning] = useState(false)
   const [form] = Form.useForm()
 
   const fetchConfigs = async () => {
@@ -118,30 +116,6 @@ export default function EmailSettings() {
       message.error(e.response?.data?.detail || '测试失败，请检查配置')
     } finally {
       setTestingAccount(prev => ({ ...prev, [index]: false }))
-    }
-  }
-
-  const handleMailSync = async () => {
-    setMailSyncing(true)
-    try {
-      await configApi.syncMailboxes()
-      message.success('邮箱同步任务已提交')
-    } catch (e: any) {
-      message.error(e.response?.data?.detail || '提交失败')
-    } finally {
-      setMailSyncing(false)
-    }
-  }
-
-  const handleMailScan = async () => {
-    setMailScanning(true)
-    try {
-      await configApi.scanBanEmails()
-      message.success('封禁邮件扫描任务已提交')
-    } catch (e: any) {
-      message.error(e.response?.data?.detail || '提交失败')
-    } finally {
-      setMailScanning(false)
     }
   }
 
@@ -306,61 +280,6 @@ export default function EmailSettings() {
             </Button>
           </Space>
 
-          <Divider style={{ margin: '32px 0 16px' }}>临时邮箱封禁检测</Divider>
-
-          <Alert
-            type="info"
-            showIcon
-            style={{ marginBottom: 16 }}
-            message="用于自动识别封禁邮件并更新 Team 状态（无需刷新 Token）"
-          />
-
-          <Form.Item
-            name="mail_api_enabled"
-            label="启用封禁邮件检测"
-            valuePropName="checked"
-            getValueFromEvent={(checked) => checked}
-            getValueProps={(value) => ({ checked: value === 'true' || value === true })}
-          >
-            <Switch checkedChildren="开启" unCheckedChildren="关闭" />
-          </Form.Item>
-
-          <Form.Item name="mail_api_base" label="邮箱 API Base URL">
-            <Input placeholder="https://mail.xmdbd.com/api" size="large" />
-          </Form.Item>
-
-          <Form.Item name="mail_api_key" label="邮箱 API Key">
-            <Input.Password placeholder="API Key" size="large" />
-          </Form.Item>
-
-          <Form.Item name="mail_domain" label="邮箱域名" extra="如 xmdbd.com">
-            <Input placeholder="xmdbd.com" size="large" />
-          </Form.Item>
-
-          <Form.Item name="mail_address_prefix" label="邮箱前缀" extra="如 xygpt+">
-            <Input placeholder="xygpt+" size="large" />
-          </Form.Item>
-
-          <Form.Item name="mail_sender_keywords" label="发件人关键字" extra="逗号分隔，如 openai,chatgpt">
-            <Input placeholder="openai,chatgpt" size="large" />
-          </Form.Item>
-
-          <Form.Item name="mail_ban_keywords" label="封禁关键词" extra="逗号分隔，如 banned,suspended,terminated">
-            <Input placeholder="banned,suspended,terminated" size="large" />
-          </Form.Item>
-
-          <Form.Item name="mail_team_id_regex" label="Team ID 提取正则（可选）" extra="默认使用前缀+数字+域名解析">
-            <Input placeholder="^xygpt\\+(\\d+)@xmdbd\\.com$" size="large" />
-          </Form.Item>
-
-          <Space size="middle">
-            <Button loading={mailSyncing} onClick={handleMailSync}>
-              立即同步邮箱
-            </Button>
-            <Button type="primary" loading={mailScanning} onClick={handleMailScan}>
-              立即扫描封禁邮件
-            </Button>
-          </Space>
         </Form>
       </Card>
     </div>
