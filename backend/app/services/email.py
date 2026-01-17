@@ -1,13 +1,19 @@
 # 邮件通知服务
 import smtplib
 import json
+import hashlib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
+from email.header import Header
+from email.utils import formataddr
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 from sqlalchemy.orm import Session
 
 from app.models import SystemConfig
+from app.cache import get_redis
+from app.database import SessionLocal
+from app.utils.timezone import now_beijing
 from app.logger import get_logger
 
 logger = get_logger(__name__)
@@ -24,6 +30,13 @@ class NotificationType:
     DAILY_REPORT = "daily_report"          # 每日报告
     USER_QUEUE = "user_queue"              # 用户进入等待队列
     USER_INVITE_READY = "user_invite_ready"  # 邀请已发送提醒（用户）
+
+
+SMTP_ACCOUNTS_KEY = "smtp_accounts"
+SMTP_FROM_NAME_KEY = "smtp_from_name"
+SMTP_RR_INDEX_KEY_PREFIX = "smtp_rr_index"
+SMTP_USAGE_KEY_PREFIX = "smtp_usage"
+SMTP_USAGE_TTL_SECONDS = 172800  # 2 天
 
 
 def get_config(db: Session, key: str) -> Optional[str]:
@@ -76,6 +89,9 @@ def save_notification_settings(db: Session, settings: Dict[str, Any]):
 
 def is_email_configured(db: Session) -> bool:
     """检查邮件是否已配置"""
+    pool = _get_smtp_accounts(db)
+    if pool:
+        return True
     smtp_host = get_config(db, "smtp_host")
     smtp_port = get_config(db, "smtp_port")
     smtp_user = get_config(db, "smtp_user")
@@ -84,33 +100,180 @@ def is_email_configured(db: Session) -> bool:
     return all([smtp_host, smtp_port, smtp_user, smtp_password, admin_email])
 
 
-def send_email(
-    db: Session,
+def _parse_int(value: Any, default: Optional[int] = None) -> Optional[int]:
+    try:
+        return int(value)
+    except Exception:
+        return default
+
+
+def _parse_bool(value: Any, default: bool = True) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in ["true", "1", "yes", "y"]
+    return default
+
+
+def _get_today_key() -> str:
+    return now_beijing().strftime("%Y-%m-%d")
+
+
+def _build_account_id(host: str, port: int, user: str) -> str:
+    raw = f"{host}:{port}:{user}".encode("utf-8")
+    return hashlib.sha1(raw).hexdigest()[:12]
+
+
+def _load_smtp_accounts(db: Session) -> List[Dict[str, Any]]:
+    raw = get_config(db, SMTP_ACCOUNTS_KEY)
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except Exception:
+        logger.warning("smtp_accounts parse failed, skip")
+        return []
+    if not isinstance(data, list):
+        return []
+    return data
+
+
+def _normalize_smtp_account(raw: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    host = str(raw.get("host") or raw.get("smtp_host") or "").strip()
+    port = _parse_int(raw.get("port") or raw.get("smtp_port"))
+    user = str(raw.get("user") or raw.get("smtp_user") or "").strip()
+    password = str(raw.get("password") or raw.get("smtp_password") or "").strip()
+    enabled = _parse_bool(raw.get("enabled", True), True)
+    daily_limit = _parse_int(raw.get("daily_limit") or raw.get("limit"))
+
+    if not enabled:
+        return None
+    if not host or not port or not user or not password:
+        return None
+
+    return {
+        "host": host,
+        "port": port,
+        "user": user,
+        "password": password,
+        "daily_limit": daily_limit,
+        "account_id": _build_account_id(host, port, user),
+    }
+
+
+def _get_smtp_accounts(db: Session) -> List[Dict[str, Any]]:
+    accounts = []
+    for raw in _load_smtp_accounts(db):
+        if not isinstance(raw, dict):
+            continue
+        normalized = _normalize_smtp_account(raw)
+        if normalized:
+            accounts.append(normalized)
+    return accounts
+
+
+def _get_usage_key(account_id: str, date_key: str) -> str:
+    return f"{SMTP_USAGE_KEY_PREFIX}:{date_key}:{account_id}"
+
+
+def _get_rr_key(date_key: str) -> str:
+    return f"{SMTP_RR_INDEX_KEY_PREFIX}:{date_key}"
+
+
+def _get_usage_count(account_id: str, date_key: str) -> int:
+    redis = get_redis()
+    key = _get_usage_key(account_id, date_key)
+    if redis:
+        value = redis.get(key)
+        return _parse_int(value, 0) or 0
+    session = SessionLocal()
+    try:
+        config = session.query(SystemConfig).filter(SystemConfig.key == key).first()
+        return _parse_int(config.value, 0) if config else 0
+    finally:
+        session.close()
+
+
+def _increment_usage(account_id: str, date_key: str) -> None:
+    redis = get_redis()
+    key = _get_usage_key(account_id, date_key)
+    if redis:
+        redis.incr(key)
+        redis.expire(key, SMTP_USAGE_TTL_SECONDS)
+        return
+    session = SessionLocal()
+    try:
+        config = session.query(SystemConfig).filter(SystemConfig.key == key).first()
+        if config:
+            current = _parse_int(config.value, 0) or 0
+            config.value = str(current + 1)
+        else:
+            session.add(SystemConfig(
+                key=key,
+                value="1",
+                description="SMTP daily usage"
+            ))
+        session.commit()
+    finally:
+        session.close()
+
+
+def _next_rr_index(date_key: str, total: int) -> int:
+    if total <= 0:
+        return 0
+    redis = get_redis()
+    key = _get_rr_key(date_key)
+    if redis:
+        idx = redis.incr(key) - 1
+        redis.expire(key, SMTP_USAGE_TTL_SECONDS)
+        return idx % total
+    session = SessionLocal()
+    try:
+        config = session.query(SystemConfig).filter(SystemConfig.key == key).first()
+        current = _parse_int(config.value, 0) if config else 0
+        next_val = (current or 0) + 1
+        if config:
+            config.value = str(next_val)
+        else:
+            session.add(SystemConfig(
+                key=key,
+                value=str(next_val),
+                description="SMTP RR index"
+            ))
+        session.commit()
+        return (current or 0) % total
+    finally:
+        session.close()
+
+
+def _get_from_name(db: Session) -> str:
+    return str(get_config(db, SMTP_FROM_NAME_KEY) or "").strip()
+
+
+def _build_from_header(from_name: str, from_email: str) -> str:
+    if not from_name:
+        return from_email
+    return formataddr((str(Header(from_name, "utf-8")), from_email))
+
+
+def _send_via_account(
+    account: Dict[str, Any],
     subject: str,
     content: str,
-    to_email: Optional[str] = None
+    to_email: str,
+    from_name: str
 ) -> bool:
-    """发送邮件"""
-    # 获取 SMTP 配置
-    smtp_host = get_config(db, "smtp_host")
-    smtp_port = get_config(db, "smtp_port")
-    smtp_user = get_config(db, "smtp_user")
-    smtp_password = get_config(db, "smtp_password")
-    admin_email = to_email or get_config(db, "admin_email")
-    
-    if not all([smtp_host, smtp_port, smtp_user, smtp_password, admin_email]):
-        logger.warning("Email not configured, skipping notification")
-        return False
-    
-    try:
-        # 创建邮件
-        msg = MIMEMultipart()
-        msg['From'] = smtp_user
-        msg['To'] = admin_email
-        msg['Subject'] = f"[ZenScale AI] {subject}"
+    smtp_host = account["host"]
+    smtp_port = account["port"]
+    smtp_user = account["user"]
+    smtp_password = account["password"]
 
-        # HTML 内容 - 专业品牌化模板
-        html_content = f"""
+    msg = MIMEMultipart()
+    msg["From"] = _build_from_header(from_name, smtp_user)
+    msg["To"] = to_email
+    msg["Subject"] = f"[ZenScale AI] {subject}"
+
+    html_content = f"""
         <!DOCTYPE html>
         <html>
         <head>
@@ -169,28 +332,86 @@ def send_email(
         </body>
         </html>
         """
-        msg.attach(MIMEText(html_content, 'html', 'utf-8'))
-        
-        # 发送邮件
+
+    msg.attach(MIMEText(html_content, "html", "utf-8"))
+
+    try:
         port = int(smtp_port)
         if port == 465:
-            # SSL
             server = smtplib.SMTP_SSL(smtp_host, port, timeout=10)
         else:
-            # TLS
             server = smtplib.SMTP(smtp_host, port, timeout=10)
             server.starttls()
-        
         server.login(smtp_user, smtp_password)
-        server.sendmail(smtp_user, admin_email, msg.as_string())
+        server.sendmail(smtp_user, to_email, msg.as_string())
         server.quit()
-        
-        logger.info(f"Email sent: {subject} -> {admin_email}")
         return True
-        
     except Exception as e:
-        logger.error(f"Failed to send email: {e}")
+        logger.error(f"SMTP send failed ({smtp_user}@{smtp_host}): {e}")
         return False
+
+
+def send_email(
+    db: Session,
+    subject: str,
+    content: str,
+    to_email: Optional[str] = None
+) -> bool:
+    """发送邮件"""
+    admin_email = to_email or get_config(db, "admin_email")
+    if not admin_email:
+        logger.warning("Email target not configured, skipping notification")
+        return False
+
+    from_name = _get_from_name(db)
+    accounts = _get_smtp_accounts(db)
+    date_key = _get_today_key()
+
+    if accounts:
+        usage_map = {
+            account["account_id"]: _get_usage_count(account["account_id"], date_key)
+            for account in accounts
+        }
+        available = []
+        for account in accounts:
+            limit = account.get("daily_limit")
+            used = usage_map.get(account["account_id"], 0)
+            if limit is not None and limit > 0 and used >= limit:
+                continue
+            available.append(account)
+
+        if not available:
+            logger.warning("SMTP pool quota exceeded, no account available")
+            return False
+
+        start_index = _next_rr_index(date_key, len(available))
+        for offset in range(len(available)):
+            account = available[(start_index + offset) % len(available)]
+            if _send_via_account(account, subject, content, admin_email, from_name):
+                _increment_usage(account["account_id"], date_key)
+                logger.info(f"Email sent: {subject} -> {admin_email} via {account['user']}")
+                return True
+        logger.error("All SMTP accounts failed to send email")
+        return False
+
+    smtp_host = get_config(db, "smtp_host")
+    smtp_port = get_config(db, "smtp_port")
+    smtp_user = get_config(db, "smtp_user")
+    smtp_password = get_config(db, "smtp_password")
+    if not all([smtp_host, smtp_port, smtp_user, smtp_password]):
+        logger.warning("Email not configured, skipping notification")
+        return False
+
+    account = {
+        "host": smtp_host,
+        "port": _parse_int(smtp_port, 587),
+        "user": smtp_user,
+        "password": smtp_password,
+    }
+    if _send_via_account(account, subject, content, admin_email, from_name):
+        logger.info(f"Email sent: {subject} -> {admin_email} via {smtp_user}")
+        return True
+    return False
 
 
 def send_alert_email(db: Session, alerts: List[dict]) -> bool:
@@ -473,6 +694,22 @@ def send_group_seat_warning(db: Session, group_name: str, used: int, total: int,
 
 def test_email_connection(db: Session) -> Dict[str, Any]:
     """测试邮件连接"""
+    accounts = _get_smtp_accounts(db)
+    if accounts:
+        account = accounts[0]
+        try:
+            port = int(account["port"])
+            if port == 465:
+                server = smtplib.SMTP_SSL(account["host"], port, timeout=10)
+            else:
+                server = smtplib.SMTP(account["host"], port, timeout=10)
+                server.starttls()
+            server.login(account["user"], account["password"])
+            server.quit()
+            return {"success": True, "message": f"SMTP 连接成功（{account['user']}）"}
+        except Exception as e:
+            return {"success": False, "message": f"连接失败（{account['user']}）: {str(e)}"}
+
     smtp_host = get_config(db, "smtp_host")
     smtp_port = get_config(db, "smtp_port")
     smtp_user = get_config(db, "smtp_user")

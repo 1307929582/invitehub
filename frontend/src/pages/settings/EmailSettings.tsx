@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Card, Form, Input, Button, message, Alert, Switch, Space, Divider } from 'antd'
-import { SaveOutlined, ArrowLeftOutlined, MailOutlined, SendOutlined } from '@ant-design/icons'
+import { Card, Form, Input, InputNumber, Button, message, Alert, Switch, Space, Divider } from 'antd'
+import { SaveOutlined, ArrowLeftOutlined, MailOutlined, SendOutlined, PlusOutlined, DeleteOutlined } from '@ant-design/icons'
 import { configApi } from '../../api'
 
 export default function EmailSettings() {
@@ -17,8 +17,17 @@ export default function EmailSettings() {
     setLoading(true)
     try {
       const res: any = await configApi.list()
-      const values: Record<string, string> = {}
+      const values: Record<string, any> = {}
       res.configs.forEach((c: any) => {
+        if (c.key === 'smtp_accounts') {
+          try {
+            const parsed = JSON.parse(c.value || '[]')
+            values[c.key] = Array.isArray(parsed) ? parsed : []
+          } catch {
+            values[c.key] = []
+          }
+          return
+        }
         values[c.key] = c.value || ''
       })
       form.setFieldsValue(values)
@@ -39,11 +48,32 @@ export default function EmailSettings() {
     try {
       const configs = Object.entries(values)
         .filter(([_, value]) => value !== undefined)
-        .map(([key, value]) => ({
-          key,
-          value: typeof value === 'boolean' ? (value ? 'true' : 'false') : String(value || ''),
-          description: null,
-        }))
+        .map(([key, value]) => {
+          if (key === 'smtp_accounts') {
+            const list = Array.isArray(value) ? value : []
+            const cleaned = list.map((item: any) => ({
+              host: String(item?.host || '').trim(),
+              port: Number(item?.port || 0),
+              user: String(item?.user || '').trim(),
+              password: String(item?.password || '').trim(),
+              daily_limit: item?.daily_limit === '' || item?.daily_limit === null || item?.daily_limit === undefined
+                ? undefined
+                : Number(item?.daily_limit),
+              enabled: item?.enabled !== false,
+            })).filter((item: any) => item.host && item.port && item.user && item.password)
+            return {
+              key,
+              value: cleaned.length ? JSON.stringify(cleaned) : '',
+              description: null,
+            }
+          }
+
+          return {
+            key,
+            value: typeof value === 'boolean' ? (value ? 'true' : 'false') : String(value || ''),
+            description: null,
+          }
+        })
       await configApi.batchUpdate(configs)
       message.success('配置已保存')
     } catch {
@@ -132,6 +162,85 @@ export default function EmailSettings() {
           >
             <Switch checkedChildren="开启" unCheckedChildren="关闭" />
           </Form.Item>
+
+          <Form.Item name="smtp_from_name" label="发件人显示名（统一）" extra="为空则显示发件邮箱">
+            <Input placeholder="ZenScale AI" size="large" />
+          </Form.Item>
+
+          <Divider style={{ margin: '24px 0 16px' }}>SMTP 账号池（轮询）</Divider>
+
+          <Alert
+            type="info"
+            showIcon
+            style={{ marginBottom: 16 }}
+            message="填写多个 SMTP 账号后将按轮询发送，并支持单账号每日限额；未填写时使用下方单账号配置。"
+          />
+
+          <Form.List name="smtp_accounts">
+            {(fields, { add, remove }) => (
+              <>
+                {fields.map((field) => (
+                  <div
+                    key={field.key}
+                    style={{
+                      border: '1px solid #e5e7eb',
+                      borderRadius: 12,
+                      padding: 16,
+                      marginBottom: 16,
+                      background: '#fafafa'
+                    }}
+                  >
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                      <div style={{ fontWeight: 600 }}>账号 {field.name + 1}</div>
+                      <Button type="text" danger icon={<DeleteOutlined />} onClick={() => remove(field.name)}>
+                        删除
+                      </Button>
+                    </div>
+
+                    <Form.Item
+                      {...field}
+                      name={[field.name, 'enabled']}
+                      label="启用"
+                      valuePropName="checked"
+                      getValueFromEvent={(checked) => checked}
+                      getValueProps={(value) => ({ checked: value !== false })}
+                    >
+                      <Switch checkedChildren="开启" unCheckedChildren="关闭" />
+                    </Form.Item>
+
+                    <Form.Item {...field} name={[field.name, 'host']} label="SMTP 服务器" rules={[{ required: true, message: '请输入 SMTP 服务器' }]}>
+                      <Input placeholder="smtp.gmail.com" size="large" />
+                    </Form.Item>
+
+                    <Form.Item {...field} name={[field.name, 'port']} label="SMTP 端口" rules={[{ required: true, message: '请输入端口' }]}>
+                      <InputNumber placeholder="587" size="large" style={{ width: '100%' }} />
+                    </Form.Item>
+
+                    <Form.Item {...field} name={[field.name, 'user']} label="发件邮箱" rules={[{ required: true, message: '请输入发件邮箱' }]}>
+                      <Input placeholder="your-email@gmail.com" size="large" />
+                    </Form.Item>
+
+                    <Form.Item {...field} name={[field.name, 'password']} label="邮箱应用密码" rules={[{ required: true, message: '请输入应用密码' }]}>
+                      <Input.Password placeholder="应用专用密码" size="large" />
+                    </Form.Item>
+
+                    <Form.Item {...field} name={[field.name, 'daily_limit']} label="每日限额" extra="为空表示不限制">
+                      <InputNumber placeholder="450" size="large" style={{ width: '100%' }} min={0} />
+                    </Form.Item>
+                  </div>
+                ))}
+
+                <Button
+                  icon={<PlusOutlined />}
+                  onClick={() => add({ port: 587, daily_limit: 450, enabled: true })}
+                >
+                  添加账号
+                </Button>
+              </>
+            )}
+          </Form.List>
+
+          <Divider style={{ margin: '24px 0 16px' }}>单账号备用</Divider>
 
           <Form.Item name="smtp_host" label="SMTP 服务器" extra="如 smtp.gmail.com">
             <Input placeholder="smtp.gmail.com" size="large" />

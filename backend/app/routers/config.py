@@ -65,6 +65,8 @@ DEFAULT_CONFIGS = [
     {"key": "smtp_port", "description": "SMTP 端口（465 SSL / 587 TLS）"},
     {"key": "smtp_user", "description": "发件邮箱"},
     {"key": "smtp_password", "description": "邮箱授权码"},
+    {"key": "smtp_from_name", "description": "发件人显示名（统一）"},
+    {"key": "smtp_accounts", "description": "SMTP 账号池（JSON 数组）", "value": "[]"},
     {"key": "admin_email", "description": "管理员邮箱（接收预警）"},
     {"key": "email_enabled", "description": "是否启用邮件通知"},
     {"key": "alert_member_threshold", "description": "超员预警阈值（默认5）"},
