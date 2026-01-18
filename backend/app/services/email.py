@@ -279,27 +279,46 @@ def _send_via_account(
         <head>
             <meta charset="utf-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <meta name="color-scheme" content="light">
+            <meta name="supported-color-schemes" content="light">
         </head>
-        <body style="margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; background: #f5f5f7;">
-            <table width="100%" cellpadding="0" cellspacing="0" style="background: #f5f5f7; padding: 40px 20px;">
+        <body style="margin:0; padding:0; background:#f4f6fb;">
+            <div style="display:none; max-height:0; overflow:hidden; opacity:0; color:transparent;">
+                {subject}
+            </div>
+            <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f4f6fb; padding:32px 16px 48px;">
                 <tr>
                     <td align="center">
-                        <table width="600" cellpadding="0" cellspacing="0" style="max-width: 600px; width: 100%;">
-                            <!-- Header -->
+                        <table role="presentation" width="640" cellpadding="0" cellspacing="0" style="max-width:640px; width:100%;">
                             <tr>
-                                <td style="text-align: center; padding-bottom: 30px;">
-                                    <img src="https://tc-new.z.wiki/autoupload/f/H2cVbE17VeYj5Znq0XSqcbQ7wnixdFyJjmO0Os0dW5Wyl5f0KlZfm6UsKj-HyTuv/20250826/NEoN/500X500/1.png" alt="ZenScale AI" style="width: 64px; height: 64px; border-radius: 16px; margin-bottom: 12px;" />
-                                    <div style="color: #1d1d1f; font-size: 18px; font-weight: 700; letter-spacing: 0.5px;">ZenScale AI</div>
+                                <td style="padding:4px 8px 20px 8px; text-align:left;">
+                                    <table role="presentation" cellpadding="0" cellspacing="0">
+                                        <tr>
+                                            <td style="vertical-align:middle; padding-right:12px;">
+                                                <img src="https://tc-new.z.wiki/autoupload/f/H2cVbE17VeYj5Znq0XSqcbQ7wnixdFyJjmO0Os0dW5Wyl5f0KlZfm6UsKj-HyTuv/20250826/NEoN/500X500/1.png" alt="ZenScale AI" width="36" height="36" style="border-radius:9px; display:block;" />
+                                            </td>
+                                            <td style="vertical-align:middle;">
+                                                <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif; font-size:14px; color:#111827; font-weight:600; letter-spacing:0.2px;">
+                                                    ZenScale AI
+                                                </div>
+                                                <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif; font-size:12px; color:#6b7280;">
+                                                    Updates & Support
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    </table>
                                 </td>
                             </tr>
-                            <!-- Content -->
+
                             <tr>
-                                <td style="background: #ffffff; border-radius: 16px; box-shadow: 0 4px 24px rgba(0,0,0,0.08);">
-                                    <table width="100%" cellpadding="0" cellspacing="0">
+                                <td>
+                                    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#ffffff; border:1px solid #e5e7eb; border-radius:18px; box-shadow:0 10px 30px rgba(15,23,42,0.06);">
                                         <tr>
-                                            <td style="padding: 40px;">
-                                                <h1 style="margin: 0 0 24px 0; font-size: 22px; font-weight: 700; color: #1d1d1f;">{subject}</h1>
-                                                <div style="color: #333; line-height: 1.7; font-size: 15px;">
+                                            <td style="padding:32px 36px;">
+                                                <div style="margin:0 0 14px 0; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif; font-size:20px; line-height:1.4; color:#111827; font-weight:600;">
+                                                    {subject}
+                                                </div>
+                                                <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif; font-size:15px; line-height:1.75; color:#334155;">
                                                     {content}
                                                 </div>
                                             </td>
@@ -307,22 +326,22 @@ def _send_via_account(
                                     </table>
                                 </td>
                             </tr>
-                            <!-- Footer -->
+
                             <tr>
-                                <td style="padding: 30px 20px; text-align: center;">
-                                    <p style="margin: 0 0 12px 0; color: #86868b; font-size: 13px;">
-                                        此邮件由 ZenScale AI 系统自动发送
-                                    </p>
-                                    <p style="margin: 0; color: #86868b; font-size: 12px;">
-                                        <a href="https://mmw-team.zenscaleai.com/faq" style="color: #007aff; text-decoration: none;">常见问题</a>
+                                <td style="padding:22px 8px 0 8px; text-align:center; font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif;">
+                                    <div style="color:#94a3b8; font-size:12px; margin-bottom:8px;">
+                                        此邮件由系统自动发送，请勿直接回复
+                                    </div>
+                                    <div style="color:#94a3b8; font-size:12px;">
+                                        <a href="https://mmw-team.zenscaleai.com/faq" style="color:#64748b; text-decoration:none;">常见问题</a>
                                         &nbsp;·&nbsp;
-                                        <a href="https://mmw-team.zenscaleai.com/legal" style="color: #007aff; text-decoration: none;">服务条款</a>
+                                        <a href="https://mmw-team.zenscaleai.com/legal" style="color:#64748b; text-decoration:none;">服务条款</a>
                                         &nbsp;·&nbsp;
-                                        <a href="mailto:contact@zenscaleai.com" style="color: #007aff; text-decoration: none;">联系我们</a>
-                                    </p>
-                                    <p style="margin: 16px 0 0 0; color: #c7c7cc; font-size: 11px;">
+                                        <a href="mailto:contact@zenscaleai.com" style="color:#64748b; text-decoration:none;">联系我们</a>
+                                    </div>
+                                    <div style="margin-top:12px; color:#cbd5e1; font-size:11px;">
                                         © 2025 ZenScale AI. All rights reserved.
-                                    </p>
+                                    </div>
                                 </td>
                             </tr>
                         </table>
