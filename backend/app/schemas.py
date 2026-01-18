@@ -187,6 +187,7 @@ class BulkEmailJobResponse(BaseModel):
     fail_reject: int
     fail_invalid: int
     fail_other: int
+    last_error: Optional[str] = None
     progress: float = 0.0
     created_at: datetime
     started_at: Optional[datetime] = None

@@ -19,6 +19,7 @@ interface BulkEmailJob {
   fail_reject: number
   fail_invalid: number
   fail_other: number
+  last_error?: string
   progress: number
   created_at: string
   started_at?: string
@@ -468,6 +469,12 @@ export default function BulkEmail() {
                   <Tag color="volcano">无效邮箱 {selectedJob.fail_invalid}</Tag>
                   <Tag>其他 {selectedJob.fail_other}</Tag>
                 </Space>
+              </div>
+            )}
+
+            {selectedJob.last_error && (
+              <div style={{ marginBottom: 16, color: '#ef4444', fontSize: 12 }}>
+                最后错误：{selectedJob.last_error}
               </div>
             )}
 

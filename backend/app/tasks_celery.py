@@ -4,6 +4,7 @@ Celery 任务定义
 将原有的 asyncio 队列任务改造为 Celery 任务，支持分布式部署。
 """
 import asyncio
+import signal
 from datetime import datetime, timedelta
 from typing import List, Dict
 from celery import Task
@@ -17,6 +18,29 @@ from app.cache import invalidate_seat_cache
 from app.logger import get_logger
 
 logger = get_logger(__name__)
+
+EMAIL_SEND_TIMEOUT_SECONDS = 25
+
+
+class EmailSendTimeout(Exception):
+    pass
+
+
+def _timeout_handler(signum, frame):
+    raise EmailSendTimeout("send timeout")
+
+
+def _call_with_timeout(seconds: int, func, *args, **kwargs):
+    if not seconds or seconds <= 0:
+        return func(*args, **kwargs)
+    old_handler = signal.getsignal(signal.SIGALRM)
+    signal.signal(signal.SIGALRM, _timeout_handler)
+    signal.alarm(seconds)
+    try:
+        return func(*args, **kwargs)
+    finally:
+        signal.alarm(0)
+        signal.signal(signal.SIGALRM, old_handler)
 
 
 class DatabaseTask(Task):
@@ -817,12 +841,19 @@ def send_bulk_email_task(self, payload: dict):
                 reason_type = "rate_limit"
                 reason_detail = pool_error_message
             else:
-                ok, reason_type, reason_detail = send_email_with_reason(
-                    self.db,
-                    subject,
-                    content,
-                    to_email=email
-                )
+                try:
+                    ok, reason_type, reason_detail = _call_with_timeout(
+                        EMAIL_SEND_TIMEOUT_SECONDS,
+                        send_email_with_reason,
+                        self.db,
+                        subject,
+                        content,
+                        to_email=email
+                    )
+                except EmailSendTimeout:
+                    ok = False
+                    reason_type = "other"
+                    reason_detail = "send timeout"
                 if not ok and reason_type == "rate_limit" and "quota exceeded" in (reason_detail or "").lower():
                     pool_exhausted = True
                     pool_error_message = reason_detail or "SMTP pool quota exceeded"
