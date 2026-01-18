@@ -7,7 +7,7 @@ import asyncio
 import signal
 from datetime import datetime, timedelta
 from typing import List, Dict
-from celery import Task
+from celery import Task, group, chord
 from sqlalchemy.orm import Session
 
 from app.celery_app import celery_app
@@ -20,6 +20,7 @@ from app.logger import get_logger
 logger = get_logger(__name__)
 
 EMAIL_SEND_TIMEOUT_SECONDS = 25
+BULK_EMAIL_CHUNK_SIZE = 50
 
 
 class EmailSendTimeout(Exception):
@@ -762,14 +763,157 @@ def send_expiration_warnings(self):
 @celery_app.task(
     bind=True,
     base=DatabaseTask,
+    soft_time_limit=1800,
+    time_limit=1860
+)
+def send_bulk_email_chunk(self, payload: dict):
+    """发送群发邮件分片"""
+    from app.services.bulk_email import build_template_context, render_template
+    from app.services.email import send_email_with_reason
+    from app.models import BulkEmailJob, BulkEmailLog
+
+    job_id = payload.get("job_id")
+    subject_tpl = payload.get("subject") or ""
+    content_tpl = payload.get("content") or ""
+    recipients = payload.get("recipients") or []
+
+    if not recipients:
+        return {"sent": 0, "failed": 0}
+
+    sent = 0
+    failed = 0
+    fail_rate_limit = 0
+    fail_reject = 0
+    fail_invalid = 0
+    fail_other = 0
+    last_error = ""
+    pool_exhausted = False
+    pool_error_message = ""
+
+    for record in recipients:
+        email = record.get("email") or ""
+        context = build_template_context(record)
+        subject = render_template(subject_tpl, context).strip()
+        content = render_template(content_tpl, context)
+
+        ok = False
+        reason_type = ""
+        reason_detail = ""
+
+        if not subject:
+            ok = False
+            reason_type = "other"
+            reason_detail = "empty subject"
+        elif pool_exhausted:
+            ok = False
+            reason_type = "rate_limit"
+            reason_detail = pool_error_message
+        else:
+            try:
+                ok, reason_type, reason_detail = _call_with_timeout(
+                    EMAIL_SEND_TIMEOUT_SECONDS,
+                    send_email_with_reason,
+                    self.db,
+                    subject,
+                    content,
+                    to_email=email
+                )
+            except EmailSendTimeout:
+                ok = False
+                reason_type = "other"
+                reason_detail = "send timeout"
+            if not ok and reason_type == "rate_limit" and "quota exceeded" in (reason_detail or "").lower():
+                pool_exhausted = True
+                pool_error_message = reason_detail or "SMTP pool quota exceeded"
+
+        if ok:
+            sent += 1
+        else:
+            failed += 1
+            last_error = reason_detail or last_error
+            if reason_type == "rate_limit":
+                fail_rate_limit += 1
+            elif reason_type == "reject":
+                fail_reject += 1
+            elif reason_type == "invalid":
+                fail_invalid += 1
+            else:
+                fail_other += 1
+
+        if job_id:
+            self.db.add(BulkEmailLog(
+                job_id=job_id,
+                email=email,
+                status="sent" if ok else "failed",
+                reason_type=None if ok else (reason_type or "other"),
+                reason=None if ok else (reason_detail or "")
+            ))
+
+    if job_id:
+        updates = {
+            BulkEmailJob.sent: BulkEmailJob.sent + sent,
+            BulkEmailJob.failed: BulkEmailJob.failed + failed,
+            BulkEmailJob.fail_rate_limit: BulkEmailJob.fail_rate_limit + fail_rate_limit,
+            BulkEmailJob.fail_reject: BulkEmailJob.fail_reject + fail_reject,
+            BulkEmailJob.fail_invalid: BulkEmailJob.fail_invalid + fail_invalid,
+            BulkEmailJob.fail_other: BulkEmailJob.fail_other + fail_other,
+        }
+        if last_error:
+            updates[BulkEmailJob.last_error] = last_error
+        self.db.query(BulkEmailJob).filter(BulkEmailJob.job_id == job_id).update(
+            updates,
+            synchronize_session=False
+        )
+        self.db.commit()
+
+    return {
+        "sent": sent,
+        "failed": failed,
+        "fail_rate_limit": fail_rate_limit,
+        "fail_reject": fail_reject,
+        "fail_invalid": fail_invalid,
+        "fail_other": fail_other
+    }
+
+
+@celery_app.task(bind=True, base=DatabaseTask)
+def finish_bulk_email_job(self, results: List[dict], job_id: str, operator: str):
+    """完成群发任务并写入日志"""
+    from app.models import OperationLog, BulkEmailJob
+
+    job = self.db.query(BulkEmailJob).filter(BulkEmailJob.job_id == job_id).first()
+    if job:
+        if job.status != "failed":
+            job.status = "completed"
+        job.finished_at = datetime.utcnow()
+        self.db.commit()
+
+        try:
+            log = OperationLog(
+                user_id=None,
+                action="bulk_email",
+                target=operator,
+                details=f"sent={job.sent}, failed={job.failed}, total={job.total}",
+                ip_address="system"
+            )
+            self.db.add(log)
+            self.db.commit()
+        except Exception as e:
+            logger.warning(f"Failed to write bulk_email log: {e}")
+
+    return {"message": "completed"}
+
+
+@celery_app.task(
+    bind=True,
+    base=DatabaseTask,
     soft_time_limit=3600,
     time_limit=3660
 )
 def send_bulk_email_task(self, payload: dict):
     """发送批量邮件（管理员手动触发）"""
-    from app.services.bulk_email import collect_recipients, build_template_context, render_template
-    from app.services.email import send_email_with_reason
-    from app.models import OperationLog, BulkEmailJob, BulkEmailLog
+    from app.services.bulk_email import collect_recipients
+    from app.models import OperationLog, BulkEmailJob
 
     job_id = payload.get("job_id")
     target = payload.get("target")
@@ -777,6 +921,7 @@ def send_bulk_email_task(self, payload: dict):
     subject_tpl = payload.get("subject") or ""
     content_tpl = payload.get("content") or ""
     operator = payload.get("operator") or "system"
+    chunk_size = payload.get("chunk_size") or BULK_EMAIL_CHUNK_SIZE
 
     job = None
     if job_id:
@@ -805,15 +950,6 @@ def send_bulk_email_task(self, payload: dict):
             logger.warning(f"Failed to write bulk_email log: {e}")
         return {"sent": 0, "failed": 0}
 
-    sent = 0
-    failed = 0
-    fail_rate_limit = 0
-    fail_reject = 0
-    fail_invalid = 0
-    fail_other = 0
-    pool_exhausted = False
-    pool_error_message = ""
-
     if job:
         job.status = "running"
         job.started_at = job.started_at or datetime.utcnow()
@@ -827,77 +963,20 @@ def send_bulk_email_task(self, payload: dict):
         self.db.commit()
 
     try:
-        for idx, record in enumerate(recipients, start=1):
-            email = record.get("email") or ""
-            context = build_template_context(record)
-            subject = render_template(subject_tpl, context).strip()
-            content = render_template(content_tpl, context)
-
-            ok = False
-            reason_type = ""
-            reason_detail = ""
-
-            if not subject:
-                ok = False
-                reason_type = "other"
-                reason_detail = "empty subject"
-            elif pool_exhausted:
-                ok = False
-                reason_type = "rate_limit"
-                reason_detail = pool_error_message
-            else:
-                try:
-                    ok, reason_type, reason_detail = _call_with_timeout(
-                        EMAIL_SEND_TIMEOUT_SECONDS,
-                        send_email_with_reason,
-                        self.db,
-                        subject,
-                        content,
-                        to_email=email
-                    )
-                except EmailSendTimeout:
-                    ok = False
-                    reason_type = "other"
-                    reason_detail = "send timeout"
-                if not ok and reason_type == "rate_limit" and "quota exceeded" in (reason_detail or "").lower():
-                    pool_exhausted = True
-                    pool_error_message = reason_detail or "SMTP pool quota exceeded"
-
-            if ok:
-                sent += 1
-            else:
-                failed += 1
-                if reason_type == "rate_limit":
-                    fail_rate_limit += 1
-                elif reason_type == "reject":
-                    fail_reject += 1
-                elif reason_type == "invalid":
-                    fail_invalid += 1
-                else:
-                    fail_other += 1
-
-            if job_id:
-                log_item = BulkEmailLog(
-                    job_id=job_id,
-                    email=email,
-                    status="sent" if ok else "failed",
-                    reason_type=None if ok else (reason_type or "other"),
-                    reason=None if ok else (reason_detail or "")
-                )
-                self.db.add(log_item)
-
-            if job:
-                job.sent = sent
-                job.failed = failed
-                job.fail_rate_limit = fail_rate_limit
-                job.fail_reject = fail_reject
-                job.fail_invalid = fail_invalid
-                job.fail_other = fail_other
-                job.last_error = reason_detail if not ok else job.last_error
-
-            if job or job_id:
-                if idx % 10 == 0:
-                    self.db.commit()
+        chunks = [recipients[i:i + chunk_size] for i in range(0, len(recipients), chunk_size)]
+        task_sigs = [
+            send_bulk_email_chunk.s({
+                "job_id": job_id,
+                "subject": subject_tpl,
+                "content": content_tpl,
+                "recipients": chunk
+            })
+            for chunk in chunks
+        ]
+        if task_sigs:
+            chord(group(task_sigs))(finish_bulk_email_job.s(job_id, operator))
+        else:
+            finish_bulk_email_job.delay([], job_id, operator)
     except Exception as e:
         if job:
             job.status = "failed"
@@ -906,30 +985,7 @@ def send_bulk_email_task(self, payload: dict):
             self.db.commit()
         raise
 
-    try:
-        if job:
-            job.status = "completed"
-            job.sent = sent
-            job.failed = failed
-            job.fail_rate_limit = fail_rate_limit
-            job.fail_reject = fail_reject
-            job.fail_invalid = fail_invalid
-            job.fail_other = fail_other
-            job.finished_at = datetime.utcnow()
-            self.db.commit()
-        log = OperationLog(
-            user_id=None,
-            action="bulk_email",
-            target=operator,
-            details=f"sent={sent}, failed={failed}, total={len(recipients)}",
-            ip_address="system"
-        )
-        self.db.add(log)
-        self.db.commit()
-    except Exception as e:
-        logger.warning(f"Failed to write bulk_email log: {e}")
-
-    return {"sent": sent, "failed": failed}
+    return {"queued": len(recipients)}
 
 
 @celery_app.task(
