@@ -49,7 +49,7 @@ def _should_include(expires_at: Optional[datetime], now_bj: datetime, now_utc: d
     return False
 
 
-def _pick_record(existing: Dict, candidate: Dict, target: str, now: datetime) -> Dict:
+def _pick_record(existing: Dict, candidate: Dict, target: str) -> Dict:
     existing_expires = existing.get("expires_at")
     candidate_expires = candidate.get("expires_at")
 
@@ -89,7 +89,7 @@ def collect_recipients(db: Session, target: str, days: Optional[int]) -> List[Di
         }
 
         if email in recipients:
-            recipients[email] = _pick_record(recipients[email], record, target, now)
+            recipients[email] = _pick_record(recipients[email], record, target)
         else:
             recipients[email] = record
 
