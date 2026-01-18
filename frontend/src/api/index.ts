@@ -172,6 +172,8 @@ export const bulkEmailApi = {
     api.post('/bulk-email/preview', data),
   send: (data: { target: 'expiring' | 'expired' | 'all'; days?: number; subject: string; content: string; confirm: boolean }) =>
     api.post('/bulk-email/send', data),
+  test: (data: { target: 'expiring' | 'expired' | 'all'; days?: number; subject: string; content: string; test_email: string }) =>
+    api.post('/bulk-email/test', data),
 }
 
 // Setup API (无需认证)

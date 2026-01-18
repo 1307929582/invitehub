@@ -5,7 +5,7 @@ from typing import Dict, List, Optional
 from sqlalchemy.orm import Session
 
 from app.models import RedeemCode
-from app.utils.timezone import now_utc, to_beijing_date_str
+from app.utils.timezone import now_beijing, to_beijing_date_str, BEIJING_TZ, UTC_TZ
 
 TARGET_EXPIRING = "expiring"
 TARGET_EXPIRED = "expired"
@@ -16,24 +16,36 @@ def _normalize_email(email: Optional[str]) -> str:
     return (email or "").strip().lower()
 
 
-def _days_left(expires_at: Optional[datetime], now: datetime) -> Optional[int]:
-    if not expires_at:
+def _to_beijing(dt: Optional[datetime]) -> Optional[datetime]:
+    if not dt:
         return None
-    delta = expires_at - now
-    return max(0, delta.days)
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=UTC_TZ)
+    return dt.astimezone(BEIJING_TZ)
 
 
-def _should_include(expires_at: Optional[datetime], now: datetime, target: str, days: Optional[int]) -> bool:
+def _days_left(expires_at: Optional[datetime], now_bj: datetime) -> Optional[int]:
+    expires_bj = _to_beijing(expires_at)
+    if not expires_bj:
+        return None
+    return (expires_bj.date() - now_bj.date()).days
+
+
+def _should_include(expires_at: Optional[datetime], now_bj: datetime, now_utc: datetime, target: str, days: Optional[int]) -> bool:
     if target == TARGET_ALL:
         return True
     if not expires_at:
         return False
     if target == TARGET_EXPIRED:
-        return expires_at < now
+        return expires_at < now_utc
     if target == TARGET_EXPIRING:
         if days is None:
             return False
-        return now <= expires_at <= now + timedelta(days=days)
+        expires_bj = _to_beijing(expires_at)
+        if not expires_bj:
+            return False
+        diff_days = (expires_bj.date() - now_bj.date()).days
+        return 0 <= diff_days <= days
     return False
 
 
@@ -52,7 +64,8 @@ def _pick_record(existing: Dict, candidate: Dict, target: str, now: datetime) ->
 
 
 def collect_recipients(db: Session, target: str, days: Optional[int]) -> List[Dict[str, Optional[str]]]:
-    now = now_utc()
+    now_bj = now_beijing()
+    now_utc = now_bj.astimezone(UTC_TZ).replace(tzinfo=None)
     codes = db.query(RedeemCode).filter(
         RedeemCode.bound_email != None,
         RedeemCode.activated_at != None,
@@ -66,7 +79,7 @@ def collect_recipients(db: Session, target: str, days: Optional[int]) -> List[Di
         if not email:
             continue
         expires_at = code.user_expires_at
-        if not _should_include(expires_at, now, target, days):
+        if not _should_include(expires_at, now_bj, now_utc, target, days):
             continue
 
         record = {
@@ -88,7 +101,7 @@ def collect_recipients(db: Session, target: str, days: Optional[int]) -> List[Di
             "code": record.get("code") or "",
             "expires_at": expires_at,
             "expires_at_str": to_beijing_date_str(expires_at) if expires_at else "",
-            "days_left": _days_left(expires_at, now),
+            "days_left": _days_left(expires_at, now_bj),
         })
 
     return result

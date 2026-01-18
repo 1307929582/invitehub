@@ -22,6 +22,7 @@ const actionMap: Record<string, { label: string; color: string }> = {
   update: { label: '更新', color: 'orange' },
   delete: { label: '删除', color: 'red' },
   bulk_email: { label: '邮件群发', color: 'geekblue' },
+  bulk_email_test: { label: '群发测试', color: 'cyan' },
 }
 
 export default function Logs() {
