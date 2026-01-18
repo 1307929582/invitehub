@@ -174,6 +174,12 @@ export const bulkEmailApi = {
     api.post('/bulk-email/send', data),
   test: (data: { target: 'expiring' | 'expired' | 'all'; days?: number; subject: string; content: string; test_email: string }) =>
     api.post('/bulk-email/test', data),
+  jobs: (limit?: number) =>
+    api.get('/bulk-email/jobs', { params: { limit } }),
+  jobDetail: (jobId: string) =>
+    api.get(`/bulk-email/jobs/${jobId}`),
+  jobLogs: (jobId: string, params?: { limit?: number; before_id?: number }) =>
+    api.get(`/bulk-email/jobs/${jobId}/logs`, { params }),
 }
 
 // Setup API (无需认证)

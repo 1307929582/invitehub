@@ -1,15 +1,17 @@
 from typing import Optional, Literal, List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, EmailStr
 from sqlalchemy.orm import Session
+from uuid import uuid4
 
 from app.database import get_db
 from app.services.auth import get_current_user
-from app.models import OperationLog
+from app.models import OperationLog, BulkEmailJob, BulkEmailLog
 from app.services.bulk_email import collect_recipients, TARGET_ALL, TARGET_EXPIRED, TARGET_EXPIRING, build_template_context, render_template
 from app.services.email import send_email
 from app.tasks_celery import send_bulk_email_task
+from app.schemas import BulkEmailJobListResponse, BulkEmailJobResponse, BulkEmailLogListResponse, BulkEmailLogResponse
 
 router = APIRouter(prefix="/bulk-email", tags=["bulk-email"])
 
@@ -45,6 +47,13 @@ class BulkEmailSample(BaseModel):
 class BulkEmailPreviewResponse(BaseModel):
     count: int
     samples: List[BulkEmailSample]
+
+def _job_progress(job: BulkEmailJob) -> float:
+    total = job.total or 0
+    if total <= 0:
+        return 0.0
+    done = (job.sent or 0) + (job.failed or 0)
+    return round(min(done / total, 1) * 100, 2)
 
 
 def _validate_target(target: str, days: Optional[int]) -> None:
@@ -93,7 +102,22 @@ async def send_bulk_email(
     if count == 0:
         return {"message": "没有可发送的用户", "count": 0}
 
+    job_id = uuid4().hex
+    job = BulkEmailJob(
+        job_id=job_id,
+        user_id=getattr(current_user, "id", None),
+        target=data.target,
+        days=data.days,
+        subject=data.subject,
+        content=data.content,
+        status="pending",
+        total=count
+    )
+    db.add(job)
+    db.commit()
+
     send_bulk_email_task.delay({
+        "job_id": job_id,
         "target": data.target,
         "days": data.days,
         "subject": data.subject,
@@ -101,7 +125,7 @@ async def send_bulk_email(
         "operator": getattr(current_user, "username", "admin")
     })
 
-    return {"message": "发送任务已提交", "count": count}
+    return {"message": "发送任务已提交", "count": count, "job_id": job_id}
 
 
 @router.post("/test")
@@ -148,3 +172,54 @@ async def test_bulk_email(
         pass
 
     return {"message": "测试邮件已发送"}
+
+
+@router.get("/jobs", response_model=BulkEmailJobListResponse)
+async def list_bulk_email_jobs(
+    limit: int = Query(20, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    query = db.query(BulkEmailJob).order_by(BulkEmailJob.created_at.desc())
+    total = query.count()
+    jobs = query.limit(limit).all()
+    result = []
+    for job in jobs:
+        data = BulkEmailJobResponse.model_validate(job).model_dump()
+        data["progress"] = _job_progress(job)
+        result.append(BulkEmailJobResponse(**data))
+    return BulkEmailJobListResponse(jobs=result, total=total)
+
+
+@router.get("/jobs/{job_id}", response_model=BulkEmailJobResponse)
+async def get_bulk_email_job(
+    job_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    job = db.query(BulkEmailJob).filter(BulkEmailJob.job_id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    data = BulkEmailJobResponse.model_validate(job).model_dump()
+    data["progress"] = _job_progress(job)
+    return BulkEmailJobResponse(**data)
+
+
+@router.get("/jobs/{job_id}/logs", response_model=BulkEmailLogListResponse)
+async def get_bulk_email_logs(
+    job_id: str,
+    limit: int = Query(200, ge=1, le=500),
+    before_id: Optional[int] = Query(default=None, ge=1),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    job = db.query(BulkEmailJob).filter(BulkEmailJob.job_id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    query = db.query(BulkEmailLog).filter(BulkEmailLog.job_id == job_id)
+    if before_id:
+        query = query.filter(BulkEmailLog.id < before_id)
+    logs = query.order_by(BulkEmailLog.id.desc()).limit(limit).all()
+    total = db.query(BulkEmailLog).filter(BulkEmailLog.job_id == job_id).count()
+    result = [BulkEmailLogResponse.model_validate(log) for log in logs]
+    return BulkEmailLogListResponse(logs=result, total=total)

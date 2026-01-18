@@ -59,6 +59,7 @@ class User(Base):
 
     operation_logs = relationship("OperationLog", back_populates="user")
     redeem_codes = relationship("RedeemCode", back_populates="creator")
+    bulk_email_jobs = relationship("BulkEmailJob", back_populates="user")
 
 
 class Team(Base):
@@ -151,6 +152,46 @@ class OperationLog(Base):
     
     user = relationship("User", back_populates="operation_logs")
     team = relationship("Team", back_populates="operation_logs")
+
+
+class BulkEmailJob(Base):
+    """群发邮件任务"""
+    __tablename__ = "bulk_email_jobs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    job_id = Column(String(64), unique=True, index=True, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    target = Column(String(20), nullable=False)
+    days = Column(Integer, nullable=True)
+    subject = Column(Text, nullable=False)
+    content = Column(Text, nullable=False)
+    status = Column(String(20), default="pending", index=True)
+    total = Column(Integer, default=0)
+    sent = Column(Integer, default=0)
+    failed = Column(Integer, default=0)
+    fail_rate_limit = Column(Integer, default=0)
+    fail_reject = Column(Integer, default=0)
+    fail_invalid = Column(Integer, default=0)
+    fail_other = Column(Integer, default=0)
+    last_error = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    started_at = Column(DateTime, nullable=True)
+    finished_at = Column(DateTime, nullable=True)
+
+    user = relationship("User", back_populates="bulk_email_jobs")
+
+
+class BulkEmailLog(Base):
+    """群发邮件过程日志"""
+    __tablename__ = "bulk_email_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    job_id = Column(String(64), index=True, nullable=False)
+    email = Column(String(255), nullable=False, index=True)
+    status = Column(String(20), nullable=False)  # sent | failed
+    reason_type = Column(String(20), nullable=True)
+    reason = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
 
 
 class TeamGroup(Base):

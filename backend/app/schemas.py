@@ -173,6 +173,51 @@ class OperationLogListResponse(BaseModel):
     total: int
 
 
+# ========== Bulk Email ==========
+class BulkEmailJobResponse(BaseModel):
+    job_id: str
+    target: str
+    days: Optional[int] = None
+    subject: str
+    status: str
+    total: int
+    sent: int
+    failed: int
+    fail_rate_limit: int
+    fail_reject: int
+    fail_invalid: int
+    fail_other: int
+    progress: float = 0.0
+    created_at: datetime
+    started_at: Optional[datetime] = None
+    finished_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class BulkEmailJobListResponse(BaseModel):
+    jobs: List[BulkEmailJobResponse]
+    total: int
+
+
+class BulkEmailLogResponse(BaseModel):
+    id: int
+    email: str
+    status: str
+    reason_type: Optional[str] = None
+    reason: Optional[str] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class BulkEmailLogListResponse(BaseModel):
+    logs: List[BulkEmailLogResponse]
+    total: int
+
+
 # ========== Dashboard ==========
 class DashboardStats(BaseModel):
     total_teams: int

@@ -2,11 +2,12 @@
 import smtplib
 import json
 import hashlib
+import re
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.header import Header
 from email.utils import formataddr
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 from datetime import datetime
 from sqlalchemy.orm import Session
 
@@ -17,6 +18,8 @@ from app.utils.timezone import now_beijing
 from app.logger import get_logger
 
 logger = get_logger(__name__)
+
+EMAIL_BASIC_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 
 # 通知类型
@@ -256,13 +259,41 @@ def _build_from_header(from_name: str, from_email: str) -> str:
     return formataddr((str(Header(from_name, "utf-8")), from_email))
 
 
-def _send_via_account(
+def _is_basic_email(email: str) -> bool:
+    return bool(email and EMAIL_BASIC_RE.match(email))
+
+
+def _classify_send_error(error: str) -> str:
+    text = (error or "").lower()
+    rate_keywords = [
+        "rate", "throttle", "too many", "quota", "exceeded", "try again later",
+        "temporarily deferred", "4.7.0", "4.7.1", "4.7.2", "4.5.3", "421", "429", "450", "451", "452"
+    ]
+    invalid_keywords = [
+        "user unknown", "no such user", "mailbox unavailable", "invalid recipient",
+        "unknown recipient", "invalid address", "address rejected", "recipient address rejected",
+        "recipient not found", "bad recipient", "no mailbox", "5.1.1", "5.1.0", "5.1.2", "5.1.3"
+    ]
+    reject_keywords = [
+        "rejected", "denied", "blocked", "spam", "policy", "blacklist", "not permitted", "refused", "5.7.1", "5.7.0"
+    ]
+
+    if any(k in text for k in rate_keywords):
+        return "rate_limit"
+    if any(k in text for k in invalid_keywords):
+        return "invalid"
+    if any(k in text for k in reject_keywords):
+        return "reject"
+    return "other"
+
+
+def _send_via_account_with_reason(
     account: Dict[str, Any],
     subject: str,
     content: str,
     to_email: str,
     from_name: str
-) -> bool:
+) -> Tuple[bool, str]:
     smtp_host = account["host"]
     smtp_port = account["port"]
     smtp_user = account["user"]
@@ -364,10 +395,87 @@ def _send_via_account(
         server.login(smtp_user, smtp_password)
         server.sendmail(smtp_user, to_email, msg.as_string())
         server.quit()
-        return True
+        return True, ""
     except Exception as e:
         logger.error(f"SMTP send failed ({smtp_user}@{smtp_host}): {e}")
-        return False
+        return False, str(e)
+
+
+def _send_via_account(
+    account: Dict[str, Any],
+    subject: str,
+    content: str,
+    to_email: str,
+    from_name: str
+) -> bool:
+    ok, _ = _send_via_account_with_reason(account, subject, content, to_email, from_name)
+    return ok
+
+
+def send_email_with_reason(
+    db: Session,
+    subject: str,
+    content: str,
+    to_email: Optional[str] = None
+) -> Tuple[bool, str, str]:
+    """发送邮件并返回失败原因类型"""
+    admin_email = to_email or get_config(db, "admin_email")
+    if not admin_email:
+        return False, "invalid", "Email target not configured"
+    if not _is_basic_email(admin_email):
+        return False, "invalid", "Invalid email format"
+
+    from_name = _get_from_name(db)
+    accounts = _get_smtp_accounts(db)
+    date_key = _get_today_key()
+
+    if accounts:
+        usage_map = {
+            account["account_id"]: _get_usage_count(account["account_id"], date_key)
+            for account in accounts
+        }
+        available = []
+        for account in accounts:
+            limit = account.get("daily_limit")
+            used = usage_map.get(account["account_id"], 0)
+            if limit is not None and limit > 0 and used >= limit:
+                continue
+            available.append(account)
+
+        if not available:
+            return False, "rate_limit", "SMTP pool quota exceeded"
+
+        start_index = _next_rr_index(date_key, len(available))
+        last_error = ""
+        for offset in range(len(available)):
+            account = available[(start_index + offset) % len(available)]
+            ok, err = _send_via_account_with_reason(account, subject, content, admin_email, from_name)
+            if ok:
+                _increment_usage(account["account_id"], date_key)
+                logger.info(f"Email sent: {subject} -> {admin_email} via {account['user']}")
+                return True, "ok", ""
+            if err:
+                last_error = err
+        return False, _classify_send_error(last_error), last_error or "SMTP send failed"
+
+    smtp_host = get_config(db, "smtp_host")
+    smtp_port = get_config(db, "smtp_port")
+    smtp_user = get_config(db, "smtp_user")
+    smtp_password = get_config(db, "smtp_password")
+    if not all([smtp_host, smtp_port, smtp_user, smtp_password]):
+        return False, "other", "Email not configured"
+
+    account = {
+        "host": smtp_host,
+        "port": _parse_int(smtp_port, 587),
+        "user": smtp_user,
+        "password": smtp_password,
+    }
+    ok, err = _send_via_account_with_reason(account, subject, content, admin_email, from_name)
+    if ok:
+        logger.info(f"Email sent: {subject} -> {admin_email} via {smtp_user}")
+        return True, "ok", ""
+    return False, _classify_send_error(err), err or "SMTP send failed"
 
 
 def send_email(

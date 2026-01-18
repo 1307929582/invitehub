@@ -739,18 +739,30 @@ def send_expiration_warnings(self):
 def send_bulk_email_task(self, payload: dict):
     """发送批量邮件（管理员手动触发）"""
     from app.services.bulk_email import collect_recipients, build_template_context, render_template
-    from app.services.email import send_email
-    from app.models import OperationLog
+    from app.services.email import send_email_with_reason
+    from app.models import OperationLog, BulkEmailJob, BulkEmailLog
 
+    job_id = payload.get("job_id")
     target = payload.get("target")
     days = payload.get("days")
     subject_tpl = payload.get("subject") or ""
     content_tpl = payload.get("content") or ""
     operator = payload.get("operator") or "system"
 
+    job = None
+    if job_id:
+        job = self.db.query(BulkEmailJob).filter(BulkEmailJob.job_id == job_id).first()
+
     recipients = collect_recipients(self.db, target, days)
     if not recipients:
         try:
+            if job:
+                job.status = "completed"
+                job.total = 0
+                job.sent = 0
+                job.failed = 0
+                job.finished_at = datetime.utcnow()
+                self.db.commit()
             log = OperationLog(
                 user_id=None,
                 action="bulk_email",
@@ -766,20 +778,109 @@ def send_bulk_email_task(self, payload: dict):
 
     sent = 0
     failed = 0
+    fail_rate_limit = 0
+    fail_reject = 0
+    fail_invalid = 0
+    fail_other = 0
+    pool_exhausted = False
+    pool_error_message = ""
 
-    for record in recipients:
-        context = build_template_context(record)
-        subject = render_template(subject_tpl, context).strip()
-        content = render_template(content_tpl, context)
-        if not subject:
-            failed += 1
-            continue
-        if send_email(self.db, subject, content, to_email=record.get("email")):
-            sent += 1
-        else:
-            failed += 1
+    if job:
+        job.status = "running"
+        job.started_at = job.started_at or datetime.utcnow()
+        job.total = len(recipients)
+        job.sent = 0
+        job.failed = 0
+        job.fail_rate_limit = 0
+        job.fail_reject = 0
+        job.fail_invalid = 0
+        job.fail_other = 0
+        self.db.commit()
 
     try:
+        for idx, record in enumerate(recipients, start=1):
+            email = record.get("email") or ""
+            context = build_template_context(record)
+            subject = render_template(subject_tpl, context).strip()
+            content = render_template(content_tpl, context)
+
+            ok = False
+            reason_type = ""
+            reason_detail = ""
+
+            if not subject:
+                ok = False
+                reason_type = "other"
+                reason_detail = "empty subject"
+            elif pool_exhausted:
+                ok = False
+                reason_type = "rate_limit"
+                reason_detail = pool_error_message
+            else:
+                ok, reason_type, reason_detail = send_email_with_reason(
+                    self.db,
+                    subject,
+                    content,
+                    to_email=email
+                )
+                if not ok and reason_type == "rate_limit" and "quota exceeded" in (reason_detail or "").lower():
+                    pool_exhausted = True
+                    pool_error_message = reason_detail or "SMTP pool quota exceeded"
+
+            if ok:
+                sent += 1
+            else:
+                failed += 1
+                if reason_type == "rate_limit":
+                    fail_rate_limit += 1
+                elif reason_type == "reject":
+                    fail_reject += 1
+                elif reason_type == "invalid":
+                    fail_invalid += 1
+                else:
+                    fail_other += 1
+
+            if job_id:
+                log_item = BulkEmailLog(
+                    job_id=job_id,
+                    email=email,
+                    status="sent" if ok else "failed",
+                    reason_type=None if ok else (reason_type or "other"),
+                    reason=None if ok else (reason_detail or "")
+                )
+                self.db.add(log_item)
+
+            if job:
+                job.sent = sent
+                job.failed = failed
+                job.fail_rate_limit = fail_rate_limit
+                job.fail_reject = fail_reject
+                job.fail_invalid = fail_invalid
+                job.fail_other = fail_other
+                job.last_error = reason_detail if not ok else job.last_error
+
+            if job or job_id:
+                if idx % 10 == 0:
+                    self.db.commit()
+    except Exception as e:
+        if job:
+            job.status = "failed"
+            job.last_error = str(e)
+            job.finished_at = datetime.utcnow()
+            self.db.commit()
+        raise
+
+    try:
+        if job:
+            job.status = "completed"
+            job.sent = sent
+            job.failed = failed
+            job.fail_rate_limit = fail_rate_limit
+            job.fail_reject = fail_reject
+            job.fail_invalid = fail_invalid
+            job.fail_other = fail_other
+            job.finished_at = datetime.utcnow()
+            self.db.commit()
         log = OperationLog(
             user_id=None,
             action="bulk_email",
