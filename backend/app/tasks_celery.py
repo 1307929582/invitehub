@@ -791,6 +791,10 @@ def send_bulk_email_chunk(self, payload: dict):
     pool_error_message = ""
 
     for record in recipients:
+        if job_id:
+            status = self.db.query(BulkEmailJob.status).filter(BulkEmailJob.job_id == job_id).scalar()
+            if status in ["paused", "failed", "completed"]:
+                break
         email = record.get("email") or ""
         context = build_template_context(record)
         subject = render_template(subject_tpl, context).strip()
@@ -883,6 +887,8 @@ def finish_bulk_email_job(self, results: List[dict], job_id: str, operator: str)
 
     job = self.db.query(BulkEmailJob).filter(BulkEmailJob.job_id == job_id).first()
     if job:
+        if job.status == "paused":
+            return {"message": "paused"}
         if job.status != "failed":
             job.status = "completed"
         job.finished_at = datetime.utcnow()
@@ -902,6 +908,30 @@ def finish_bulk_email_job(self, results: List[dict], job_id: str, operator: str)
             logger.warning(f"Failed to write bulk_email log: {e}")
 
     return {"message": "completed"}
+
+
+def _dispatch_bulk_email_chunks(
+    job_id: str,
+    subject_tpl: str,
+    content_tpl: str,
+    recipients: List[dict],
+    operator: str,
+    chunk_size: int
+) -> None:
+    chunks = [recipients[i:i + chunk_size] for i in range(0, len(recipients), chunk_size)]
+    task_sigs = [
+        send_bulk_email_chunk.s({
+            "job_id": job_id,
+            "subject": subject_tpl,
+            "content": content_tpl,
+            "recipients": chunk
+        })
+        for chunk in chunks
+    ]
+    if task_sigs:
+        chord(group(task_sigs))(finish_bulk_email_job.s(job_id, operator))
+    else:
+        finish_bulk_email_job.delay([], job_id, operator)
 
 
 @celery_app.task(
@@ -963,20 +993,14 @@ def send_bulk_email_task(self, payload: dict):
         self.db.commit()
 
     try:
-        chunks = [recipients[i:i + chunk_size] for i in range(0, len(recipients), chunk_size)]
-        task_sigs = [
-            send_bulk_email_chunk.s({
-                "job_id": job_id,
-                "subject": subject_tpl,
-                "content": content_tpl,
-                "recipients": chunk
-            })
-            for chunk in chunks
-        ]
-        if task_sigs:
-            chord(group(task_sigs))(finish_bulk_email_job.s(job_id, operator))
-        else:
-            finish_bulk_email_job.delay([], job_id, operator)
+        _dispatch_bulk_email_chunks(
+            job_id=job_id,
+            subject_tpl=subject_tpl,
+            content_tpl=content_tpl,
+            recipients=recipients,
+            operator=operator,
+            chunk_size=chunk_size
+        )
     except Exception as e:
         if job:
             job.status = "failed"

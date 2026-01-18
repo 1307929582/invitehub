@@ -38,6 +38,7 @@ interface BulkEmailLog {
 const statusMap: Record<string, { label: string; color: string }> = {
   pending: { label: '排队中', color: 'default' },
   running: { label: '发送中', color: 'processing' },
+  paused: { label: '已暂停', color: 'gold' },
   completed: { label: '已完成', color: 'success' },
   failed: { label: '失败', color: 'error' },
 }
@@ -67,6 +68,8 @@ export default function BulkEmail() {
   const [jobLogs, setJobLogs] = useState<BulkEmailLog[]>([])
   const [logsLoading, setLogsLoading] = useState(false)
   const [logTotal, setLogTotal] = useState(0)
+  const [pausing, setPausing] = useState(false)
+  const [resuming, setResuming] = useState(false)
 
   const fetchPreview = async (values: any) => {
     setPreviewing(true)
@@ -215,6 +218,36 @@ export default function BulkEmail() {
       message.success('测试邮件已发送')
     } catch (e: any) {
       message.error(e.response?.data?.detail || '测试邮件发送失败')
+    }
+  }
+
+  const handlePause = async () => {
+    if (!selectedJob) return
+    setPausing(true)
+    try {
+      await bulkEmailApi.pause(selectedJob.job_id)
+      message.success('已暂停发送')
+      fetchJobs()
+    } catch (e: any) {
+      message.error(e.response?.data?.detail || '暂停失败')
+    } finally {
+      setPausing(false)
+    }
+  }
+
+  const handleResume = async () => {
+    if (!selectedJob) return
+    setResuming(true)
+    try {
+      const res: any = await bulkEmailApi.resume(selectedJob.job_id)
+      message.success(res.message || '继续发送')
+      fetchJobs()
+      const detail: any = await bulkEmailApi.jobDetail(selectedJob.job_id)
+      setSelectedJob(detail)
+    } catch (e: any) {
+      message.error(e.response?.data?.detail || '继续发送失败')
+    } finally {
+      setResuming(false)
     }
   }
 
@@ -444,9 +477,22 @@ export default function BulkEmail() {
           <div>
             <div style={{ marginBottom: 12 }}>
               <div style={{ fontSize: 16, fontWeight: 600, marginBottom: 4 }}>{selectedJob.subject}</div>
-              <div style={{ fontSize: 12, color: '#64748b' }}>
-                {targetMap[selectedJob.target]}
-                {selectedJob.target === 'expiring' && selectedJob.days !== undefined ? ` · 快到期 ${selectedJob.days} 天` : ''}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ fontSize: 12, color: '#64748b' }}>
+                  {targetMap[selectedJob.target]}
+                  {selectedJob.target === 'expiring' && selectedJob.days !== undefined ? ` · 快到期 ${selectedJob.days} 天` : ''}
+                </div>
+                <Space size="small">
+                  <Tag color={(statusMap[selectedJob.status] || { color: 'default' }).color}>
+                    {(statusMap[selectedJob.status] || { label: selectedJob.status }).label}
+                  </Tag>
+                  {['running', 'pending'].includes(selectedJob.status) && (
+                    <Button size="small" onClick={handlePause} loading={pausing}>暂停发送</Button>
+                  )}
+                  {selectedJob.status === 'paused' && (
+                    <Button size="small" type="primary" onClick={handleResume} loading={resuming}>继续发送</Button>
+                  )}
+                </Space>
               </div>
             </div>
 

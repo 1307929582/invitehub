@@ -1,4 +1,5 @@
 from typing import Optional, Literal, List
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field, EmailStr
@@ -10,7 +11,7 @@ from app.services.auth import get_current_user
 from app.models import OperationLog, BulkEmailJob, BulkEmailLog
 from app.services.bulk_email import collect_recipients, TARGET_ALL, TARGET_EXPIRED, TARGET_EXPIRING, build_template_context, render_template
 from app.services.email import send_email
-from app.tasks_celery import send_bulk_email_task
+from app.tasks_celery import send_bulk_email_task, _dispatch_bulk_email_chunks, BULK_EMAIL_CHUNK_SIZE
 from app.schemas import BulkEmailJobListResponse, BulkEmailJobResponse, BulkEmailLogListResponse, BulkEmailLogResponse
 
 router = APIRouter(prefix="/bulk-email", tags=["bulk-email"])
@@ -223,3 +224,59 @@ async def get_bulk_email_logs(
     total = db.query(BulkEmailLog).filter(BulkEmailLog.job_id == job_id).count()
     result = [BulkEmailLogResponse.model_validate(log) for log in logs]
     return BulkEmailLogListResponse(logs=result, total=total)
+
+
+@router.post("/jobs/{job_id}/pause")
+async def pause_bulk_email_job(
+    job_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    job = db.query(BulkEmailJob).filter(BulkEmailJob.job_id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    if job.status not in ["running", "pending"]:
+        return {"message": "任务当前无法暂停", "status": job.status}
+    job.status = "paused"
+    db.commit()
+    return {"message": "已暂停", "status": job.status}
+
+
+@router.post("/jobs/{job_id}/resume")
+async def resume_bulk_email_job(
+    job_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    job = db.query(BulkEmailJob).filter(BulkEmailJob.job_id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="任务不存在")
+    if job.status != "paused":
+        raise HTTPException(status_code=400, detail="任务非暂停状态")
+
+    recipients = collect_recipients(db, job.target, job.days)
+    logged_emails = {
+        item[0] for item in db.query(BulkEmailLog.email).filter(BulkEmailLog.job_id == job_id).all()
+    }
+    remaining = [r for r in recipients if (r.get("email") or "") not in logged_emails]
+
+    if not remaining:
+        job.status = "completed"
+        job.finished_at = datetime.utcnow()
+        db.commit()
+        return {"message": "无需继续发送", "remaining": 0}
+
+    job.status = "running"
+    job.finished_at = None
+    db.commit()
+
+    _dispatch_bulk_email_chunks(
+        job_id=job_id,
+        subject_tpl=job.subject,
+        content_tpl=job.content,
+        recipients=remaining,
+        operator=getattr(current_user, "username", "admin"),
+        chunk_size=BULK_EMAIL_CHUNK_SIZE
+    )
+
+    return {"message": "继续发送", "remaining": len(remaining)}

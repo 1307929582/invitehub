@@ -180,6 +180,10 @@ export const bulkEmailApi = {
     api.get(`/bulk-email/jobs/${jobId}`),
   jobLogs: (jobId: string, params?: { limit?: number; before_id?: number }) =>
     api.get(`/bulk-email/jobs/${jobId}/logs`, { params }),
+  pause: (jobId: string) =>
+    api.post(`/bulk-email/jobs/${jobId}/pause`),
+  resume: (jobId: string) =>
+    api.post(`/bulk-email/jobs/${jobId}/resume`),
 }
 
 // Setup API (无需认证)
