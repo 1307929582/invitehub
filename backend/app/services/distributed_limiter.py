@@ -19,7 +19,11 @@
 import asyncio
 import redis
 import logging
+import time
 from typing import Optional
+from uuid import uuid4
+
+from app.cache import get_redis
 
 logger = logging.getLogger(__name__)
 
@@ -210,3 +214,50 @@ class RateLimiter:
             logger.error(f"Redis error in is_allowed: {e}")
             # Redis 故障时放行（fail-open 策略）
             return True
+
+
+class DistributedLock:
+    """基于 Redis 的分布式锁"""
+
+    def __init__(self, key: str, timeout: int = 60, redis_client: Optional[redis.Redis] = None):
+        self.redis = redis_client or get_redis()
+        self.key = f"dist_lock:{key}"
+        self.timeout = max(int(timeout), 1)
+        self._token = str(uuid4())
+
+    def acquire(self, blocking: bool = True, timeout: Optional[float] = None) -> bool:
+        if not self.redis:
+            logger.warning("Redis unavailable, lock bypassed")
+            return True
+
+        def _try_set() -> bool:
+            try:
+                return bool(self.redis.set(self.key, self._token, nx=True, ex=self.timeout))
+            except Exception as e:
+                logger.warning(f"Redis lock acquire failed: {e}")
+                return False
+
+        if not blocking:
+            return _try_set()
+
+        start = time.time()
+        wait_timeout = timeout if timeout is not None else 10
+        while True:
+            if _try_set():
+                return True
+            if time.time() - start >= wait_timeout:
+                return False
+            time.sleep(0.1)
+
+    def release(self) -> None:
+        if not self.redis:
+            return
+        try:
+            # Ensure only owner releases
+            script = (
+                "if redis.call('get', KEYS[1]) == ARGV[1] "
+                "then return redis.call('del', KEYS[1]) else return 0 end"
+            )
+            self.redis.eval(script, 1, self.key, self._token)
+        except Exception as e:
+            logger.warning(f"Redis lock release failed: {e}")
