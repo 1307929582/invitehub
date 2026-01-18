@@ -295,7 +295,7 @@ def _send_via_account(
                                     <table role="presentation" cellpadding="0" cellspacing="0">
                                         <tr>
                                             <td style="vertical-align:middle; padding-right:12px;">
-                                                <img src="https://tc-new.z.wiki/autoupload/f/H2cVbE17VeYj5Znq0XSqcbQ7wnixdFyJjmO0Os0dW5Wyl5f0KlZfm6UsKj-HyTuv/20250826/NEoN/500X500/1.png" alt="ZenScale AI" width="36" height="36" style="border-radius:9px; display:block;" />
+                                                <img src="https://cloudflare-imgbed-a20.pages.dev/file/1768695485044_image.png" alt="ZenScale AI" width="36" height="36" style="border-radius:9px; display:block;" />
                                             </td>
                                             <td style="vertical-align:middle;">
                                                 <div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Arial,sans-serif; font-size:14px; color:#111827; font-weight:600; letter-spacing:0.2px;">
