@@ -759,7 +759,12 @@ def send_expiration_warnings(self):
         lock.release()
 
 
-@celery_app.task(bind=True, base=DatabaseTask)
+@celery_app.task(
+    bind=True,
+    base=DatabaseTask,
+    soft_time_limit=3600,
+    time_limit=3660
+)
 def send_bulk_email_task(self, payload: dict):
     """发送批量邮件（管理员手动触发）"""
     from app.services.bulk_email import collect_recipients, build_template_context, render_template
