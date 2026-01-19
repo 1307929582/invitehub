@@ -245,7 +245,8 @@ async def _process_reserved_invites(db, items: List[Dict]):
                         InviteRecord.email == item["email"],
                         InviteRecord.redeem_code == item.get("redeem_code"),
                         InviteRecord.status == InviteStatus.RESERVED,
-                        InviteRecord.team_id == team_id
+                        InviteRecord.team_id == team_id,
+                        InviteRecord.is_rebind == item.get("is_rebind", False)  # 添加 is_rebind 过滤条件
                     ).update({"status": InviteStatus.FAILED, "error_message": "Team not found"})
                 continue
 
@@ -257,7 +258,8 @@ async def _process_reserved_invites(db, items: List[Dict]):
                         InviteRecord.email == item["email"],
                         InviteRecord.redeem_code == item.get("redeem_code"),
                         InviteRecord.status == InviteStatus.RESERVED,
-                        InviteRecord.team_id == team_id
+                        InviteRecord.team_id == team_id,
+                        InviteRecord.is_rebind == item.get("is_rebind", False)  # 添加 is_rebind 过滤条件
                     ).update({"status": InviteStatus.FAILED, "error_message": f"Team {team.name} is not healthy"})
                 continue
 
@@ -275,11 +277,11 @@ async def _process_reserved_invites(db, items: List[Dict]):
                         InviteRecord.email == item["email"],
                         InviteRecord.redeem_code == item.get("redeem_code"),
                         InviteRecord.status == InviteStatus.RESERVED,
-                        InviteRecord.team_id == team_id
+                        InviteRecord.team_id == team_id,
+                        InviteRecord.is_rebind == item.get("is_rebind", False)  # 添加 is_rebind 过滤条件，确保只更新匹配的记录
                     ).update({
                         "status": InviteStatus.SUCCESS,
-                        "batch_id": batch_id,
-                        "is_rebind": item.get("is_rebind", False)
+                        "batch_id": batch_id
                     })
                     if item.get("redeem_code"):
                         from app.services.email import send_invite_ready_email
@@ -328,7 +330,8 @@ async def _process_reserved_invites(db, items: List[Dict]):
                         InviteRecord.email == item["email"],
                         InviteRecord.redeem_code == item.get("redeem_code"),
                         InviteRecord.status == InviteStatus.RESERVED,
-                        InviteRecord.team_id == team_id
+                        InviteRecord.team_id == team_id,
+                        InviteRecord.is_rebind == item.get("is_rebind", False)  # 添加 is_rebind 过滤条件
                     ).update({"status": InviteStatus.FAILED, "error_message": str(e.message)[:200]})
                 raise  # 触发 Celery 重试
 
